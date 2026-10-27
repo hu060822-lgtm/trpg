@@ -44,13 +44,15 @@ export interface Npc extends Versioned {
   public: boolean;
 }
 
-export type Holder = { type: 'location' | 'character' | 'npc'; id: string };
+export type Holder = { type: 'location' | 'character' | 'npc' | 'shop' | 'escrow'; id: string };
 
 export interface Item extends Versioned {
   id: string;
   name: string;
   unique: boolean;
   tradable: boolean;
+  /** Commodity kind (e.g. 'herb'): commissions and contracts can ask for N items of a template. */
+  template?: string;
   holder: Holder;
   status: 'present' | 'destroyed' | 'sealed';
   /** Non-tradable items bind to the first character who takes them. */
@@ -136,7 +138,7 @@ export interface Change {
   seq: number;
   at: string;
   actor: WorldActor;
-  entity: 'location' | 'npc' | 'item' | 'character' | 'ruling' | 'world';
+  entity: 'location' | 'npc' | 'item' | 'character' | 'ruling' | 'world' | EconomyKind;
   entityId: string;
   before: unknown;
   after: unknown;
@@ -156,8 +158,147 @@ export interface WorldState {
   duels: Duel[];
   rulings: Record<string, Ruling>;
   gms: Record<string, GmGrant>;
+  economy: Economy;
   seq: number;
 }
+
+// ---------- Phase 4: economy ----------
+
+export type EconomyKind = 'shop' | 'trade' | 'commission' | 'contract' | 'lock' | 'dispute';
+
+/** What a party puts up: coins and specific item instances. */
+export interface Bundle { coins: number; itemIds: string[] }
+
+/** Assets held aside for a trade, commission or contract. Coins leave the balance; items move to the escrow holder. */
+export interface Lock extends Versioned {
+  id: string;
+  ownerId: string;
+  purpose: 'trade' | 'commission-reward' | 'commission-delivery' | 'contract-deposit';
+  ref: string;
+  coins: number;
+  itemIds: string[];
+  status: 'held' | 'released' | 'consumed';
+}
+
+export interface Shop extends Versioned {
+  id: string;
+  ownerId: string;
+  locationId: string;
+  name: string;
+  description: string;
+  open: boolean;
+  /** Each listing points at a real item now held by the shop; nothing is stocked by number alone. */
+  listings: { itemId: string; price: number }[];
+}
+
+export interface Trade extends Versioned {
+  id: string;
+  from: string;
+  to: string;
+  give: Bundle;
+  want: Bundle;
+  lockId: string;
+  status: 'pending' | 'completed' | 'cancelled' | 'declined';
+}
+
+export type Requirement = { kind: 'deliver'; template: string; qty: number } | { kind: 'gm'; text: string };
+
+export interface Commission extends Versioned {
+  id: string;
+  issuerId: string;
+  title: string;
+  requirement: Requirement;
+  reward: number;
+  deadline: string;
+  rewardLockId: string;
+  contractorId?: string;
+  deliveryLockId?: string;
+  status: 'published' | 'accepted' | 'submitted' | 'completed' | 'cancelled' | 'expired' | 'disputed';
+  disputeId?: string;
+}
+
+export type Clause =
+  | { id: string; kind: 'payCoins'; from: string; to: string; amount: number; done: boolean }
+  | { id: string; kind: 'deliverItem'; from: string; to: string; itemId: string; done: boolean }
+  | { id: string; kind: 'deliverTemplate'; from: string; to: string; template: string; qty: number; done: boolean }
+  | { id: string; kind: 'gmVerified'; from: string; text: string; done: boolean };
+
+/** A clause as proposed, before the engine numbers it. */
+export type ClauseDraft = Clause extends infer C ? (C extends Clause ? Omit<C, 'id' | 'done'> : never) : never;
+
+export interface Contract extends Versioned {
+  id: string;
+  parties: [string, string];
+  title: string;
+  clauses: Clause[];
+  deposits: Record<string, number>;
+  depositLocks: Record<string, string>;
+  signed: string[];
+  cancelRequests: string[];
+  deadline: string;
+  status: 'proposed' | 'active' | 'fulfilled' | 'breached' | 'cancelled' | 'disputed';
+  breachedBy?: string[];
+  disputeId?: string;
+}
+
+export interface Dispute extends Versioned {
+  id: string;
+  kind: 'commission' | 'contract';
+  ref: string;
+  raisedBy: string;
+  reason: string;
+  status: 'open' | 'resolved';
+  outcome?: string;
+}
+
+export interface Economy {
+  shops: Record<string, Shop>;
+  trades: Record<string, Trade>;
+  commissions: Record<string, Commission>;
+  contracts: Record<string, Contract>;
+  locks: Record<string, Lock>;
+  disputes: Record<string, Dispute>;
+}
+
+/** `mint` creates coins (GM grants), `sink` destroys them (afterimage loss); everything else moves them. */
+export type Party = { type: Holder['type'] | 'mint' | 'sink'; id: string };
+
+/** Append-only record of every coin or item movement. Balances can be recomputed from it. */
+export interface LedgerEntry {
+  seq: number;
+  at: string;
+  tx: string;
+  from: Party;
+  to: Party;
+  coins?: number;
+  itemId?: string;
+  reason: string;
+}
+
+export type EconomyCommand =
+  | { type: 'gmGrantCoins'; characterId: string; amount: number; reason: string }
+  | { type: 'openShop'; characterId: string; shopId: string; name: string; description: string }
+  | { type: 'setShopOpen'; characterId: string; shopId: string; open: boolean }
+  | { type: 'stockItem'; characterId: string; shopId: string; itemId: string; price: number }
+  | { type: 'unstockItem'; characterId: string; shopId: string; itemId: string }
+  | { type: 'buy'; characterId: string; shopId: string; itemId: string }
+  | { type: 'proposeTrade'; characterId: string; to: string; give: Bundle; want: Bundle }
+  | { type: 'acceptTrade'; characterId: string; tradeId: string }
+  | { type: 'declineTrade'; characterId: string; tradeId: string }
+  | { type: 'cancelTrade'; characterId: string; tradeId: string }
+  | { type: 'postCommission'; characterId: string; title: string; requirement: Requirement; reward: number; deadline: string }
+  | { type: 'acceptCommission'; characterId: string; commissionId: string }
+  | { type: 'submitCommission'; characterId: string; commissionId: string; itemIds: string[] }
+  | { type: 'reviewCommission'; characterId: string; commissionId: string; approve: boolean }
+  | { type: 'cancelCommission'; characterId: string; commissionId: string }
+  | { type: 'proposeContract'; characterId: string; with: string; title: string; clauses: ClauseDraft[]; deposits: Record<string, number>; deadline: string }
+  | { type: 'signContract'; characterId: string; contractId: string }
+  | { type: 'fulfillClause'; characterId: string; contractId: string; clauseId: string; itemIds?: string[] }
+  | { type: 'requestCancelContract'; characterId: string; contractId: string }
+  | { type: 'raiseDispute'; characterId: string; kind: 'commission' | 'contract'; ref: string; reason: string }
+  | { type: 'gmVerifyClause'; contractId: string; clauseId: string }
+  | { type: 'gmResolveDispute'; disputeId: string; outcome: 'pay' | 'refund' | 'fulfilled' | 'cancel' | { breachBy: string } }
+  | { type: 'settleDeadlines' };
 
 export type WorldCommand =
   | { type: 'move'; characterId: string; to: string }
@@ -181,11 +322,14 @@ export type WorldCommand =
   | { type: 'gmPublish'; title: string; body: string }
   | { type: 'gmRuling'; rulingId: string; decision: 'confirm' | 'overturn' }
   | { type: 'advanceDay' }
-  | { type: 'expireAfterimages' };
+  | { type: 'expireAfterimages' }
+  | EconomyCommand;
 
 export interface WorldSubmission {
   actor: WorldActor;
   command: WorldCommand;
+  /** Client-generated id; the store applies a given request id once (economy requests must carry one). */
+  requestId?: string;
   /** Versions of the entities the client saw; a mismatch means the client acted on a stale view. */
   expected?: Record<string, number>;
 }

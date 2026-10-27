@@ -326,13 +326,20 @@ button.token:hover { border-color: var(--t-failure); }
 .vis { font-size: 11px; text-align: center; border-radius: 3px; padding: 1px 0; height: fit-content; border: 1px solid var(--line); color: var(--muted); }
 .v-public .vis { border-color: var(--accent); color: var(--accent); } .v-private .vis { border-color: var(--thread); color: var(--thread); }
 .v-gm .vis { border-color: var(--t-exceptional); color: var(--t-exceptional); }
+.wd-board { display: grid; gap: 6px; font-size: 13px; }
+.wd-card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--bg); display: grid; gap: 4px; min-width: 0; }
+.wd-card header { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st { font-size: 11px; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.st-ok { border-color: var(--ok); color: var(--ok); } .st-bad { border-color: var(--bad); color: var(--bad); } .st-wait { border-color: var(--t-partial); color: var(--t-partial); }
+.wd-ledger li { grid-template-columns: 1fr auto; }
+.wd-ledger .amt { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
 </style>
 
 <div class="wrap">
   <header class="top">
     <div class="brand">FATEWEAVE<small>規則雛形 v0.3</small></div>
-    <p class="lede">Phase 0–2 原型：依企畫書第二章建立角色，再用 v0.3 判定規則擲骰。每次調整都會即時顯示精確機率；畫面使用的規則引擎與自動化測試是同一套程式。</p>
+    <p class="lede">Phase 0–4 原型：依企畫書第二章建立角色，再用 v0.3 判定規則擲骰，下方還有戰鬥、共享世界與市集沙盒。每次調整都會即時顯示精確機率；畫面使用的規則引擎與自動化測試是同一套程式。</p>
   </header>
 
   <div class="grid">
@@ -477,7 +484,7 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
       <h2 id="wd-h">世界沙盒</h2>
       <span class="cb-round" id="wd-clock"></span>
     </div>
-    <p class="note">Phase 3 原型：灰鴉和夜鶯兩名玩家、主 GM 和遺跡場景 GM 共用同一個世界。切換身分時，畫面只顯示那個人的 API 會拿到的資料：看不到的地點細節、別人的背包、GM 備註和不在場的紀錄都會被伺服器過濾掉。區域、敵意、殘影與偷竊數值都是暫定值。</p>
+    <p class="note">Phase 3–4 原型：灰鴉和夜鶯兩名玩家、主 GM、遺跡場景 GM 和仲裁 GM 共用同一個世界。切換身分時，畫面只顯示那個人的 API 會拿到的資料：看不到的地點細節、別人的背包、GM 備註和不在場的紀錄都會被伺服器過濾掉。區域、敵意、殘影與偷竊數值都是暫定值。下方的市集面板用的是 Phase 4 的交易引擎：每一筆錢幣與物品的移動都會寫進帳本，交易中的東西先鎖定，完成或取消時才放行。</p>
     <div class="wd-viewers" id="wd-viewers" role="group" aria-label="切換身分"></div>
     <div class="wd-map" id="wd-map"></div>
     <div class="cb-cols">
@@ -492,6 +499,17 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
         <ul class="wd-history" id="wd-history"></ul>
         <p class="note" id="wd-hidden"></p>
         <p class="note" id="wd-audit"></p>
+      </div>
+    </div>
+    <div class="cb-cols">
+      <div class="wd-panel">
+        <h3>市集・委託・契約</h3>
+        <div id="wd-market"></div>
+      </div>
+      <div class="wd-panel">
+        <h3>帳本（這個身分看得到的）</h3>
+        <ul class="wd-history wd-ledger" id="wd-ledger"></ul>
+        <p class="note" id="wd-ledger-note"></p>
       </div>
     </div>
   </section>

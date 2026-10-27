@@ -2,8 +2,11 @@ import type { CombatState, Submission } from '../combat/types';
 import type { Rng } from '../rules/dice';
 import type { RulesConfig } from '../rules/types';
 import { WORLD_V03, WorldError, applyWorld, createWorld, joinWorld, type WorldResult, type WorldSeed } from '../world/engine';
-import { auditFor, historyFor, viewFor } from '../world/view';
-import type { Change, WorldActor, WorldCharacter, WorldConfig, WorldEvent, WorldState, WorldSubmission } from '../world/types';
+import { ECONOMY_COLLECTIONS, ECONOMY_COMMANDS } from '../world/economy';
+import { auditFor, historyFor, ledgerFor, viewFor } from '../world/view';
+import type {
+  Change, Economy, EconomyKind, LedgerEntry, WorldActor, WorldCharacter, WorldConfig, WorldEvent, WorldState, WorldSubmission,
+} from '../world/types';
 import { CombatStore, StoreError } from './combat-store';
 
 /**
@@ -44,6 +47,32 @@ CREATE TABLE IF NOT EXISTS world_changes (
   world_id TEXT NOT NULL REFERENCES worlds(id), seq INTEGER NOT NULL, entity TEXT NOT NULL, entity_id TEXT NOT NULL,
   change TEXT NOT NULL, PRIMARY KEY (world_id, seq)
 );
+-- Phase 4: shops, trades, commissions, contracts, locks and disputes, one versioned row each.
+CREATE TABLE IF NOT EXISTS world_records (
+  world_id TEXT NOT NULL REFERENCES worlds(id), kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+  status TEXT, version INTEGER NOT NULL, PRIMARY KEY (world_id, kind, id)
+);
+-- Every coin and economy item movement. Balances can be recomputed from it; it is never edited.
+CREATE TABLE IF NOT EXISTS world_ledger (
+  world_id TEXT NOT NULL REFERENCES worlds(id), seq INTEGER NOT NULL, tx TEXT NOT NULL,
+  from_type TEXT NOT NULL, from_id TEXT NOT NULL, to_type TEXT NOT NULL, to_id TEXT NOT NULL,
+  coins INTEGER CHECK (coins IS NULL OR coins > 0), item_id TEXT, reason TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (world_id, seq)
+);
+-- A request id is applied once; a retry gets the stored result back instead of paying twice.
+CREATE TABLE IF NOT EXISTS world_requests (
+  world_id TEXT NOT NULL REFERENCES worlds(id), request_id TEXT NOT NULL, user_id TEXT NOT NULL, command TEXT NOT NULL,
+  result TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (world_id, request_id)
+);
+CREATE TRIGGER IF NOT EXISTS ledger_append_only
+BEFORE UPDATE ON world_ledger
+BEGIN SELECT RAISE(ABORT, 'the ledger is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS ledger_no_delete
+BEFORE DELETE ON world_ledger
+BEGIN SELECT RAISE(ABORT, 'the ledger is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS records_never_deleted
+BEFORE DELETE ON world_records
+BEGIN SELECT RAISE(ABORT, 'economy records are closed with a status, never deleted'); END;
 CREATE TRIGGER IF NOT EXISTS npc_no_resurrection
 BEFORE UPDATE OF status ON world_npcs WHEN OLD.status = 'dead' AND NEW.status <> 'dead'
 BEGIN SELECT RAISE(ABORT, 'dead npc cannot be revived'); END;
@@ -62,7 +91,11 @@ type Row = { id: string; data: string; version: number };
 
 export interface WorldSubmitResult extends WorldResult {
   combat?: CombatState;
+  /** True when this request id was already applied: nothing ran again and the stored outcome is returned. */
+  replayed?: boolean;
 }
+
+type StoredOutcome = Pick<WorldResult, 'events' | 'changes' | 'ledger'> & { combatId?: string };
 
 export class WorldStore {
   constructor(readonly combat: CombatStore, private rules: RulesConfig, private cfg: WorldConfig = WORLD_V03) {
@@ -114,16 +147,32 @@ export class WorldStore {
       c.status = stored.status;
       c.condition = stored.condition;
     }
+    const economy: Economy = { shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} };
+    const records = this.db.prepare('SELECT kind, id, data, version FROM world_records WHERE world_id = ?').all(worldId) as (Row & { kind: EconomyKind })[];
+    for (const r of records) (economy[ECONOMY_COLLECTIONS[r.kind]] as Record<string, unknown>)[r.id] = { ...JSON.parse(r.data), version: r.version };
     return {
       id: w.id, name: w.name, day: w.day, seq: w.seq, gms: JSON.parse(w.gms), hostilities: JSON.parse(w.hostilities), duels: JSON.parse(w.duels),
-      locations: map('world_locations'), npcs: map('world_npcs'), items: map('world_items'), characters, rulings: map('world_rulings'),
+      locations: map('world_locations'), npcs: map('world_npcs'), items: map('world_items'), characters, rulings: map('world_rulings'), economy,
     };
+  }
+
+  ledger(worldId: string): LedgerEntry[] {
+    const rows = this.db.prepare('SELECT * FROM world_ledger WHERE world_id = ? ORDER BY seq').all(worldId) as {
+      seq: number; tx: string; from_type: string; from_id: string; to_type: string; to_id: string; coins: number | null; item_id: string | null; reason: string; at: string;
+    }[];
+    return rows.map((r) => ({
+      seq: r.seq, at: r.at, tx: r.tx, from: { type: r.from_type, id: r.from_id } as LedgerEntry['from'], to: { type: r.to_type, id: r.to_id } as LedgerEntry['to'],
+      ...(r.coins !== null ? { coins: r.coins } : {}), ...(r.item_id !== null ? { itemId: r.item_id } : {}), reason: r.reason,
+    }));
   }
 
   /** What one viewer may see: redacted state and the history entries they are allowed to read. */
   viewFor(worldId: string, viewer: WorldActor) {
     const s = this.load(worldId);
-    return { world: viewFor(s, viewer), history: historyFor(s, viewer, this.events(worldId)), audit: auditFor(s, viewer, this.changes(worldId)) };
+    return {
+      world: viewFor(s, viewer), history: historyFor(s, viewer, this.events(worldId)), audit: auditFor(s, viewer, this.changes(worldId)),
+      ledger: ledgerFor(s, viewer, this.ledger(worldId)),
+    };
   }
 
   events(worldId: string): WorldEvent[] {
@@ -141,17 +190,35 @@ export class WorldStore {
   submit(worldId: string, sub: WorldSubmission, rng: Rng, now: Date, snapshot?: WorldState): WorldSubmitResult {
     // The system actor exists only for the scheduler hooks below; no request may claim it.
     if (sub.actor.role === 'system') throw new WorldError('forbidden', 'system actions come only from the scheduler');
+    // Anything that moves value must be retry-safe: the client names the request and the store applies it once.
+    if (ECONOMY_COMMANDS.has(sub.command.type) && !sub.requestId) throw new WorldError('request-id-required', '交易類操作必須附上 requestId');
     return this.run(worldId, sub, rng, now, snapshot);
   }
 
   private run(worldId: string, sub: WorldSubmission, rng: Rng, now: Date, snapshot?: WorldState): WorldSubmitResult {
     return this.combat.tx(() => {
+      if (sub.requestId) {
+        const done = this.db.prepare('SELECT user_id, command, result FROM world_requests WHERE world_id = ? AND request_id = ?')
+          .get(worldId, sub.requestId) as { user_id: string; command: string; result: string } | undefined;
+        if (done) {
+          if (done.user_id !== sub.actor.userId || done.command !== JSON.stringify(sub.command)) {
+            throw new WorldError('request-reused', '這個 requestId 已經用在另一個操作上');
+          }
+          const out = JSON.parse(done.result) as StoredOutcome;
+          return { ...out, state: this.load(worldId), replayed: true, combat: out.combatId ? this.combat.loadCombat(out.combatId) : undefined };
+        }
+      }
       const before = snapshot ?? this.load(worldId);
       const res = applyWorld(before, sub, this.rules, rng, now, this.cfg);
       this.persist(before, res);
       this.applyDeathRulings(res, now);
       let combat: CombatState | undefined;
       if (res.pvp) combat = this.openPvp(res, now, rng);
+      if (sub.requestId) {
+        const out: StoredOutcome = { events: res.events, changes: res.changes, ledger: res.ledger, combatId: combat?.id };
+        this.db.prepare('INSERT INTO world_requests (world_id, request_id, user_id, command, result, at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(worldId, sub.requestId, sub.actor.userId, JSON.stringify(sub.command), JSON.stringify(out), now.toISOString());
+      }
       return { ...res, combat };
     });
   }
@@ -229,7 +296,23 @@ export class WorldStore {
         const i = s.items[id];
         write('world_items', id, before.items[id]?.version, i, { holder_type: i.holder.type, holder_id: i.holder.id, status: i.status });
       }
+      if (entity in ECONOMY_COLLECTIONS) {
+        const col = ECONOMY_COLLECTIONS[entity as EconomyKind];
+        const rec = (s.economy[col] as Record<string, { version: number; status?: string }>)[id];
+        const old = (before.economy[col] as Record<string, { version: number }>)[id]?.version;
+        if (old === undefined) {
+          this.db.prepare('INSERT INTO world_records (world_id, kind, id, data, status, version) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(s.id, entity, id, JSON.stringify(rec), rec.status ?? null, rec.version);
+        } else {
+          const r = this.db.prepare('UPDATE world_records SET data = ?, status = ?, version = ? WHERE world_id = ? AND kind = ? AND id = ? AND version = ?')
+            .run(JSON.stringify(rec), rec.status ?? null, rec.version, s.id, entity, id, old);
+          if (r.changes !== 1) throw new WorldError('conflict', `${id} 已被其他操作更新，請重新讀取`);
+        }
+      }
     }
+    const led = this.db.prepare(`INSERT INTO world_ledger (world_id, seq, tx, from_type, from_id, to_type, to_id, coins, item_id, reason, at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const e of res.ledger) led.run(s.id, e.seq, e.tx, e.from.type, e.from.id, e.to.type, e.to.id, e.coins ?? null, e.itemId ?? null, e.reason, e.at);
     const ev = this.db.prepare('INSERT INTO world_events (world_id, seq, kind, visibility, location_id, event) VALUES (?, ?, ?, ?, ?, ?)');
     for (const e of res.events) ev.run(s.id, e.seq, e.kind, e.visibility, e.locationId ?? null, JSON.stringify(e));
     const ch = this.db.prepare('INSERT INTO world_changes (world_id, seq, entity, entity_id, change) VALUES (?, ?, ?, ?, ?)');
@@ -256,5 +339,10 @@ export class WorldStore {
 
   runAfterimages(worldId: string, rng: Rng, now: Date) {
     return this.run(worldId, { actor: { userId: 'scheduler', role: 'system' }, command: { type: 'expireAfterimages' } }, rng, now);
+  }
+
+  /** Scheduler hook: expired commissions refund, unsigned contracts lapse, overdue active contracts are breached. */
+  runDeadlines(worldId: string, rng: Rng, now: Date) {
+    return this.run(worldId, { actor: { userId: 'scheduler', role: 'system' }, command: { type: 'settleDeadlines' } }, rng, now);
   }
 }

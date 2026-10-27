@@ -16,6 +16,10 @@
   "items": [
     { "id": "bell-heart", "name": "沉鐘之心", "unique": true, "tradable": true, "holder": { "type": "location", "id": "ruins" } },
     { "id": "old-map", "name": "褪色的地圖", "unique": true, "tradable": true, "hidden": { "tn": 14 }, "holder": { "type": "location", "id": "ruins" } },
-    { "id": "oath-ring", "name": "誓約戒指", "unique": true, "tradable": false, "holder": { "type": "location", "id": "plaza" } }
+    { "id": "oath-ring", "name": "誓約戒指", "unique": true, "tradable": false, "holder": { "type": "location", "id": "plaza" } },
+    { "id": "moonherb-1", "name": "月光草", "unique": false, "tradable": true, "template": "moonherb", "holder": { "type": "location", "id": "road" } },
+    { "id": "moonherb-2", "name": "月光草", "unique": false, "tradable": true, "template": "moonherb", "holder": { "type": "location", "id": "road" } },
+    { "id": "moonherb-3", "name": "月光草", "unique": false, "tradable": true, "template": "moonherb", "holder": { "type": "location", "id": "road" } },
+    { "id": "lantern", "name": "防風提燈", "unique": false, "tradable": true, "template": "lantern", "holder": { "type": "location", "id": "market" } }
   ]
 }
