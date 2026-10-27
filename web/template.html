@@ -112,6 +112,15 @@ button.ghost { background: transparent; color: var(--ink); border: 1px solid var
 .t-success { --c: var(--t-success); } .t-strong { --c: var(--t-strong); } .t-exceptional { --c: var(--t-exceptional); }
 .seg, .legend i { background: var(--c); }
 
+.macros { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+.macros button { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-left: 3px solid var(--thread); background: var(--bg); color: var(--ink); border-radius: 4px; cursor: pointer; display: grid; gap: 1px; text-align: left; }
+.macros button b { font-size: 13px; } .macros button small { font-size: 11px; color: var(--muted); font-family: var(--f-mono); }
+.log-as { display: inline-flex; gap: 0; }
+.log-as button { font: inherit; font-size: 11px; letter-spacing: 0; padding: 2px 8px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
+.log-as button:first-child { border-radius: 999px 0 0 999px; } .log-as button:last-child { border-radius: 0 999px 999px 0; border-left: 0; }
+.log-as button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.r-vis { font-size: 11px; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.r-vis.v-whisper { border-color: var(--thread); color: var(--thread); } .r-vis.v-blind { border-color: var(--t-exceptional); color: var(--t-exceptional); }
 .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .result { border-left: 3px solid var(--line); padding: 6px 0 6px 12px; display: grid; gap: 4px; }
 .result:first-child { border-left-color: var(--accent); }
@@ -359,6 +368,7 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
     <section class="panel dice-panel" aria-labelledby="dice-h">
       <h2 id="dice-h">行動判定</h2>
       <p class="note" id="check-source"></p>
+      <div class="macros" id="macros" aria-label="快速擲骰"></div>
       <form id="chk-form" class="row" style="grid-template-columns: minmax(0,1fr)">
         <div class="row">
           <label class="field" for="chk-attr">屬性<select id="chk-attr"></select></label>
@@ -383,6 +393,14 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
         </div>
         <p class="note">情境＋裝備合計上限 ±5。<span class="counter" id="mod-total"></span></p>
         <label class="check" for="chk-risk"><input id="chk-risk" type="checkbox"> GM 已事前標記為高風險（才可能出現災難性失敗）</label>
+        <div class="field" role="radiogroup" aria-label="誰看得到這次擲骰">
+          <span>誰看得到</span>
+          <div class="modes">
+            <label><input type="radio" name="vis" value="public" checked><span>公開</span></label>
+            <label><input type="radio" name="vis" value="whisper"><span>密骰給 GM</span></label>
+            <label><input type="radio" name="vis" value="blind"><span>GM 暗骰</span></label>
+          </div>
+        </div>
 
         <div class="odds" aria-live="polite">
           <div class="odds-formula" id="odds-formula"></div>
@@ -393,7 +411,7 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
         <div class="actions"><button type="submit" class="primary">擲骰</button></div>
       </form>
 
-      <h3>判定紀錄</h3>
+      <h3>判定紀錄 <span class="log-as" id="log-as" role="group" aria-label="檢視身分"><button type="button" data-as="player" aria-pressed="true">玩家看到的</button><button type="button" data-as="gm" aria-pressed="false">GM 看到的</button></span></h3>
       <p class="note" id="log-empty">還沒有擲骰。按「擲骰」後，結果會依序記在這裡。</p>
       <ul class="log" id="log"></ul>
     </section>
