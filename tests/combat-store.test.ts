@@ -82,10 +82,12 @@ describe('permanent death', () => {
   function killHero() {
     startFight();
     send('f1', 'wolf', { type: 'attack', targetId: 'hero' }, [15]); // hero → dying
-    send('f1', 'wolf', { type: 'endTurn' }, [5]); // hero's death save fails (1)
+    send('f1', 'wolf', { type: 'endTurn' });
+    send('f1', 'hero', { type: 'deathSave' }, [5]); // the player rolls: fails (1)
     for (let i = 0; i < 2; i++) {
       send('f1', 'mira', { type: 'endTurn' });
-      send('f1', 'wolf', { type: 'endTurn' }, [5]); // fails 2, then 3
+      send('f1', 'wolf', { type: 'endTurn' });
+      send('f1', 'hero', { type: 'deathSave' }, [5]); // fails 2, then 3
     }
   }
 

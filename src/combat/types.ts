@@ -47,6 +47,8 @@ export interface CombatEvent {
 
 export interface TurnState {
   combatantId: string;
+  /** 'deathSave': a dying player-controlled combatant whose only legal action is to roll the death save. */
+  kind?: 'act' | 'deathSave';
   ap: number;
   attacks: number;
   startedAt: string;
@@ -74,6 +76,7 @@ export type CombatAction =
   | { type: 'usePotion'; targetId?: string }
   | { type: 'rescue'; targetId: string; useMedkit?: boolean }
   | { type: 'escape' }
+  | { type: 'deathSave' }
   | { type: 'endTurn' };
 
 export interface Submission {
@@ -97,7 +100,7 @@ export interface CombatConfig {
   defense: { base: number; attribute: AttributeCode; skill: string; defendBonus: number };
   damageByTier: Record<TierKey, { multiplier: number; bonus: number }>;
   wounds: { woundedAtOrBelow: number; severeAtOrBelow: number };
-  dying: { attribute: AttributeCode; tn: number; successesToStabilize: number; failuresToDie: number; stabilizedHp: number };
+  dying: { attribute: AttributeCode; tn: number; successesToStabilize: number; failuresToDie: number; stabilizedHp: number; playerRolls: boolean };
   rescue: { tn: number; attributes: AttributeCode[]; skills: string[]; strongHealRatio: number };
   escape: { tn: number; attribute: AttributeCode; skill: string };
   potionHeal: number;

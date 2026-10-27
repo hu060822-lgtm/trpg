@@ -17,7 +17,7 @@
     "exceptional": { "multiplier": 1, "bonus": 4 }
   },
   "wounds": { "woundedAtOrBelow": 0.5, "severeAtOrBelow": 0.25 },
-  "dying": { "attribute": "VIT", "tn": 14, "successesToStabilize": 3, "failuresToDie": 3, "stabilizedHp": 1 },
+  "dying": { "attribute": "VIT", "tn": 14, "successesToStabilize": 3, "failuresToDie": 3, "stabilizedHp": 1, "playerRolls": true },
   "rescue": { "tn": 14, "attributes": ["INT", "PRE"], "skills": ["medicine", "firstAid"], "strongHealRatio": 0.25 },
   "escape": { "tn": 14, "attribute": "AGI", "skill": "dodge" },
   "potionHeal": 4,

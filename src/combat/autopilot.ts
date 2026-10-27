@@ -8,6 +8,7 @@ import type { CombatAction, CombatState } from './types';
 export function autopilot(s: CombatState): CombatAction {
   const me = s.combatants[s.turn!.combatantId];
   const t = s.turn!;
+  if (t.kind === 'deathSave') return { type: 'deathSave' };
   const allies = Object.values(s.combatants).filter((c) => c.side === me.side && c.id !== me.id);
   const enemies = Object.values(s.combatants).filter((c) => c.side !== me.side && canAct(c));
   const healer = (me.skills.medicine ?? 0) + (me.skills.firstAid ?? 0) > 0;

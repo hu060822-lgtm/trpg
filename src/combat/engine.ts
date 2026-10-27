@@ -128,18 +128,19 @@ function applyDamage(ctx: Ctx, target: Combatant, dmg: number, sourceId: string)
   }
 }
 
-function deathSave(ctx: Ctx, c: Combatant) {
+function deathSave(ctx: Ctx, c: Combatant, automatic = false) {
   const d = ctx.cfg.dying;
   const r = check(ctx, c.attributes[d.attribute], 0, d.tn, 'normal');
+  const auto = automatic ? { automatic: true } : {};
   if (r.natural === 20) {
-    emit(ctx, 'deathSave', c.id, { d20: r.d20, total: r.total, result: 'natural-20' });
+    emit(ctx, 'deathSave', c.id, { d20: r.d20, total: r.total, result: 'natural-20', ...auto });
     stabilize(ctx, c, 'natural-20');
     return;
   }
   if (r.success) c.dying.successes += 1;
   else c.dying.failures += r.natural === 1 ? 2 : 1;
   emit(ctx, 'deathSave', c.id, {
-    d20: r.d20, total: r.total, success: r.success, successes: c.dying.successes, failures: c.dying.failures,
+    d20: r.d20, total: r.total, success: r.success, successes: c.dying.successes, failures: c.dying.failures, ...auto,
   });
   checkDeathCounters(ctx, c);
 }
@@ -161,7 +162,10 @@ function endIfDecided(ctx: Ctx): boolean {
   return true;
 }
 
-/** Moves to the next combatant who can act, running death saves for the dying on the way. */
+/**
+ * Moves to the next combatant who can act. A dying GM-controlled combatant rolls its death save on the way;
+ * a dying player-controlled one gets a turn whose only action is to roll it (the server still makes the roll).
+ */
 function advance(ctx: Ctx) {
   const s = ctx.s;
   let idx = s.turn ? s.order.indexOf(s.turn.combatantId) : -1;
@@ -175,17 +179,19 @@ function advance(ctx: Ctx) {
     }
     const c = s.combatants[s.order[idx]];
     c.defending = false; // defend lasts until the defender's next turn
+    const deadline = new Date(ctx.now.getTime() + ctx.cfg.turnDeadlineHours * 3600_000).toISOString();
     if (c.condition === 'dying') {
-      deathSave(ctx, c);
-      continue;
+      if (!ctx.cfg.dying.playerRolls || c.controller === 'gm') {
+        deathSave(ctx, c);
+        continue;
+      }
+      s.turn = { combatantId: c.id, kind: 'deathSave', ap: 0, attacks: 0, startedAt: ctx.now.toISOString(), deadline };
+      emit(ctx, 'turnStarted', c.id, { ap: 0, deadline, deathSave: true });
+      return;
     }
     if (!canAct(c)) continue;
-    const deadline = new Date(ctx.now.getTime() + ctx.cfg.turnDeadlineHours * 3600_000);
-    s.turn = {
-      combatantId: c.id, ap: ctx.cfg.apPerTurn, attacks: 0,
-      startedAt: ctx.now.toISOString(), deadline: deadline.toISOString(),
-    };
-    emit(ctx, 'turnStarted', c.id, { ap: s.turn.ap, deadline: s.turn.deadline });
+    s.turn = { combatantId: c.id, kind: 'act', ap: ctx.cfg.apPerTurn, attacks: 0, startedAt: ctx.now.toISOString(), deadline };
+    emit(ctx, 'turnStarted', c.id, { ap: s.turn.ap, deadline });
     return;
   }
   endIfDecided(ctx) || emit(ctx, 'stalled', undefined, {});
@@ -373,6 +379,9 @@ function perform(ctx: Ctx, me: Combatant, action: CombatAction) {
       }
       return;
     }
+    case 'deathSave':
+      deathSave(ctx, me);
+      return;
     case 'endTurn':
       ctx.s.turn!.ap = 0;
       return;
@@ -399,6 +408,9 @@ export function submitAction(
   if (!controls(sub, me)) throw new CombatError('forbidden', '你不能操作這個角色');
   if (sub.round !== state.round) throw new CombatError('stale', `回合已經變成第 ${state.round} 輪`);
   if (state.turn.combatantId !== me.id) throw new CombatError('not-your-turn', '還沒輪到這個角色');
+  const savingTurn = state.turn.kind === 'deathSave';
+  if (savingTurn && sub.action.type !== 'deathSave') throw new CombatError('death-save-pending', '角色瀕死中，這回合只能擲瀕死判定');
+  if (!savingTurn && sub.action.type === 'deathSave') throw new CombatError('not-dying', '角色沒有瀕死，不需要瀕死判定');
 
   const s = structuredClone(state);
   const ctx: Ctx = { s, rules, cfg, rng, now };
@@ -424,7 +436,9 @@ export function applyTimeout(
   const first = s.seq + 1;
   const me = s.combatants[s.turn!.combatantId];
   emit(ctx, 'timeout', me.id, { deadline: s.turn!.deadline });
-  if (s.turn!.ap >= cfg.actionCosts.defend) {
+  if (s.turn!.kind === 'deathSave') {
+    deathSave(ctx, me, true); // the roll is never skipped: the server makes it on the player's behalf
+  } else if (s.turn!.ap >= cfg.actionCosts.defend) {
     s.turn!.ap -= cfg.actionCosts.defend;
     me.defending = true;
     emit(ctx, 'defend', me.id, { bonus: cfg.defense.defendBonus, automatic: true });

@@ -143,12 +143,68 @@ function newFight() {
   void runNpcs();
 }
 
-function send(combatantId: string, action: CombatAction) {
+function send(combatantId: string, action: CombatAction): CombatEvent[] {
   const c = state.combatants[combatantId];
   const actor = c.controller === 'gm' ? { userId: 'gm', role: 'gm' as const } : { userId: c.controller, role: 'player' as const };
   const res = submitAction(state, { actionId: `d${++n}`, actor, combatantId, round: state.round, action }, R, randomRng, clock);
   state = res.state;
   absorb(res.events);
+  return res.events;
+}
+
+/* ---------- death save ---------- */
+
+/** Death-save stage. The die tumbles while the "roll" is in the air, then lands on the server's number. */
+function renderDice(c: Combatant | null, phase: 'idle' | 'rolling' | 'landed' = 'idle', ev?: CombatEvent) {
+  const box = $('cb-dice');
+  if (!c) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const d = CFG.dying;
+  const vit = c.attributes[d.attribute];
+  const mine = c.id === PLAYER;
+  const e = ev?.data as Record<string, any> | undefined;
+  const pips = (on: number, total: number, cls: string) => Array.from({ length: total }, (_, i) => `<i class="pip${i < on ? ` ${cls}` : ''}"></i>`).join('');
+  const sv = e && e.successes !== undefined ? { successes: e.successes, failures: e.failures } : c.dying;
+  let face = '?', dieCls = '', result = '';
+  if (phase === 'landed' && e) {
+    face = String(e.d20);
+    if (e.result === 'natural-20') { dieCls = 'landed n20'; result = '<span class="ds-result ok">自然 20！自行穩定下來</span>'; }
+    else if (e.success) { dieCls = 'landed ok'; result = `<span class="ds-result ok">成功（${e.total} ≥ ${d.tn}）</span>`; }
+    else { dieCls = 'landed bad'; result = `<span class="ds-result bad">${e.d20 === 1 ? '自然 1，記兩次失敗' : `失敗（${e.total} < ${d.tn}）`}</span>`; }
+    if (e.failures >= d.failuresToDie) result += '<span class="ds-result bad">　永久死亡</span>';
+    else if (e.successes >= d.successesToStabilize) result += '<span class="ds-result ok">　穩定下來了</span>';
+  } else if (phase === 'rolling') dieCls = 'rolling';
+  const pSave = distribution({ attribute: vit, skill: 0, tn: d.tn }, R).pSuccess;
+  box.innerHTML = `<div class="bigdie ${dieCls}" id="cb-bigdie" aria-label="d20">${face}</div>
+    <div class="ds-title">${esc(c.name)}${mine ? '（你）' : ''}倒下了：瀕死判定</div>
+    <div class="ds-rule">d20 + ${d.attribute} ${vit} 對 ${d.tn}，成功率約 ${pct(pSave)}。累積 ${d.successesToStabilize} 次成功就穩定，${d.failuresToDie} 次失敗就永久死亡。自然 20 直接穩定，自然 1 算兩次失敗。</div>
+    <div class="ds-row"><span>成功 <span class="pips">${pips(sv.successes, d.successesToStabilize, 'ok')}</span></span>
+      <span>失敗 <span class="pips">${pips(sv.failures, d.failuresToDie, 'bad')}</span></span>
+      ${phase === 'idle' && mine && !busy ? '<button type="button" class="ds-roll" id="cb-roll">擲瀕死骰</button>' : ''}
+      ${phase === 'idle' && !mine ? '<span class="hint">等待擲骰</span>' : ''}${result}</div>`;
+}
+
+/** Rolls the current combatant's death save with the tumble animation, then holds on the result. */
+async function rollDeathSave(id: string) {
+  const fight = fightNo;
+  const c = state.combatants[id];
+  busy = true;
+  render();
+  const motion = !reduceMotion() && speed() > 0;
+  renderDice(c, 'rolling');
+  const die = $('cb-bigdie');
+  if (motion) {
+    const spin = setInterval(() => { die.textContent = String(1 + Math.floor(Math.random() * 20)); }, 70);
+    await wait(950);
+    clearInterval(spin);
+  }
+  if (fight !== fightNo) return;
+  const events = send(id, { type: 'deathSave' });
+  renderDice(state.combatants[id], 'landed', events.find((e) => e.kind === 'deathSave'));
+  render(true);
+  await wait(motion ? 1500 : speed() ? 600 : 0);
+  if (fight !== fightNo) return;
+  void runNpcs();
 }
 
 /** NPCs (wolves and the medic) act one step at a time until it is the player's turn or the fight ends. */
@@ -157,6 +213,7 @@ async function runNpcs() {
   const delay = () => (reduceMotion() ? Math.min(250, speed()) : speed());
   let guard = 0;
   while (state.status === 'active' && state.turn && state.turn.combatantId !== PLAYER && guard++ < 200) {
+    if (state.turn.kind === 'deathSave') return rollDeathSave(state.turn.combatantId);
     busy = true;
     render();
     if (delay()) await wait(delay());
@@ -221,10 +278,13 @@ function threat(me: Combatant) {
 
 /* ---------- render ---------- */
 
-function render() {
+/** keepDice: leave the death-save stage showing its last result instead of redrawing it. */
+function render(keepDice = false) {
   const s = state;
   const me = s.combatants[PLAYER];
-  const myTurn = s.status === 'active' && s.turn?.combatantId === PLAYER && !busy;
+  const mineNow = s.status === 'active' && s.turn?.combatantId === PLAYER && !busy;
+  const myTurn = mineNow && s.turn!.kind !== 'deathSave';
+  if (!keepDice) renderDice(s.status === 'active' && s.turn?.kind === 'deathSave' ? s.combatants[s.turn.combatantId] : null);
   const enemies = list().filter((c) => c.side !== 'party' && !out(c));
   if (!enemies.some((e) => e.id === targetId)) targetId = enemies[0]?.id ?? '';
   const target = targetId ? s.combatants[targetId] : null;
@@ -232,7 +292,7 @@ function render() {
 
   $('cb-round').textContent = s.status === 'ended' ? '戰鬥結束' : `第 ${s.round} 輪`;
   renderTimeline();
-  renderBanner(myTurn);
+  renderBanner(mineNow);
 
   $('cb-bands').innerHTML = CFG.bands.names.map((bandName, i) => {
     const inReach = s.status === 'active' && Math.abs(i - me.band) <= w.range && canAct(me);
@@ -246,7 +306,7 @@ function render() {
   renderPreview(me, target, myTurn);
   renderLastRoll();
   renderButtons(me, target, myTurn);
-  $<HTMLButtonElement>('cb-timeout').disabled = !myTurn;
+  $<HTMLButtonElement>('cb-timeout').disabled = !mineNow;
 }
 
 function hpBar(c: Combatant) {
@@ -256,7 +316,7 @@ function hpBar(c: Combatant) {
 function deathPips(c: Combatant) {
   const { successesToStabilize: ns, failuresToDie: nf } = CFG.dying;
   const p = (on: number, total: number, cls: string) => Array.from({ length: total }, (_, i) => `<i class="pip${i < on ? ` ${cls}` : ''}"></i>`).join('');
-  return `<span class="pips" title="瀕死判定：成功 ${c.dying.successes}／失敗 ${c.dying.failures}">${p(c.dying.successes, ns, 'ok')}</span> <span class="pips">${p(c.dying.failures, nf, 'bad')}</span>`;
+  return `<span class="pips" title="瀕死判定：成功 ${c.dying.successes}／失敗 ${c.dying.failures}"><b class="pl">救</b>${p(c.dying.successes, ns, 'ok')}</span> <span class="pips"><b class="pl">死</b>${p(c.dying.failures, nf, 'bad')}</span>`;
 }
 
 function token(c: Combatant, isTarget: boolean) {
@@ -316,6 +376,12 @@ function renderBanner(myTurn: boolean) {
     return;
   }
   const actor = s.turn ? s.combatants[s.turn.combatantId] : null;
+  if (myTurn && actor && s.turn!.kind === 'deathSave') {
+    box.className = 'banner mine';
+    main.textContent = '你倒下了！擲瀕死判定';
+    sub.innerHTML = `按下方的「擲瀕死骰」。骰子由伺服器擲，結果會永久記錄。${narration ? `<br>剛才：${narration}` : ''}`;
+    return;
+  }
   if (myTurn && actor) {
     box.className = 'banner mine';
     const attacksLeft = CFG.maxAttacksPerTurn - s.turn!.attacks;
@@ -487,6 +553,9 @@ export function initCombat(heroSource: () => { draft: CharacterDraft; created: b
     state = res.state;
     absorb(res.events);
     void runNpcs();
+  });
+  $('cb-dice').addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id === 'cb-roll' && !busy) void rollDeathSave(PLAYER);
   });
   $('cb-new').addEventListener('click', newFight);
   newFight();

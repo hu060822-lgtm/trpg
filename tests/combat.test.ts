@@ -203,6 +203,25 @@ describe('rescue, protection, timeouts and the end of combat', () => {
     expect(r.state.combatants.hero).toMatchObject({ condition: 'stable', hp: 1 });
   });
 
+  it('a dying player rolls their own death save on their turn; the server makes the roll', () => {
+    const s = act(downed(), 'mira', { type: 'endTurn' }).state;
+    expect(s.turn).toMatchObject({ combatantId: 'hero', kind: 'deathSave', ap: 0 });
+    expect(() => act(s, 'hero', { type: 'defend' })).toThrow(/只能擲瀕死判定/);
+    expect(() => act(s, 'mira', { type: 'deathSave' }, [], { combatantId: 'hero', actor: { userId: 'u2', role: 'player' } })).toThrow(/不能操作/);
+    const r = act(s, 'hero', { type: 'deathSave' }, [15]); // 15 + VIT 1 = 16 ≥ 14
+    expect(r.events.find((e) => e.kind === 'deathSave')!.data).toMatchObject({ d20: 15, success: true, successes: 1 });
+    expect(r.state.turn!.combatantId).toBe('wolf');
+    expect(() => act(downed(), 'mira', { type: 'deathSave' })).toThrow(/沒有瀕死/);
+  });
+
+  it('a timed-out death save is rolled by the server, never skipped', () => {
+    const s = act(downed(), 'mira', { type: 'endTurn' }).state;
+    const r = applyTimeout(s, R, scriptedRng([3]), new Date(new Date(s.turn!.deadline).getTime() + 1));
+    expect(r.events.map((e) => e.kind)).toEqual(expect.arrayContaining(['timeout', 'deathSave']));
+    expect(r.events.find((e) => e.kind === 'deathSave')!.data).toMatchObject({ success: false, failures: 1, automatic: true });
+    expect(r.state.turn!.combatantId).toBe('wolf');
+  });
+
   it('a strong rescue puts the ally back on their feet at a quarter of max HP', () => {
     const r = act(downed(), 'mira', { type: 'rescue', targetId: 'hero' }, [11]); // 17 → strong
     expect(r.state.combatants.hero).toMatchObject({ condition: 'severe', hp: 3 });
