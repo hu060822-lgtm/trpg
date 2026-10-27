@@ -1,0 +1,25 @@
+{
+  "version": "0.3",
+  "status": "provisional",
+  "note": "戰鬥數值全部是原型暫定值，等戰鬥測試後再定案。",
+  "apPerTurn": 2,
+  "maxAttacksPerTurn": 1,
+  "actionCosts": { "move": 1, "attack": 1, "defend": 1, "useItem": 1, "rescue": 2, "escape": 1 },
+  "initiative": { "attributes": ["AGI", "PER"] },
+  "bands": { "count": 4, "names": ["近身", "近距", "中距", "遠距"] },
+  "defense": { "base": 8, "attribute": "AGI", "skill": "dodge", "defendBonus": 2 },
+  "damageByTier": {
+    "catastrophe": { "multiplier": 0, "bonus": 0 },
+    "failure": { "multiplier": 0, "bonus": 0 },
+    "partial": { "multiplier": 0.5, "bonus": 0 },
+    "success": { "multiplier": 1, "bonus": 0 },
+    "strong": { "multiplier": 1, "bonus": 2 },
+    "exceptional": { "multiplier": 1, "bonus": 4 }
+  },
+  "wounds": { "woundedAtOrBelow": 0.5, "severeAtOrBelow": 0.25 },
+  "dying": { "attribute": "VIT", "tn": 14, "successesToStabilize": 3, "failuresToDie": 3, "stabilizedHp": 1 },
+  "rescue": { "tn": 14, "attributes": ["INT", "PRE"], "skills": ["medicine", "firstAid"], "strongHealRatio": 0.25 },
+  "escape": { "tn": 14, "attribute": "AGI", "skill": "dodge" },
+  "potionHeal": 4,
+  "turnDeadlineHours": 24
+}
