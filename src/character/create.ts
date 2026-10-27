@@ -1,6 +1,7 @@
 import attributesData from '../../config/attributes.json';
 import classesData from '../../config/classes.json';
 import skillsData from '../../config/skills.json';
+import { assertActive } from '../rules/config';
 import type { AttributeCode, RulesConfig } from '../rules/types';
 
 export interface ClassDef {
@@ -16,7 +17,6 @@ export interface SkillDef {
   id: string;
   name: string;
   category: string;
-  provisional?: boolean;
 }
 
 export const ATTRIBUTES = attributesData as { code: AttributeCode; name: string }[];
@@ -52,7 +52,18 @@ export function skillTotal(draft: Pick<CharacterDraft, 'skills'>): number {
   return Object.values(draft.skills).reduce((s, v) => s + v, 0);
 }
 
-/** Validates a new character against creation rules (plan v0.3 §2.3–2.4). */
+export function skillTierName(level: number, config: RulesConfig): string {
+  const tier = config.skill.tiers.find((t) => level >= t.min && level <= t.max);
+  if (!tier) throw new RangeError(`skill level ${level} outside ${config.skill.min}–${config.skill.max}`);
+  return tier.name;
+}
+
+/** Highest value one attribute may take at creation. */
+export function attributeCreationMax(config: RulesConfig): number {
+  return config.attribute.creationMax ?? config.attribute.max;
+}
+
+/** Validates a new character against creation rules (rules spec v0.3 §3). */
 export function validateDraft(
   draft: CharacterDraft,
   config: RulesConfig,
@@ -67,18 +78,18 @@ export function validateDraft(
   const cls = classes.find((c) => c.id === draft.classId);
   if (!cls) errors.push({ field: 'classId', message: `未知職業：${draft.classId}` });
 
+  const attrMax = attributeCreationMax(config);
   for (const a of ATTRIBUTES) {
     const v = draft.attributes[a.code];
     if (!Number.isInteger(v)) {
       errors.push({ field: `attributes.${a.code}`, message: `${a.name} 必須是整數` });
-    } else if (v < A.min || v > A.creationMax) {
-      errors.push({ field: `attributes.${a.code}`, message: `${a.name} 創角時必須介於 ${A.min}–${A.creationMax}` });
+    } else if (v < A.min || v > attrMax) {
+      errors.push({ field: `attributes.${a.code}`, message: `${a.name} 創角時必須介於 ${A.min}–${attrMax}` });
     }
   }
-  const expectedAttr = A.creationBase * ATTRIBUTES.length + A.creationFreePoints;
   const attrSum = attributeTotal(draft);
-  if (attrSum !== expectedAttr) {
-    errors.push({ field: 'attributes', message: `屬性總和必須為 ${expectedAttr}（目前 ${attrSum}）` });
+  if (attrSum !== A.creationPoints) {
+    errors.push({ field: 'attributes', message: `屬性總和必須恰好為 ${A.creationPoints}（目前 ${attrSum}）` });
   }
 
   const known = new Set(skills.map((s) => s.id));
@@ -111,6 +122,7 @@ export function createCharacter(
   now: Date = new Date(),
   id: string = crypto.randomUUID(),
 ): Character {
+  assertActive(config);
   const errors = validateDraft(draft, config);
   if (errors.length) {
     const err = new Error(errors.map((e) => e.message).join('；'));
@@ -125,17 +137,26 @@ export function createCharacter(
   };
 }
 
-/** A legal starting build that maxes the class core: core attributes 3, core skills 4. */
+/**
+ * A legal, rounded starting build: core attributes 3, every other attribute at least 1,
+ * core skills at the creation max. Example only; it is not the strongest legal build.
+ */
 export function exampleBuild(classId: string, config: RulesConfig): CharacterDraft {
   const cls = CLASSES.find((c) => c.id === classId);
   if (!cls) throw new Error(`unknown class ${classId}`);
-  const attributes = Object.fromEntries(ATTRIBUTES.map((a) => [a.code, config.attribute.creationBase])) as Record<AttributeCode, number>;
-  let free = config.attribute.creationFreePoints;
-  const order = [...cls.coreAttributes, ...ATTRIBUTES.map((a) => a.code).filter((c) => !cls.coreAttributes.includes(c))];
-  for (const code of order) {
-    const add = Math.min(free, config.attribute.creationMax - attributes[code]);
+  const codes = ATTRIBUTES.map((a) => a.code);
+  const others = codes.filter((c) => !cls.coreAttributes.includes(c));
+  const attributes = Object.fromEntries(codes.map((c) => [c, 0])) as Record<AttributeCode, number>;
+  let free = config.attribute.creationPoints;
+  const give = (code: AttributeCode, target: number) => {
+    const add = Math.max(0, Math.min(free, target - attributes[code], attributeCreationMax(config) - attributes[code]));
     attributes[code] += add;
     free -= add;
+  };
+  for (const c of cls.coreAttributes) give(c, 3);
+  for (const c of others) give(c, 1);
+  for (let target = 2; free > 0 && target <= config.attribute.max; target++) {
+    for (const c of others) give(c, target);
   }
   const skills: Record<string, number> = {};
   let pts = config.skill.creationPoints;

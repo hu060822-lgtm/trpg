@@ -1,9 +1,10 @@
 // Browser prototype: character creation + action checks, driven by the same engine as the tests.
 import {
-  ATTRIBUTES, CLASSES, SKILLS, attributeTotal, createCharacter, exampleBuild, skillTotal, validateDraft,
+  ATTRIBUTES, CLASSES, SKILLS, attributeCreationMax, attributeTotal, createCharacter, exampleBuild, skillTierName,
+  skillTotal, validateDraft,
   type Character, type CharacterDraft,
 } from '../src/character/create';
-import { performCheck } from '../src/rules/check';
+import { normalize, performCheck } from '../src/rules/check';
 import { DEFAULT_RULES as C } from '../src/rules/config';
 import { randomRng } from '../src/rules/dice';
 import { distribution } from '../src/sim/enumerate';
@@ -39,15 +40,15 @@ function stepper(kind: 'attr' | 'skill', key: string, label: string, value: numb
 function renderSheet() {
   const cls = CLASSES.find((c) => c.id === draft.classId)!;
   $('attrs').innerHTML = ATTRIBUTES.map((a) =>
-    stepper('attr', a.code, `${a.name} ${a.code}`, draft.attributes[a.code], C.attribute.creationMax, cls.coreAttributes.includes(a.code)),
+    stepper('attr', a.code, `${a.name} ${a.code}`, draft.attributes[a.code], attributeCreationMax(C), cls.coreAttributes.includes(a.code)),
   ).join('');
 
   const cats = [...new Set(SKILLS.map((s) => s.category))];
   $('skills').innerHTML = cats.map((cat) => `<fieldset><legend>${esc(cat)}</legend>${SKILLS.filter((s) => s.category === cat)
-    .map((s) => stepper('skill', s.id, s.name + (s.provisional ? '＊' : ''), draft.skills[s.id] ?? 0, C.skill.creationMax, cls.coreSkills.includes(s.id)))
+    .map((s) => stepper('skill', s.id, s.name, draft.skills[s.id] ?? 0, C.skill.creationMax, cls.coreSkills.includes(s.id)))
     .join('')}</fieldset>`).join('');
 
-  const attrTarget = C.attribute.creationBase * ATTRIBUTES.length + C.attribute.creationFreePoints;
+  const attrTarget = C.attribute.creationPoints;
   const attrLeft = attrTarget - attributeTotal(draft);
   const skillLeft = C.skill.creationPoints - skillTotal(draft);
   const core = cls.coreSkills.reduce((s, id) => s + (draft.skills[id] ?? 0), 0);
@@ -70,7 +71,7 @@ function onStep(e: Event) {
   const key = btn.dataset.key!;
   if (btn.dataset.kind === 'attr') {
     const code = key as AttributeCode;
-    draft.attributes[code] = Math.max(0, Math.min(C.attribute.creationMax, draft.attributes[code] + d));
+    draft.attributes[code] = Math.max(0, Math.min(attributeCreationMax(C), draft.attributes[code] + d));
   } else {
     const v = Math.max(0, Math.min(C.skill.creationMax, (draft.skills[key] ?? 0) + d));
     if (v) draft.skills[key] = v; else delete draft.skills[key];
@@ -101,7 +102,10 @@ function fillCheckSelects() {
   const a = aSel.value || 'AGI';
   const s = sSel.value || 'stealth';
   aSel.innerHTML = ATTRIBUTES.map((x) => `<option value="${x.code}">${esc(x.name)} ${src.attributes[x.code]}</option>`).join('');
-  sSel.innerHTML = SKILLS.map((x) => `<option value="${x.id}">${esc(x.name)} ${src.skills[x.id] ?? 0}</option>`).join('');
+  sSel.innerHTML = SKILLS.map((x) => {
+    const lv = src.skills[x.id] ?? 0;
+    return `<option value="${x.id}">${esc(x.name)} ${lv}（${skillTierName(lv, C)}）</option>`;
+  }).join('');
   aSel.value = a; sSel.value = s;
   $('check-source').textContent = hero ? `使用角色「${hero.name}」` : '使用目前的配置（尚未建立角色）';
 }
@@ -114,6 +118,7 @@ function currentInput() {
     attribute: src.attributes[attr],
     skill: src.skills[skill] ?? 0,
     situational: Number($<HTMLInputElement>('chk-sit').value),
+    equipment: Number($<HTMLInputElement>('chk-gear').value),
     tn: Number($<HTMLSelectElement>('chk-tn').value),
     mode: ($<HTMLInputElement>('chk-form').querySelector('input[name="mode"]:checked') as HTMLInputElement).value as RollMode,
     highRisk: $<HTMLInputElement>('chk-risk').checked,
@@ -122,11 +127,17 @@ function currentInput() {
 
 function renderOdds() {
   const input = currentInput();
-  const sit = input.situational;
-  $('sit-val').textContent = sit > 0 ? `+${sit}` : String(sit);
+  const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+  const n = normalize(input, C);
+  $('sit-val').textContent = signed(input.situational);
+  $('gear-val').textContent = signed(input.equipment);
+  $('mod-total').textContent = n.modifierCapped
+    ? `合計 ${signed(input.situational + input.equipment)}，超過上限，只套用 ${signed(n.modifier)}`
+    : `合計 ${signed(n.modifier)}`;
+  $('mod-total').dataset.state = n.modifierCapped ? 'bad' : 'ok';
   const d = distribution(input, C);
-  const bonus = input.attribute + input.skill + input.situational;
-  $('odds-formula').textContent = `D20 ＋ ${input.attribute}（屬性）＋ ${input.skill}（技能）${sit ? `＋ ${sit > 0 ? '+' : ''}${sit}（情境）` : ''} ＝ D20 ＋ ${bonus}，目標 ${input.tn}`;
+  const bonus = input.attribute + input.skill + n.modifier;
+  $('odds-formula').textContent = `D20 ＋ ${input.attribute}（屬性）＋ ${input.skill}（技能）${n.modifier ? ` ${n.modifier > 0 ? '＋' : '−'} ${Math.abs(n.modifier)}（修正）` : ''} ＝ D20 ＋ ${bonus}，目標 ${input.tn}`;
   const head = $('odds-head');
   if (d.preCheck === 'auto') {
     head.innerHTML = '<span class="pill ok">免擲骰</span> 最低總值已達目標，自動普通成功';
@@ -154,10 +165,12 @@ function roll(e: Event) {
   rollCount++;
   const id = `CHK-${String(rollCount).padStart(4, '0')}`;
   let body: string;
-  if (out.kind === 'impossible') {
+  if (out.kind === 'skill-required') {
+    body = `<div class="r-tier t-failure">未擲骰</div><div class="r-detail">這個行動要求受過訓練的技能等級。</div>`;
+  } else if (out.kind === 'impossible') {
     body = `<div class="r-tier t-failure">未擲骰</div><div class="r-detail">以目前條件做不到。GM 應說明可以改變哪些條件。</div>`;
   } else if (out.kind === 'auto') {
-    body = `<div class="r-tier t-success">普通成功</div><div class="r-detail">免擲骰：最低可能總值 ${1 + input.attribute + input.skill + input.situational} ≥ ${input.tn}</div>`;
+    body = `<div class="r-tier t-success">普通成功</div><div class="r-detail">免擲骰：最低可能總值 ${1 + input.attribute + input.skill + out.result.input.modifier} ≥ ${input.tn}</div>`;
   } else {
     const r = out.result;
     const dice = r.rolls.d20.map((v) => `<span class="die${v === r.d20 ? ' used' : ''}${v === 20 ? ' n20' : v === 1 ? ' n1' : ''}">${v}</span>`).join('');

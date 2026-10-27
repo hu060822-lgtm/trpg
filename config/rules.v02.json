@@ -1,10 +1,11 @@
 {
   "version": "0.2",
+  "status": "historical",
+  "note": "歷史比較版本，只供模擬器比較使用，正式遊戲不得載入。",
   "attribute": {
     "min": 0,
     "max": 6,
-    "creationBase": 1,
-    "creationFreePoints": 10,
+    "creationPoints": 20,
     "creationMax": 3
   },
   "skill": {
@@ -12,7 +13,39 @@
     "max": 12,
     "creationPoints": 20,
     "creationMax": 4,
-    "creationCoreMin": 4
+    "creationCoreMin": 4,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 0,
+        "name": "未受訓練"
+      },
+      {
+        "min": 1,
+        "max": 2,
+        "name": "初學者"
+      },
+      {
+        "min": 3,
+        "max": 4,
+        "name": "熟練者"
+      },
+      {
+        "min": 5,
+        "max": 6,
+        "name": "專家"
+      },
+      {
+        "min": 7,
+        "max": 9,
+        "name": "大師"
+      },
+      {
+        "min": 10,
+        "max": 12,
+        "name": "傳奇"
+      }
+    ]
   },
   "check": {
     "die": 20,
@@ -20,10 +53,10 @@
       "die": 6,
       "offset": -3
     },
-    "situationalCap": 3,
     "naturalRules": true,
     "autoSuccess": false,
-    "catastropheRequiresHighRisk": false
+    "catastropheRequiresHighRisk": false,
+    "modifierCap": 3
   },
   "difficulties": [
     {

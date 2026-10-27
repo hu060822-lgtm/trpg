@@ -145,11 +145,11 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
       <div class="class-info" id="class-info"></div>
 
       <h3>十項屬性 <span class="counter" id="attr-left"></span></h3>
-      <p class="note">每項從 1 起算，再分配 10 點；創角時單項 0–3，總和必須是 20。</p>
+      <p class="note">15 點自由分配到十項屬性，每項最低 0，總和必須恰好 15。創角時不另設單項上限，但不能超過屬性上限 6。</p>
       <div class="steppers" id="attrs"></div>
 
       <h3>技能 <span class="counter" id="skill-left"></span></h3>
-      <p class="note">20 點技能點數，創角時單項最高 4，職業核心技能合計至少 4。標＊的技能是職業表用到、但初期技能清單沒有的暫定項。</p>
+      <p class="note">20 點技能點數，創角時單項最高 4，職業核心技能合計至少 4。技能 0 也能嘗試一般行動。</p>
       <div class="skills" id="skills"></div>
 
       <ul class="errors" id="errors"></ul>
@@ -182,9 +182,15 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
             <label><input type="radio" name="mode" id="m-dis" value="disadvantage"><span>劣勢</span></label>
           </div>
         </div>
-        <label class="field" for="chk-sit">情境＋裝備修正（上限 ±5）
-          <span class="sit"><input id="chk-sit" type="range" min="-5" max="5" step="1" value="0"><output id="sit-val">0</output></span>
-        </label>
+        <div class="row">
+          <label class="field" for="chk-sit">情境修正
+            <span class="sit"><input id="chk-sit" type="range" min="-5" max="5" step="1" value="0"><output id="sit-val">0</output></span>
+          </label>
+          <label class="field" for="chk-gear">裝備修正
+            <span class="sit"><input id="chk-gear" type="range" min="-5" max="5" step="1" value="0"><output id="gear-val">0</output></span>
+          </label>
+        </div>
+        <p class="note">情境＋裝備合計上限 ±5。<span class="counter" id="mod-total"></span></p>
         <label class="check" for="chk-risk"><input id="chk-risk" type="checkbox"> GM 已事前標記為高風險（才可能出現災難性失敗）</label>
 
         <div class="odds" aria-live="polite">

@@ -1,30 +1,125 @@
 {
   "version": "0.3",
-  "attribute": { "min": 0, "max": 6, "creationBase": 1, "creationFreePoints": 10, "creationMax": 3 },
-  "skill": { "min": 0, "max": 12, "creationPoints": 20, "creationMax": 4, "creationCoreMin": 4 },
+  "status": "active",
+  "attribute": {
+    "min": 0,
+    "max": 6,
+    "creationPoints": 15,
+    "creationMax": null
+  },
+  "skill": {
+    "min": 0,
+    "max": 12,
+    "creationPoints": 20,
+    "creationMax": 4,
+    "creationCoreMin": 4,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 0,
+        "name": "未受訓練"
+      },
+      {
+        "min": 1,
+        "max": 2,
+        "name": "初學者"
+      },
+      {
+        "min": 3,
+        "max": 4,
+        "name": "熟練者"
+      },
+      {
+        "min": 5,
+        "max": 6,
+        "name": "專家"
+      },
+      {
+        "min": 7,
+        "max": 9,
+        "name": "大師"
+      },
+      {
+        "min": 10,
+        "max": 12,
+        "name": "傳奇"
+      }
+    ]
+  },
   "check": {
     "die": 20,
     "wobble": null,
-    "situationalCap": 5,
     "naturalRules": true,
     "autoSuccess": true,
-    "catastropheRequiresHighRisk": true
+    "catastropheRequiresHighRisk": true,
+    "modifierCap": 5
   },
   "difficulties": [
-    { "key": "easy", "name": "簡單", "tn": 12 },
-    { "key": "normal", "name": "普通", "tn": 16 },
-    { "key": "hard", "name": "困難", "tn": 20 },
-    { "key": "extreme", "name": "極難", "tn": 24 },
-    { "key": "legendary", "name": "傳奇", "tn": 28 },
-    { "key": "mythic", "name": "神話", "tn": 32 }
+    {
+      "key": "easy",
+      "name": "簡單",
+      "tn": 12
+    },
+    {
+      "key": "normal",
+      "name": "普通",
+      "tn": 16
+    },
+    {
+      "key": "hard",
+      "name": "困難",
+      "tn": 20
+    },
+    {
+      "key": "extreme",
+      "name": "極難",
+      "tn": 24
+    },
+    {
+      "key": "legendary",
+      "name": "傳奇",
+      "tn": 28
+    },
+    {
+      "key": "mythic",
+      "name": "神話",
+      "tn": 32
+    }
   ],
   "tiers": [
-    { "key": "catastrophe", "name": "災難性失敗", "minMargin": null },
-    { "key": "failure", "name": "失敗", "minMargin": -7 },
-    { "key": "partial", "name": "部分成功", "minMargin": -3 },
-    { "key": "success", "name": "普通成功", "minMargin": 0 },
-    { "key": "strong", "name": "強成功", "minMargin": 3 },
-    { "key": "exceptional", "name": "卓越成功", "minMargin": 6 }
+    {
+      "key": "catastrophe",
+      "name": "災難性失敗",
+      "minMargin": null
+    },
+    {
+      "key": "failure",
+      "name": "失敗",
+      "minMargin": -7
+    },
+    {
+      "key": "partial",
+      "name": "部分成功",
+      "minMargin": -3
+    },
+    {
+      "key": "success",
+      "name": "普通成功",
+      "minMargin": 0
+    },
+    {
+      "key": "strong",
+      "name": "強成功",
+      "minMargin": 3
+    },
+    {
+      "key": "exceptional",
+      "name": "卓越成功",
+      "minMargin": 6
+    }
   ],
-  "hp": { "base": 10, "perVit": 2 }
+  "hp": {
+    "base": 10,
+    "perVit": 2
+  }
 }

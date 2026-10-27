@@ -1,0 +1,5 @@
+[
+  { "name": "戰士型", "attributes": { "STR": 3, "AGI": 2, "VIT": 3, "PRE": 1, "PER": 1, "INT": 0, "WIL": 2, "CHA": 0, "INS": 2, "SPR": 1 } },
+  { "name": "斥候型", "attributes": { "STR": 1, "AGI": 3, "VIT": 1, "PRE": 2, "PER": 3, "INT": 1, "WIL": 1, "CHA": 0, "INS": 2, "SPR": 1 } },
+  { "name": "學者型", "attributes": { "STR": 0, "AGI": 1, "VIT": 1, "PRE": 1, "PER": 2, "INT": 4, "WIL": 2, "CHA": 1, "INS": 1, "SPR": 2 } }
+]

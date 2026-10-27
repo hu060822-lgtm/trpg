@@ -16,16 +16,19 @@ describe('character creation', () => {
     expect(ch.maxHp).toBe(16);
   });
 
-  it('rejects attribute totals other than 20', () => {
+  it('rejects attribute totals other than 15', () => {
     const d = exampleBuild('scout', C);
     d.attributes.CHA -= 1;
     expect(validateDraft(d, C).map((e) => e.field)).toContain('attributes');
   });
 
-  it('rejects an attribute above 3 at creation', () => {
+  it('rejects an attribute above the overall max of 6', () => {
     const d = exampleBuild('scout', C);
-    d.attributes.AGI = 4;
-    d.attributes.CHA = 0;
+    d.attributes.AGI = 7;
+    d.attributes.STR = 0;
+    d.attributes.VIT = 0;
+    d.attributes.PRE = 0;
+    d.attributes.INT = 0;
     expect(validateDraft(d, C).map((e) => e.field)).toContain('attributes.AGI');
   });
 

@@ -17,6 +17,7 @@ const actions = [
 for (const a of actions) {
   const out = performCheck(a.input, randomRng, C);
   if (out.kind === 'impossible') console.log(`- ${a.label}：以目前條件做不到，需要工具、情報或協助`);
+  else if (out.kind === 'skill-required') console.log(`- ${a.label}：這個行動需要受過訓練`);
   else if (out.kind === 'auto') console.log(`- ${a.label}：免擲骰，自動普通成功`);
   else {
     const r = out.result;

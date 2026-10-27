@@ -49,9 +49,8 @@ describe('resolveCheck (v0.3)', () => {
     expect(resolveCheck({ ...base, mode: 'disadvantage' }, { d20: [3, 17] }, C).d20).toBe(3);
   });
 
-  it('rejects the wrong number of dice and out-of-cap modifiers', () => {
+  it('rejects the wrong number of dice', () => {
     expect(() => resolveCheck({ ...base, mode: 'advantage' }, { d20: [3] }, C)).toThrow();
-    expect(() => resolveCheck({ ...base, situational: 6 }, { d20: [3] }, C)).toThrow(RangeError);
   });
 
   it('is deterministic for the same input and dice', () => {
