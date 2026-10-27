@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CombatError, applyTimeout, defenseOf, startCombat, submitAction, COMBAT_V03 } from '../src/combat/engine';
+import {
+  CombatError, applyTimeout, attackCheck, attackDamage, defenseOf, startCombat, submitAction, weapon, COMBAT_V03,
+} from '../src/combat/engine';
 import type { CombatState, CombatantSetup, Submission } from '../src/combat/types';
 import { RULES_V02, RULES_V03 } from '../src/rules/config';
 import { scriptedRng } from '../src/rules/dice';
@@ -261,5 +263,18 @@ describe('rescue, protection, timeouts and the end of combat', () => {
     expect(r.state.winner).toBe('party');
     expect(r.events.at(-1)!.data.outcome).toMatchObject({ wolf: { condition: 'dying' } });
     expect(() => act(r.state, 'hero', { type: 'defend' })).toThrow(/結束/);
+  });
+});
+
+describe('odds preview helpers', () => {
+  it('attackCheck and attackDamage give the numbers the engine actually rolls with', () => {
+    const s = fight([hero(), wolf()], [15, 5]);
+    const input = attackCheck(s.combatants.hero, s.combatants.wolf, COMBAT_V03);
+    expect(input).toEqual({ attribute: 3, skill: 3, tn: 12, mode: 'normal' });
+    const r = act(s, 'hero', { type: 'attack', targetId: 'wolf' }, [10]);
+    const atk = r.events.find((e) => e.kind === 'attack')!.data as { total: number; defense: number; tier: 'strong'; damage: number };
+    expect(atk.total).toBe(10 + input.attribute + input.skill);
+    expect(atk.defense).toBe(input.tn);
+    expect(attackDamage(weapon('sword'), atk.tier, s.combatants.wolf, COMBAT_V03)).toBe(atk.damage);
   });
 });

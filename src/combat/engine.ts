@@ -3,7 +3,7 @@ import itemsJson from '../../config/items.json';
 import { resolveCheck, type CheckResult } from '../rules/check';
 import { assertActive } from '../rules/config';
 import type { Rng } from '../rules/dice';
-import type { AttributeCode, RollMode, RulesConfig } from '../rules/types';
+import type { AttributeCode, CheckInput, RollMode, RulesConfig, TierKey } from '../rules/types';
 import type {
   ArmorDef, CombatAction, CombatConfig, CombatEvent, CombatState, Combatant, CombatantSetup, Condition,
   ItemDef, Submission, WeaponDef,
@@ -256,6 +256,33 @@ function best(c: Combatant, attrs: AttributeCode[]): AttributeCode {
   return attrs.reduce((a, b) => (c.attributes[b] > c.attributes[a] ? b : a));
 }
 
+/*
+ * The check each action rolls, exposed so a client can preview odds with the exact same
+ * numbers the engine will use (sim/enumerate over these inputs).
+ */
+export function attackCheck(me: Combatant, t: Combatant, cfg: CombatConfig, attr?: AttributeCode): CheckInput {
+  const w = weapon(me.weaponId);
+  const a = attr ?? best(me, w.attributes);
+  return { attribute: me.attributes[a], skill: me.skills[w.skill] ?? 0, tn: defenseOf(t, cfg), mode: modeFor(me) };
+}
+
+export function attackDamage(w: WeaponDef, tierKey: TierKey, t: Combatant, cfg: CombatConfig): number {
+  const tier = cfg.damageByTier[tierKey];
+  const raw = Math.floor(w.damage * tier.multiplier) + (tier.multiplier > 0 ? tier.bonus : 0);
+  return raw > 0 ? Math.max(0, raw - armor(t.armorId).reduction) : 0;
+}
+
+export function rescueCheck(me: Combatant, useKit: boolean, cfg: CombatConfig): CheckInput {
+  const rc = cfg.rescue;
+  const skill = Math.max(...rc.skills.map((k) => me.skills[k] ?? 0));
+  return { attribute: me.attributes[best(me, rc.attributes)], skill, tn: rc.tn, mode: useKit ? 'advantage' : modeFor(me) };
+}
+
+export function escapeCheck(me: Combatant, cfg: CombatConfig): CheckInput {
+  const e = cfg.escape;
+  return { attribute: me.attributes[e.attribute], skill: me.skills[e.skill] ?? 0, tn: e.tn, mode: modeFor(me) };
+}
+
 function perform(ctx: Ctx, me: Combatant, action: CombatAction) {
   const { cfg } = ctx;
   switch (action.type) {
@@ -279,11 +306,10 @@ function perform(ctx: Ctx, me: Combatant, action: CombatAction) {
       if (!w.attributes.includes(attr)) throw new CombatError('bad-attribute', `${w.name} 不能用這項屬性攻擊`);
       spend(ctx, cfg.actionCosts.attack);
       ctx.s.turn!.attacks += 1;
-      const tn = defenseOf(t, cfg);
-      const r = check(ctx, me.attributes[attr], me.skills[w.skill] ?? 0, tn, modeFor(me));
-      const tier = cfg.damageByTier[r.tier];
-      const raw = Math.floor(w.damage * tier.multiplier) + (tier.multiplier > 0 ? tier.bonus : 0);
-      const dmg = raw > 0 ? Math.max(0, raw - armor(t.armorId).reduction) : 0;
+      const input = attackCheck(me, t, cfg, attr);
+      const tn = input.tn;
+      const r = check(ctx, input.attribute, input.skill, tn, input.mode!);
+      const dmg = attackDamage(w, r.tier, t, cfg);
       emit(ctx, 'attack', me.id, {
         targetId: t.id, weapon: w.id, attribute: attr, d20: r.rolls.d20, total: r.total, defense: tn,
         tier: r.tier, damage: dmg,
@@ -318,13 +344,11 @@ function perform(ctx: Ctx, me: Combatant, action: CombatAction) {
       if (useKit && me.medkits <= 0) throw new CombatError('no-item', '沒有醫療包');
       spend(ctx, cfg.actionCosts.rescue);
       if (useKit) me.medkits -= 1;
-      const rc = cfg.rescue;
-      const attr = best(me, rc.attributes);
-      const skill = Math.max(...rc.skills.map((k) => me.skills[k] ?? 0));
-      const r = check(ctx, me.attributes[attr], skill, rc.tn, useKit ? 'advantage' : modeFor(me));
+      const input = rescueCheck(me, useKit, cfg);
+      const r = check(ctx, input.attribute, input.skill, input.tn, input.mode!);
       emit(ctx, 'rescue', me.id, { targetId: t.id, d20: r.rolls.d20, total: r.total, tier: r.tier, medkit: useKit });
       if (r.tier === 'strong' || r.tier === 'exceptional') {
-        t.hp = Math.max(1, Math.floor(t.maxHp * rc.strongHealRatio));
+        t.hp = Math.max(1, Math.floor(t.maxHp * cfg.rescue.strongHealRatio));
         t.dying = { successes: 0, failures: 0 };
         t.condition = woundCondition(t, cfg);
         emit(ctx, 'revivedToFight', t.id, { hp: t.hp });
@@ -339,8 +363,8 @@ function perform(ctx: Ctx, me: Combatant, action: CombatAction) {
     }
     case 'escape': {
       spend(ctx, cfg.actionCosts.escape);
-      const e = cfg.escape;
-      const r = check(ctx, me.attributes[e.attribute], me.skills[e.skill] ?? 0, e.tn, modeFor(me));
+      const input = escapeCheck(me, cfg);
+      const r = check(ctx, input.attribute, input.skill, input.tn, input.mode!);
       emit(ctx, 'escapeAttempt', me.id, { d20: r.rolls.d20, total: r.total, tier: r.tier });
       if (r.success) {
         me.condition = 'escaped';
