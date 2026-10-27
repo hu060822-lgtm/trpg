@@ -126,13 +126,168 @@ button.ghost { background: transparent; color: var(--ink); border: 1px solid var
 .r-detail { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: no-preference) { .result:first-child { animation: drop .25s ease-out; } }
 @keyframes drop { from { transform: translateY(-4px); opacity: .4; } to { transform: none; opacity: 1; } }
+.combat { margin-top: 24px; display: grid; gap: 14px; }
+.combat > .note { margin: 0; }
+.cb-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: baseline; justify-content: space-between; }
+.cb-head h2 { margin: 0; }
+.cb-round { font-family: var(--f-display); font-weight: 900; font-size: 18px; letter-spacing: .08em; color: var(--thread); }
+
+/* Turn order: one chip per combatant in initiative order; the acting one is lifted and gold. */
+.timeline { list-style: none; margin: 0; padding: 4px 0 6px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.tl { position: relative; flex: 0 0 auto; min-width: 118px; display: grid; gap: 3px; padding: 7px 10px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--surface); font-size: 12px; transition: transform .2s, box-shadow .2s; }
+.tl.side-party { border-top: 3px solid var(--accent); }
+.tl.side-beasts { border-top: 3px solid var(--t-failure); }
+.tl-top { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-name { font-weight: 700; font-size: 13px; color: var(--ink); white-space: nowrap; }
+.tl-tag { font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+.tl.now { border-color: var(--thread); box-shadow: 0 0 0 2px var(--thread); transform: translateY(-2px); }
+.tl.now .tl-tag { color: var(--thread); }
+.tl.next .tl-tag { color: var(--muted); }
+.tl.done { opacity: .62; }
+.tl.c-dead { opacity: .4; } .tl.c-dead .tl-name { text-decoration: line-through; }
+.tl.c-escaped { opacity: .4; }
+.tl .tk-hp { height: 4px; }
+.pips { display: inline-flex; gap: 3px; vertical-align: middle; }
+.pips .pl { font-size: 10px; font-weight: 700; color: var(--muted); margin-right: 1px; }
+.pips + .pips { margin-left: 4px; }
+.pip { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--muted); }
+.pip.ok { background: var(--ok); border-color: var(--ok); }
+.pip.bad { background: var(--bad); border-color: var(--bad); }
+.pip.ap { width: 12px; height: 12px; border-radius: 3px; border-color: var(--accent); }
+.pip.ap.on { background: var(--accent); }
+
+/* What is happening right now. */
+.banner { border-radius: 6px; padding: 10px 14px; background: var(--bg); border-left: 4px solid var(--muted); display: grid; gap: 2px; min-height: 62px; }
+.banner.mine { border-left-color: var(--thread); background: color-mix(in srgb, var(--thread) 12%, var(--surface)); }
+.banner.enemy { border-left-color: var(--t-failure); }
+.banner.ally { border-left-color: var(--accent); }
+.banner.over-win { border-left-color: var(--ok); } .banner.over-lose { border-left-color: var(--bad); }
+.bn-main { font-family: var(--f-display); font-weight: 900; font-size: 19px; letter-spacing: .04em; }
+.bn-sub { font-size: 13px; color: var(--muted); }
+.banner.busy .bn-main::after { content: "…"; }
+@media (prefers-reduced-motion: no-preference) { .banner.busy .bn-main::after { animation: blink 1s steps(2) infinite; } }
+@keyframes blink { 50% { opacity: 0; } }
+
+.bands { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 640px) { .bands { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.band { background: var(--bg); border: 1px dashed var(--line); border-radius: 4px; padding: 8px; display: grid; gap: 6px; align-content: start; min-height: 120px; min-width: 0; }
+.band.reach { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.band-name { font-size: 12px; letter-spacing: .12em; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+.token { position: relative; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; display: grid; gap: 3px; background: var(--surface); min-width: 0;
+  text-align: left; font: inherit; color: inherit; width: 100%; }
+button.token { cursor: pointer; }
+button.token:hover { border-color: var(--t-failure); }
+.token.side-party { border-left: 3px solid var(--accent); }
+.token.side-beasts { border-left: 3px solid var(--t-failure); }
+.token.current { outline: 2px solid var(--thread); outline-offset: 1px; }
+.token.target { box-shadow: 0 0 0 2px var(--t-failure); }
+.token.target::before { content: "目標"; position: absolute; top: -9px; right: 6px; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 3px; background: var(--t-failure); color: var(--surface); }
+.token.c-dying, .token.c-stable { opacity: .8; }
+.token.c-dead, .token.c-escaped { opacity: .45; }
+.tk-name { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.tk-hp { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; display: block; }
+.tk-hp i { display: block; height: 100%; background: var(--t-strong); transition: width .35s ease; }
+.c-wounded .tk-hp i { background: var(--t-partial); }
+.c-severe .tk-hp i, .c-dying .tk-hp i { background: var(--t-failure); }
+.tk-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.float { position: absolute; right: 8px; top: 2px; font-family: var(--f-display); font-weight: 900; font-size: 20px; pointer-events: none; color: var(--bad);
+  text-shadow: 0 1px 0 var(--surface); }
+.float.heal { color: var(--ok); } .float.miss { color: var(--muted); font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) {
+  .float { animation: floatup 1.3s ease-out forwards; }
+  .token.hit { animation: shake .3s; }
+}
+@media (prefers-reduced-motion: reduce) { .float { animation: fade 1.6s forwards; } }
+@keyframes floatup { from { transform: translateY(6px); opacity: 0; } 15% { opacity: 1; } to { transform: translateY(-22px); opacity: 0; } }
+@keyframes fade { 70% { opacity: 1; } to { opacity: 0; } }
+@keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+/* Death save: a big d20 the dying player rolls themselves. */
+.dicestage { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 18px; align-items: center; padding: 14px 16px; border-radius: 8px;
+  border: 1px solid var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
+.dicestage[hidden] { display: none; }
+.bigdie { width: 84px; height: 84px; display: grid; place-items: center; font-family: var(--f-mono); font-weight: 600; font-size: 34px; color: var(--ink);
+  background: var(--surface); border: 3px solid var(--ink); clip-path: polygon(50% 0, 97% 25%, 97% 75%, 50% 100%, 3% 75%, 3% 25%); grid-row: span 3; }
+.bigdie.landed.ok { background: var(--ok); color: var(--surface); } .bigdie.landed.bad { background: var(--bad); color: var(--surface); }
+.bigdie.landed.n20 { background: var(--t-exceptional); color: var(--surface); }
+@media (prefers-reduced-motion: no-preference) {
+  .bigdie.rolling { animation: tumble .45s linear infinite; }
+  .bigdie.landed { animation: land .35s ease-out; }
+}
+@keyframes tumble { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(.88); } 100% { transform: rotate(360deg) scale(1); } }
+@keyframes land { 0% { transform: scale(1.25); } 60% { transform: scale(.95); } 100% { transform: none; } }
+.ds-title { font-family: var(--f-display); font-weight: 900; font-size: 18px; }
+.ds-rule { font-size: 13px; color: var(--muted); }
+.ds-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; font-size: 13px; }
+.ds-row .pips .pip { width: 12px; height: 12px; }
+.ds-roll { font: inherit; font-weight: 700; font-size: 16px; padding: 8px 22px; border-radius: 6px; border: 0; background: var(--bad); color: var(--surface); cursor: pointer; }
+.ds-result { font-family: var(--f-display); font-weight: 900; font-size: 18px; }
+.ds-result.ok { color: var(--ok); } .ds-result.bad { color: var(--bad); }
+
+.cb-controls { display: grid; gap: 10px; align-content: start; }
+.cards { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+@media (max-width: 640px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--surface); display: grid; gap: 6px; align-content: start; font-size: 13px; min-width: 0; }
+.card h4 { margin: 0; font-size: 12px; letter-spacing: .12em; color: var(--muted); font-weight: 500; }
+.card .big { font-family: var(--f-display); font-weight: 900; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.card .kv { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.card .kv span:first-child { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.chip.bad { border-color: var(--bad); color: var(--bad); } .chip.good { border-color: var(--ok); color: var(--ok); }
+.tierbar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.tierbar i { display: block; height: 100%; }
+.dmgrows { display: grid; gap: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dmgrows div { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 6px; align-items: center; }
+.dmgrows .sw { width: 10px; height: 10px; border-radius: 2px; }
+.dmgrows .p { color: var(--muted); min-width: 3.2em; text-align: right; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.hint.warn { color: var(--t-partial); }
+
+.cb-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 640px) { .cb-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cb-actions button { font: inherit; padding: 7px 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 4px; cursor: pointer;
+  display: grid; gap: 1px; text-align: center; min-width: 0; }
+.cb-actions button b { font-size: 14px; }
+.cb-actions button small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+.cb-actions button[data-act="attack"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.cb-actions button[data-act="attack"] small { color: inherit; opacity: .85; }
+.cb-actions button:disabled { opacity: .4; cursor: default; }
+.cb-small { font: inherit; font-size: 14px; padding: 7px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 4px; cursor: pointer; }
+.cb-small:disabled { opacity: .4; cursor: default; }
+.cb-error { color: var(--bad); font-size: 13px; min-height: 1.2em; margin: 0; }
+
+.cb-side { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.cb-side h3 { margin: 0; }
+.lastroll { border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 6px; padding: 10px 12px; background: var(--surface);
+  display: grid; gap: 4px; min-height: 92px; }
+.lr-head { font-size: 12px; color: var(--muted); }
+.lr-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.die { width: 38px; height: 38px; display: grid; place-items: center; font-family: var(--f-mono); font-weight: 600; font-size: 17px;
+  border: 2px solid var(--ink); border-radius: 8px; background: var(--bg); }
+.die.unused { opacity: .35; border-style: dashed; }
+.die.n20 { background: var(--t-exceptional); color: var(--surface); } .die.n1 { background: var(--t-catastrophe); color: var(--surface); }
+.lr-math { font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.lr-tier { font-family: var(--f-display); font-weight: 900; font-size: 20px; color: var(--c); }
+@media (prefers-reduced-motion: no-preference) { .lastroll.fresh { animation: drop .25s ease-out; } }
+
+.cb-log { display: grid; gap: 8px; font-size: 13px; max-height: 360px; overflow-y: auto; }
+.cb-log details { border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.cb-log summary { cursor: pointer; font-weight: 700; font-size: 12px; letter-spacing: .1em; color: var(--muted); }
+.cb-log ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; }
+.cb-log li { padding-left: 10px; border-left: 2px solid var(--line); }
+.cb-log li.side-party { border-left-color: var(--accent); } .cb-log li.side-beasts { border-left-color: var(--t-failure); }
+.cb-log .warn { color: var(--t-partial); } .cb-log .bad { color: var(--bad); font-weight: 700; }
+.cb-cols { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+@media (max-width: 920px) { .cb-cols { grid-template-columns: minmax(0, 1fr); } }
 footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
 </style>
 
 <div class="wrap">
   <header class="top">
     <div class="brand">FATEWEAVE<small>規則雛形 v0.3</small></div>
-    <p class="lede">Phase 0–1 原型：依企畫書第二章建立角色，再用 v0.3 判定規則擲骰。每次調整都會即時顯示精確機率；畫面使用的規則引擎與自動化測試是同一套程式。</p>
+    <p class="lede">Phase 0–2 原型：依企畫書第二章建立角色，再用 v0.3 判定規則擲骰。每次調整都會即時顯示精確機率；畫面使用的規則引擎與自動化測試是同一套程式。</p>
   </header>
 
   <div class="grid">
@@ -207,6 +362,62 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
       <ul class="log" id="log"></ul>
     </section>
   </div>
+  <section class="panel combat" aria-labelledby="cb-h">
+    <div class="cb-head">
+      <h2 id="cb-h">戰鬥沙盒</h2>
+      <span class="cb-round" id="cb-round"></span>
+    </div>
+    <p class="note">Phase 2 原型：用上面配置的角色，和 NPC 醫療師米菈一起對抗兩隻灰狼。狼與米菈由電腦操作。戰鬥數值都是暫定值；角色倒下會進入瀕死，三次瀕死判定失敗就是永久死亡。</p>
+
+    <ol class="timeline" id="cb-timeline" aria-label="行動順序"></ol>
+
+    <div class="banner" id="cb-banner" aria-live="polite">
+      <div class="bn-main" id="cb-banner-main"></div>
+      <div class="bn-sub" id="cb-banner-sub"></div>
+    </div>
+
+    <div class="dicestage" id="cb-dice" hidden aria-live="polite"></div>
+
+    <div class="bands" id="cb-bands"></div>
+
+    <div class="cb-cols">
+      <div class="cb-controls">
+        <div class="cards">
+          <article class="card" id="cb-me" aria-label="你的角色"></article>
+          <article class="card" id="cb-preview" aria-label="攻擊預覽"></article>
+        </div>
+        <div class="cb-actions" id="cb-actions">
+          <button type="button" data-act="attack"><b>攻擊</b><small id="ab-attack"></small></button>
+          <button type="button" data-act="left"><b>← 後退</b><small id="ab-left"></small></button>
+          <button type="button" data-act="right"><b>前進 →</b><small id="ab-right"></small></button>
+          <button type="button" data-act="defend"><b>防禦</b><small id="ab-defend"></small></button>
+          <button type="button" data-act="potion"><b>喝藥水</b><small id="ab-potion"></small></button>
+          <button type="button" data-act="rescue"><b>救援隊友</b><small id="ab-rescue"></small></button>
+          <button type="button" data-act="escape"><b>脫離</b><small id="ab-escape"></small></button>
+          <button type="button" data-act="end"><b>結束回合</b><small id="ab-end"></small></button>
+        </div>
+        <p class="cb-error" id="cb-error" aria-live="polite"></p>
+        <div class="row cb-tools">
+          <label class="field" for="cb-weapon">武器（下一場生效）<select id="cb-weapon">
+            <option value="sword">長劍</option><option value="dagger">短刀</option><option value="greataxe">巨斧</option><option value="bow">獵弓</option>
+          </select></label>
+          <label class="field" for="cb-speed">敵人行動速度<select id="cb-speed">
+            <option value="1100">慢</option><option value="650" selected>一般</option><option value="250">快</option><option value="0">立即</option>
+          </select></label>
+        </div>
+        <div class="actions">
+          <button type="button" class="cb-small" id="cb-timeout">模擬回合逾時</button>
+          <button type="button" class="cb-small" id="cb-new">重新開戰</button>
+        </div>
+        <p class="note">回合逾時時，伺服器只會替角色採取防禦，不會替玩家攻擊或使用稀有物品。</p>
+      </div>
+      <div class="cb-side">
+        <div class="lastroll" id="cb-lastroll" aria-live="polite"></div>
+        <h3>戰鬥紀錄</h3>
+        <div class="cb-log" id="cb-log"></div>
+      </div>
+    </div>
+  </section>
   <footer>雛形只在瀏覽器內運作，重新整理後角色與紀錄會清空。正式版的角色、骰值與紀錄由伺服器保存。</footer>
 </div>
 <script>/*APP*/</script>

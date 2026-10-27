@@ -1,0 +1,12 @@
+[
+  { "id": "fists", "name": "徒手", "kind": "weapon", "damage": 1, "range": 0, "attributes": ["STR", "AGI"], "skill": "melee" },
+  { "id": "dagger", "name": "短刀", "kind": "weapon", "damage": 3, "range": 0, "attributes": ["AGI", "STR"], "skill": "melee" },
+  { "id": "sword", "name": "長劍", "kind": "weapon", "damage": 5, "range": 0, "attributes": ["STR", "AGI"], "skill": "melee" },
+  { "id": "greataxe", "name": "巨斧", "kind": "weapon", "damage": 7, "range": 0, "attributes": ["STR"], "skill": "melee" },
+  { "id": "bow", "name": "獵弓", "kind": "weapon", "damage": 4, "range": 3, "attributes": ["PRE"], "skill": "ranged" },
+  { "id": "claws", "name": "利爪", "kind": "weapon", "damage": 4, "range": 0, "attributes": ["STR", "AGI"], "skill": "melee" },
+  { "id": "none", "name": "無護甲", "kind": "armor", "defense": 0, "reduction": 0 },
+  { "id": "leather", "name": "皮甲", "kind": "armor", "defense": 1, "reduction": 1 },
+  { "id": "chain", "name": "鎖甲", "kind": "armor", "defense": 2, "reduction": 2 },
+  { "id": "hide", "name": "厚皮", "kind": "armor", "defense": 1, "reduction": 1 }
+]

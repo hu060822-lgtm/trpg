@@ -9,6 +9,7 @@ import { DEFAULT_RULES as C } from '../src/rules/config';
 import { randomRng } from '../src/rules/dice';
 import { distribution } from '../src/sim/enumerate';
 import type { AttributeCode, RollMode } from '../src/rules/types';
+import { initCombat } from './combat-ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -214,6 +215,7 @@ function boot() {
   $('chk-form').addEventListener('submit', roll);
 
   renderSheet(); renderHero(); fillCheckSelects(); renderOdds();
+  initCombat(() => ({ draft: hero ?? draft, created: !!hero }));
 }
 
 boot();

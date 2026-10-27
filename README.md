@@ -1,6 +1,6 @@
 # FATEWEAVE 規則引擎雛形
 
-企畫書 v0.3 第十六章第 1–5 步：Phase 0（規則驗證）與 Phase 1 的角色建立部分。
+企畫書 v0.3 第十六章第 1–6 步：Phase 0（規則驗證）、Phase 1 的角色建立，以及 Phase 2（戰鬥、傷勢、瀕死與永久死亡）。
 
 ## 內容
 
@@ -10,22 +10,26 @@
 | `src/rules/` | 規則引擎：判定、成功程度、自然骰、優劣勢、高風險標記、免擲骰／做不到 |
 | `src/sim/` | 機率模擬器：逐一枚舉所有骰值，經由正式引擎計算精確機率 |
 | `src/character/` | 角色建立：點數驗證、職業核心技能檢查、角色 ID、生命值 |
+| `src/combat/` | 戰鬥引擎：先攻、行動點、距離、攻防、傷害、瀕死、救援、死亡、逾時；以及模擬用的簡單 AI |
+| `src/persistence/` | 原型資料庫（SQLite）：角色、戰鬥狀態、戰鬥事件、死亡紀錄 |
 | `web/` | 瀏覽器試玩頁，打包成單一 HTML |
 | `reports/` | 模擬器產生的成功率報告 |
 | `tests/` | 自動化測試 |
 | `docs/rules-v0.3.md` | 正式規則規格（判定、角色建立、技能） |
+| `docs/combat-v0.3.md` | 戰鬥規格（Phase 2，數值暫定） |
 | `docs/plan-v0.3-revisions.md` | 企畫書需要修改的段落與替換文字 |
 | `CONFLICTS.md` | 已裁決與尚待確認的規格衝突 |
 
 ## 執行
 
-需要 Node.js 20 以上。
+需要 Node.js 22.13 以上（使用內建的 `node:sqlite`）。
 
 ```bash
 npm install
 npm test            # 執行測試
 npm run typecheck   # TypeScript 型別檢查
 npm run sim         # 產生 reports/sim-v0.3.md（加上 -- 0.2 產生 v0.2 報告）
+npm run sim:combat  # 戰鬥模擬，產生 reports/combat-sim-v0.3.md
 npm run demo        # 在終端機建立角色並擲幾次骰
 npm run build:web   # 產生 web/dist/fateweave-demo.html
 ```
@@ -39,6 +43,6 @@ npm run build:web   # 產生 web/dist/fateweave-demo.html
 - **正式遊戲只能用 v0.3。** v0.2 標為 `historical`，建立角色和正式擲骰遇到它會直接拒絕；模擬器可以用 `getRules('0.2', { allowHistorical: true })` 載入做比較。
 - **沒有任何數值宣稱已經平衡。** HP 公式是原型暫定值，職業與判定數值都需要實際測試。
 
-## 還沒做的部分（第十六章第 6–9 步）
+## 還沒做的部分（第十六章第 7–9 步）
 
-戰鬥與永久死亡流程、兩名玩家搶同一件唯一物品的測試、商店／委託／契約的端到端測試、伺服器（Express＋PostgreSQL）、Discord 與部署。
+Phase 3 共享世界（兩名玩家搶同一件唯一物品、公共 NPC 與地點、PvP 合法性）、商店／委託／契約、伺服器（Express＋PostgreSQL）、Discord 與部署。
