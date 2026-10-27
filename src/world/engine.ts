@@ -5,8 +5,9 @@ import type { Rng } from '../rules/dice';
 import type { CheckInput, RulesConfig } from '../rules/types';
 import type {
   Change, GmRole, Holder, Item, Location, PvpLegality, WorldActor, WorldCharacter, WorldCommand, WorldConfig,
-  WorldEvent, WorldState, WorldSubmission,
+  WorldEvent, WorldState, WorldSubmission, LedgerEntry, EconomyCommand,
 } from './types';
+import { performEconomy } from './economy';
 
 export const WORLD_V03 = worldJson as WorldConfig;
 
@@ -18,7 +19,7 @@ export class WorldError extends Error {
 
 const ABLE = ['healthy', 'wounded', 'severe'];
 
-interface Ctx {
+export interface Ctx {
   s: WorldState;
   actor: WorldActor;
   rules: RulesConfig;
@@ -27,12 +28,14 @@ interface Ctx {
   now: Date;
   events: WorldEvent[];
   changes: Change[];
+  ledger: LedgerEntry[];
 }
 
 export interface WorldResult {
   state: WorldState;
   events: WorldEvent[];
   changes: Change[];
+  ledger: LedgerEntry[];
   /** Set when an attack is legal: the caller opens a combat with these protections. */
   pvp?: { attackerId: string; targetId: string; locationId: string; legality: PvpLegality };
 }
@@ -45,13 +48,14 @@ export interface WorldSeed {
   day: number;
   locations: (Omit<Location, 'version' | 'clock'> & { clock?: number })[];
   npcs: { id: string; name: string; locationId: string; public: boolean; status?: 'alive' | 'dead' }[];
-  items: { id: string; name: string; unique: boolean; tradable: boolean; holder: Holder; hidden?: { tn: number } }[];
+  items: { id: string; name: string; unique: boolean; tradable: boolean; holder: Holder; hidden?: { tn: number }; template?: string }[];
 }
 
 export function createWorld(seed: WorldSeed, gms: WorldState['gms']): WorldState {
   const s: WorldState = {
     id: seed.id, name: seed.name, day: seed.day, locations: {}, npcs: {}, items: {}, characters: {},
     hostilities: [], duels: [], rulings: {}, gms, seq: 0,
+    economy: { shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} },
   };
   for (const l of seed.locations) s.locations[l.id] = { clock: 0, ...l, version: 1 };
   for (const n of seed.npcs) s.npcs[n.id] = { status: 'alive', ...n, version: 1 };
@@ -520,11 +524,21 @@ function perform(ctx: Ctx, cmd: WorldCommand): WorldResult['pvp'] {
           t.coins -= lost;
           if (t.condition === 'dying') t.condition = 'stable';
         });
+        if (lost) {
+          s.seq += 1;
+          ctx.ledger.push({
+            seq: s.seq, at: ctx.now.toISOString(), tx: `afterimage-${c.id}-${s.day}`, from: { type: 'character', id: c.id }, to: { type: 'sink', id: 'afterimage' },
+            coins: lost, reason: 'afterimage expired',
+          });
+        }
         sceneEvent(ctx, from.id, 'afterimageGone', `${c.name} 的殘影消失了`, { characterId: c.id });
         privateEvent(ctx, [c.id], 'afterimageReturned', `你的殘影無人接應，被送回${s.locations[outpost].name}，損失 ${lost} 枚錢幣。`, { lost, to: outpost });
       }
       return;
     }
+    default:
+      performEconomy(ctx, cmd as EconomyCommand, H);
+      return;
   }
 }
 
@@ -633,6 +647,10 @@ function steal(ctx: Ctx, thiefId: string, targetId: string, itemId: string) {
   }
 }
 
+/** The helpers the economy module needs, passed in so the two files do not import each other. */
+export const H = { change, audit, privateEvent, gmEvent, emit, own, active, character, item, movable, requireGm, clone, WorldError };
+export type Helpers = typeof H;
+
 // ---------- entry point ----------
 
 /** Applies one command. Pure: returns a new state and never mutates the input. */
@@ -646,8 +664,8 @@ export function applyWorld(
     if (e.version !== v) throw new WorldError('stale', '世界狀態已經改變，請重新讀取後再行動');
   }
   const s = structuredClone(state);
-  const ctx: Ctx = { s, actor: sub.actor, rules, cfg, rng, now, events: [], changes: [] };
+  const ctx: Ctx = { s, actor: sub.actor, rules, cfg, rng, now, events: [], changes: [], ledger: [] };
   const pvp = perform(ctx, sub.command);
-  return { state: s, events: ctx.events, changes: ctx.changes, pvp };
+  return { state: s, events: ctx.events, changes: ctx.changes, ledger: ctx.ledger, pvp };
 }
 

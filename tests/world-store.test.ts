@@ -172,3 +172,81 @@ describe('a duel to the death needs a GM to confirm the death', () => {
     expect(store.combat.deathRecord('nightingale')).toBeUndefined();
   });
 });
+
+describe('economy persistence', () => {
+  const pay = (actor: WorldActor, command: WorldCommand, requestId: string, snapshot?: ReturnType<WorldStore['load']>) =>
+    store.submit('greystone', { actor, command, requestId }, scriptedRng([]), T0, snapshot);
+
+  /** 灰鴉 gets 40 coins and a lantern on the shelf of her shop in the ruins. */
+  function shop() {
+    pay(MAIN, { type: 'gmGrantCoins', characterId: 'nightingale', amount: 40, reason: '起始資金' }, 'grant-1');
+    send(U1, { type: 'take', characterId: 'crow', itemId: 'bell-heart' });
+    pay(U1, { type: 'openShop', characterId: 'crow', shopId: 'crow-shop', name: '灰鴉雜貨', description: '' }, 'shop-1');
+    pay(U1, { type: 'stockItem', characterId: 'crow', shopId: 'crow-shop', itemId: 'bell-heart', price: 30 }, 'stock-1');
+  }
+
+  it('commands that move value must carry a request id', () => {
+    expect(() => send(MAIN, { type: 'gmGrantCoins', characterId: 'crow', amount: 5, reason: 'x' })).toThrow(/requestId/);
+  });
+
+  it('a repeated purchase request is applied once: the retry gets the first result and pays nothing', () => {
+    shop();
+    const buy: WorldCommand = { type: 'buy', characterId: 'nightingale', shopId: 'crow-shop', itemId: 'bell-heart' };
+    const first = pay(U2, buy, 'buy-1');
+    const again = pay(U2, buy, 'buy-1');
+    expect(first.replayed).toBeUndefined();
+    expect(again.replayed).toBe(true);
+    expect(again.ledger).toEqual(first.ledger);
+    const s = store.load('greystone');
+    expect(s.characters.nightingale.coins).toBe(10);
+    expect(s.characters.crow.coins).toBe(30);
+    expect(store.ledger('greystone').filter((e) => e.reason.startsWith('buy')).length).toBe(2); // one coin move, one item move
+    expect(() => pay(U2, { ...buy, itemId: 'old-map' }, 'buy-1')).toThrow(/另一個操作/);
+    expect(() => pay(U1, buy, 'buy-1')).toThrow(/另一個操作/);
+  });
+
+  it('two buyers on the same snapshot: only one gets the item, the other is told to reload', () => {
+    shop();
+    pay(MAIN, { type: 'gmGrantCoins', characterId: 'crow', amount: 1, reason: 'x' }, 'grant-2');
+    store.combat.saveNewCharacter('u3', createCharacter({ ...exampleBuild('scout', R), name: '鷦鷯' }, R, T0, 'wren'));
+    store.join('greystone', 'wren', 'ruins');
+    pay(MAIN, { type: 'gmGrantCoins', characterId: 'wren', amount: 40, reason: 'x' }, 'grant-3');
+    const a = store.load('greystone');
+    const b = store.load('greystone');
+    pay(U2, { type: 'buy', characterId: 'nightingale', shopId: 'crow-shop', itemId: 'bell-heart' }, 'race-a', a);
+    expect(() => pay({ userId: 'u3', role: 'player' }, { type: 'buy', characterId: 'wren', shopId: 'crow-shop', itemId: 'bell-heart' }, 'race-b', b)).toThrow(/重新讀取/);
+    const s = store.load('greystone');
+    expect(s.items['bell-heart'].holder).toEqual({ type: 'character', id: 'nightingale' });
+    expect(s.characters.wren.coins).toBe(40);
+  });
+
+  it('shops, contracts, locks and the ledger survive a restart, and the ledger cannot be edited', () => {
+    shop();
+    pay(U2, {
+      type: 'proposeContract', characterId: 'nightingale', with: 'crow', title: '護送', deadline: '2026-10-29T12:00:00Z', deposits: { nightingale: 10 },
+      clauses: [{ kind: 'payCoins', from: 'nightingale', to: 'crow', amount: 5 }],
+    }, 'k-1');
+    store.combat.close();
+    store = open();
+    const s = store.load('greystone');
+    expect(s.economy.shops['crow-shop'].listings).toEqual([{ itemId: 'bell-heart', price: 30 }]);
+    const k = Object.values(s.economy.contracts)[0];
+    expect(k.status).toBe('proposed');
+    expect(s.economy.locks[k.depositLocks.nightingale]).toMatchObject({ status: 'held', coins: 10 });
+    expect(s.characters.nightingale.coins).toBe(30);
+    const db = store.combat.db;
+    expect(() => db.prepare('UPDATE world_ledger SET coins = 1').run()).toThrow(/append-only/);
+    expect(() => db.prepare('DELETE FROM world_ledger').run()).toThrow(/append-only/);
+    expect(() => db.prepare('DELETE FROM world_records').run()).toThrow(/never deleted/);
+    // The deadline hook runs as the scheduler and lapses the unsigned contract.
+    store.runDeadlines('greystone', scriptedRng([]), new Date('2026-10-30T12:00:00Z'));
+    expect(store.load('greystone').characters.nightingale.coins).toBe(40);
+  });
+
+  it('a player only reads ledger lines that touch their own characters', () => {
+    shop();
+    expect(store.viewFor('greystone', U1).ledger.every((e) => e.to.id !== 'nightingale' || e.from.id === 'crow')).toBe(true);
+    expect(store.viewFor('greystone', U2).ledger.map((e) => e.reason)).toEqual(['grant: 起始資金']);
+    expect(store.viewFor('greystone', MAIN).ledger.length).toBe(store.ledger('greystone').length);
+  });
+});
