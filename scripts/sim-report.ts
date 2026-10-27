@@ -29,7 +29,7 @@ for (const mode of ['normal', 'advantage', 'disadvantage'] as const) {
 }
 
 lines.push('## 各職業起始角色', '');
-lines.push('範例配置：兩項核心屬性 3、兩項核心技能 4（創角上限）。「本職」＝核心屬性＋核心技能；「非本職」＝屬性 1、技能 0。', '');
+lines.push('範例配置：兩項核心屬性 3、兩項核心技能 4。「本職」＝核心屬性＋核心技能；「非本職」＝屬性 1、技能 0；「最集中」＝把屬性堆到上限再配上創角技能上限，是規則允許的最高開局加值。', '');
 lines.push(`| 職業 | 本職檢定 | 加值 | ${config.difficulties.slice(0, 4).map((d) => `${d.name} ${d.tn}`).join(' | ')} |`);
 lines.push(`|---|---|---:|${config.difficulties.slice(0, 4).map(() => '---:').join('|')}|`);
 const attrName = (c: string) => ATTRIBUTES.find((a) => a.code === c)!.name;
@@ -41,6 +41,8 @@ for (const cls of CLASSES) {
   const bonus = b.attributes[attr] + (b.skills[skill] ?? 0);
   lines.push(`| ${cls.name} | ${attrName(attr)}＋${skillName(skill)} | ${bonus} | ${config.difficulties.slice(0, 4).map((d) => cell(bonus, d.tn)).join(' | ')} |`);
 }
+const peak = Math.min(config.attribute.creationMax ?? config.attribute.max, config.attribute.creationPoints) + config.skill.creationMax;
+lines.push(`| （任何職業） | 最集中 | ${peak} | ${config.difficulties.slice(0, 4).map((d) => cell(peak, d.tn)).join(' | ')} |`);
 lines.push(`| （任何職業） | 非本職 | 1 | ${config.difficulties.slice(0, 4).map((d) => cell(1, d.tn)).join(' | ')} |`);
 lines.push('');
 

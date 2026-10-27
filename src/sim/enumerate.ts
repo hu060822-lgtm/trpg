@@ -23,13 +23,13 @@ function allRolls(input: CheckInput, config: RulesConfig): CheckRolls[] {
 /**
  * Exact outcome distribution by enumerating every dice combination through the real
  * resolveCheck, so the simulator can never drift from the engine.
- * Auto-success counts as 100% success; impossible counts as 100% failure (no roll is made).
+ * Auto-success counts as 100% success; impossible and skill-required count as 100% failure (no roll is made).
  */
 export function distribution(input: CheckInput, config: RulesConfig): Distribution {
   const tiers = Object.fromEntries(config.tiers.map((t) => [t.key, 0])) as Record<TierKey, number>;
   const pre = preCheck(input, config);
   if (pre === 'auto') return { preCheck: pre, tiers: { ...tiers, success: 1 }, pSuccess: 1 };
-  if (pre === 'impossible') return { preCheck: pre, tiers: { ...tiers, failure: 1 }, pSuccess: 0 };
+  if (pre === 'impossible' || pre === 'skill-required') return { preCheck: pre, tiers: { ...tiers, failure: 1 }, pSuccess: 0 };
 
   const rolls = allRolls(input, config);
   const p = 1 / rolls.length;

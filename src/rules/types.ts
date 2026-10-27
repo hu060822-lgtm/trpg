@@ -18,15 +18,29 @@ export interface Difficulty {
   tn: number;
 }
 
+export interface SkillTier {
+  min: number;
+  max: number;
+  name: string;
+}
+
 export interface RulesConfig {
   version: string;
-  attribute: { min: number; max: number; creationBase: number; creationFreePoints: number; creationMax: number };
-  skill: { min: number; max: number; creationPoints: number; creationMax: number; creationCoreMin: number };
+  /** Only 'active' rulesets may run the real game; 'historical' ones exist for comparison. */
+  status: 'active' | 'historical';
+  note?: string;
+  /** creationMax null = no per-attribute cap at creation beyond the overall max. */
+  attribute: { min: number; max: number; creationPoints: number; creationMax: number | null };
+  skill: {
+    min: number; max: number; creationPoints: number; creationMax: number; creationCoreMin: number;
+    tiers: SkillTier[];
+  };
   check: {
     die: number;
     /** v0.2 used { die: 6, offset: -3 }; v0.3 removed it. */
     wobble: { die: number; offset: number } | null;
-    situationalCap: number;
+    /** Cap on situational + equipment modifiers combined (applied to the sum, not to each). */
+    modifierCap: number;
     naturalRules: boolean;
     autoSuccess: boolean;
     catastropheRequiresHighRisk: boolean;
@@ -40,7 +54,10 @@ export interface CheckInput {
   attribute: number;
   skill: number;
   situational?: number;
+  equipment?: number;
   tn: number;
+  /** Only when a rule explicitly requires training; skill 0 is otherwise allowed. */
+  minSkill?: number;
   mode?: RollMode;
   /** GM flagged the action as high-risk before the roll (v0.3 §2.4). */
   highRisk?: boolean;
@@ -52,4 +69,4 @@ export interface CheckRolls {
   wobble?: number;
 }
 
-export type PreCheck = 'auto' | 'impossible' | 'roll';
+export type PreCheck = 'auto' | 'impossible' | 'skill-required' | 'roll';

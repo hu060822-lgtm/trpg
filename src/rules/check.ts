@@ -1,8 +1,16 @@
 import type { CheckInput, CheckRolls, PreCheck, RulesConfig, Tier, TierKey } from './types';
 import type { Rng } from './dice';
+import { assertActive } from './config';
+
+export type NormalizedInput = Required<Omit<CheckInput, 'minSkill'>> & {
+  minSkill: number;
+  /** situational + equipment after the combined cap. */
+  modifier: number;
+  modifierCapped: boolean;
+};
 
 export interface CheckResult {
-  input: Required<CheckInput>;
+  input: NormalizedInput;
   rolls: CheckRolls;
   /** The d20 value actually used after advantage/disadvantage. */
   d20: number;
@@ -16,13 +24,18 @@ export interface CheckResult {
   auto: boolean;
 }
 
-function normalize(input: CheckInput, config: RulesConfig): Required<CheckInput> {
-  const cap = config.check.situationalCap;
+export function normalize(input: CheckInput, config: RulesConfig): NormalizedInput {
+  const cap = config.check.modifierCap;
   const situational = input.situational ?? 0;
-  if (Math.abs(situational) > cap) {
-    throw new RangeError(`situational modifier ${situational} exceeds cap ±${cap}`);
-  }
-  return { situational, mode: 'normal', highRisk: false, ...input };
+  const equipment = input.equipment ?? 0;
+  const raw = situational + equipment;
+  // v0.3 §2.7: the cap applies to the combined sum, never to each source separately.
+  const modifier = Math.max(-cap, Math.min(cap, raw));
+  return {
+    mode: 'normal', highRisk: false, ...input,
+    situational, equipment, minSkill: input.minSkill ?? 0,
+    modifier, modifierCapped: modifier !== raw,
+  };
 }
 
 function wobbleRange(config: RulesConfig): [number, number] {
@@ -33,7 +46,8 @@ function wobbleRange(config: RulesConfig): [number, number] {
 /** v0.3 §2.6: decide whether a roll is needed at all. */
 export function preCheck(input: CheckInput, config: RulesConfig): PreCheck {
   const i = normalize(input, config);
-  const base = i.attribute + i.skill + i.situational;
+  if (i.skill < i.minSkill) return 'skill-required';
+  const base = i.attribute + i.skill + i.modifier;
   const [wMin, wMax] = wobbleRange(config);
   if (config.check.autoSuccess && 1 + base + wMin >= i.tn) return 'auto';
   if (config.check.die + base + wMax < i.tn) return 'impossible';
@@ -62,7 +76,7 @@ export function resolveCheck(input: CheckInput, rolls: CheckRolls, config: Rules
   const wobble = config.check.wobble ? (rolls.wobble ?? NaN) + config.check.wobble.offset : 0;
   if (Number.isNaN(wobble)) throw new Error('wobble die required by this ruleset');
 
-  const total = d20 + i.attribute + i.skill + i.situational + wobble;
+  const total = d20 + i.attribute + i.skill + i.modifier + wobble;
   const margin = total - i.tn;
   const tiers = config.tiers;
 
@@ -87,14 +101,17 @@ export function resolveCheck(input: CheckInput, rolls: CheckRolls, config: Rules
 
 export type PerformedCheck =
   | { kind: 'auto'; result: CheckResult }
-  | { kind: 'impossible'; input: Required<CheckInput> }
+  | { kind: 'impossible'; input: NormalizedInput }
+  | { kind: 'skill-required'; input: NormalizedInput }
   | { kind: 'rolled'; result: CheckResult };
 
 /** Runs the pre-check, then rolls with the supplied RNG if a roll is needed. */
 export function performCheck(input: CheckInput, rng: Rng, config: RulesConfig): PerformedCheck {
+  assertActive(config);
   const i = normalize(input, config);
-  const pre = preCheck(i, config);
+  const pre = preCheck(input, config);
   if (pre === 'impossible') return { kind: 'impossible', input: i };
+  if (pre === 'skill-required') return { kind: 'skill-required', input: i };
   if (pre === 'auto') {
     const tiers = config.tiers;
     return {
@@ -109,5 +126,5 @@ export function performCheck(input: CheckInput, rng: Rng, config: RulesConfig): 
   const n = i.mode === 'normal' ? 1 : 2;
   const rolls: CheckRolls = { d20: Array.from({ length: n }, () => rng(config.check.die)) };
   if (config.check.wobble) rolls.wobble = rng(config.check.wobble.die);
-  return { kind: 'rolled', result: resolveCheck(i, rolls, config) };
+  return { kind: 'rolled', result: resolveCheck(input, rolls, config) };
 }
