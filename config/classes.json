@@ -1,0 +1,14 @@
+[
+  { "id": "guardian", "name": "守衛者", "role": "前線防禦", "coreAttributes": ["STR", "VIT"], "coreSkills": ["melee", "block"], "feature": "守勢" },
+  { "id": "duelist", "name": "決鬥者", "role": "單體近戰", "coreAttributes": ["AGI", "PRE"], "coreSkills": ["melee", "dodge"], "feature": "架勢" },
+  { "id": "ranger", "name": "遊獵者", "role": "遠程輸出", "coreAttributes": ["PRE", "PER"], "coreSkills": ["ranged", "tracking"], "feature": "標記獵物" },
+  { "id": "scout", "name": "斥候", "role": "偵察與滲透", "coreAttributes": ["AGI", "PER"], "coreSkills": ["stealth", "scouting"], "feature": "先行偵察" },
+  { "id": "arcanist", "name": "術士", "role": "神秘攻擊", "coreAttributes": ["INT", "SPR"], "coreSkills": ["occult", "ritual"], "feature": "術式編構" },
+  { "id": "warden", "name": "守誓者", "role": "防護與制裁", "coreAttributes": ["WIL", "VIT"], "coreSkills": ["warding", "resolve"], "feature": "守誓結界" },
+  { "id": "medic", "name": "醫療師", "role": "治療與救援", "coreAttributes": ["INT", "WIL"], "coreSkills": ["medicine", "firstAid"], "feature": "緊急處置" },
+  { "id": "artificer", "name": "工匠", "role": "裝置與製作", "coreAttributes": ["INT", "PRE"], "coreSkills": ["crafting", "engineering"], "feature": "模組化裝置" },
+  { "id": "shadow", "name": "潛行者", "role": "暗殺與偷竊", "coreAttributes": ["AGI", "INS"], "coreSkills": ["stealth", "lockpicking"], "feature": "無聲切入" },
+  { "id": "commander", "name": "指揮官", "role": "團隊支援", "coreAttributes": ["CHA", "INS"], "coreSkills": ["leadership", "tactics"], "feature": "戰術指令" },
+  { "id": "medium", "name": "通靈者", "role": "靈性與控制", "coreAttributes": ["SPR", "WIL"], "coreSkills": ["spiritism", "occult"], "feature": "靈性連結" },
+  { "id": "survivor", "name": "求生者", "role": "生存與適應", "coreAttributes": ["VIT", "PER"], "coreSkills": ["survival", "firstAid"], "feature": "危機適應" }
+]

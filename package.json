@@ -1,0 +1,21 @@
+{
+  "name": "fateweave",
+  "version": "0.1.0",
+  "description": "FATEWEAVE rules engine prototype (Phase 0-1)",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc",
+    "sim": "tsx scripts/sim-report.ts",
+    "demo": "tsx scripts/demo.ts",
+    "build:web": "tsx scripts/build-web.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "private": true,
+  "type": "module"
+}

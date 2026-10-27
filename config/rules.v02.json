@@ -1,0 +1,96 @@
+{
+  "version": "0.2",
+  "attribute": {
+    "min": 0,
+    "max": 6,
+    "creationBase": 1,
+    "creationFreePoints": 10,
+    "creationMax": 3
+  },
+  "skill": {
+    "min": 0,
+    "max": 12,
+    "creationPoints": 20,
+    "creationMax": 4,
+    "creationCoreMin": 4
+  },
+  "check": {
+    "die": 20,
+    "wobble": {
+      "die": 6,
+      "offset": -3
+    },
+    "situationalCap": 3,
+    "naturalRules": true,
+    "autoSuccess": false,
+    "catastropheRequiresHighRisk": false
+  },
+  "difficulties": [
+    {
+      "key": "easy",
+      "name": "簡單",
+      "tn": 14
+    },
+    {
+      "key": "normal",
+      "name": "普通",
+      "tn": 18
+    },
+    {
+      "key": "hard",
+      "name": "困難",
+      "tn": 23
+    },
+    {
+      "key": "extreme",
+      "name": "極難",
+      "tn": 28
+    },
+    {
+      "key": "legendary",
+      "name": "傳奇",
+      "tn": 33
+    },
+    {
+      "key": "mythic",
+      "name": "神話",
+      "tn": 38
+    }
+  ],
+  "tiers": [
+    {
+      "key": "catastrophe",
+      "name": "災難性失敗",
+      "minMargin": null
+    },
+    {
+      "key": "failure",
+      "name": "失敗",
+      "minMargin": -7
+    },
+    {
+      "key": "partial",
+      "name": "部分成功",
+      "minMargin": -3
+    },
+    {
+      "key": "success",
+      "name": "普通成功",
+      "minMargin": 0
+    },
+    {
+      "key": "strong",
+      "name": "強成功",
+      "minMargin": 3
+    },
+    {
+      "key": "exceptional",
+      "name": "卓越成功",
+      "minMargin": 6
+    }
+  ],
+  "hp": {
+    "base": 10,
+    "perVit": 2
+  }
+}

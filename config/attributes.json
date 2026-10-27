@@ -1,0 +1,6 @@
+[
+  { "code": "STR", "name": "力量" }, { "code": "AGI", "name": "敏捷" }, { "code": "VIT", "name": "體魄" },
+  { "code": "PRE", "name": "精準" }, { "code": "PER", "name": "感知" }, { "code": "INT", "name": "智識" },
+  { "code": "WIL", "name": "意志" }, { "code": "CHA", "name": "魅力" }, { "code": "INS", "name": "直覺" },
+  { "code": "SPR", "name": "靈性" }
+]

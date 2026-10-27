@@ -1,0 +1,206 @@
+<title>FATEWEAVE 規則雛形</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a character sheet on the left, a dice table pinned on the right; stacks on phones. */
+:root {
+  --bg: #e9edf2; --surface: #fbfcfd; --ink: #1a2132; --muted: #5a6377; --line: #d3d9e3;
+  --accent: #34479a; --accent-ink: #ffffff; --thread: #b98a2e;
+  --t-catastrophe: #8f1f2c; --t-failure: #c9575d; --t-partial: #d39b3a;
+  --t-success: #4f8f86; --t-strong: #2f7a4f; --t-exceptional: #6a4fb3;
+  --ok: #2f7a4f; --bad: #b23b45;
+  --f-display: "Noto Serif TC", "Songti TC", serif;
+  --f-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121624; --surface: #1a2032; --ink: #e6e9f2; --muted: #9aa3b8; --line: #2c3550;
+  --accent: #8fa2f0; --accent-ink: #121624; --thread: #e0b25a;
+  --t-catastrophe: #e0606e; --t-failure: #e58a8f; --t-partial: #e6b65e;
+  --t-success: #6fbdb2; --t-strong: #63c08a; --t-exceptional: #a990f0;
+  --ok: #63c08a; --bad: #ef7a83; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121624; --surface: #1a2032; --ink: #e6e9f2; --muted: #9aa3b8; --line: #2c3550;
+  --accent: #8fa2f0; --accent-ink: #121624; --thread: #e0b25a;
+  --t-catastrophe: #e0606e; --t-failure: #e58a8f; --t-partial: #e6b65e;
+  --t-success: #6fbdb2; --t-strong: #63c08a; --t-exceptional: #a990f0;
+  --ok: #63c08a; --bad: #ef7a83; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { display: grid; gap: 6px; padding-bottom: 20px; margin-bottom: 24px;
+  border-bottom: 2px solid var(--ink); position: relative; }
+header.top::after { content: ""; position: absolute; left: 0; right: 0; bottom: -7px; border-bottom: 1px dashed var(--thread); }
+.brand { font-family: var(--f-display); font-weight: 900; font-size: clamp(28px, 5vw, 40px); letter-spacing: .12em; line-height: 1.1; text-wrap: balance; }
+.brand small { font-size: .42em; letter-spacing: .1em; font-weight: 600; color: var(--muted); margin-left: .6em; }
+.lede { color: var(--muted); max-width: 68ch; margin: 0; }
+
+.grid { display: grid; gap: 24px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 920px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+section.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 20px; display: grid; gap: 18px; min-width: 0; }
+h2 { font-family: var(--f-display); font-weight: 900; font-size: 22px; margin: 0; letter-spacing: .06em; }
+h3 { font-size: 13px; font-weight: 700; letter-spacing: .14em; color: var(--muted); margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.counter { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.counter[data-state="ok"] { color: var(--ok); border-color: var(--ok); }
+.counter[data-state="bad"] { color: var(--bad); border-color: var(--bad); }
+
+.row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input[type="text"], select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; width: 100%; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.class-info { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+.class-info b { color: var(--ink); }
+
+.steppers { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.stepper { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
+.stepper.core { border-color: var(--thread); }
+.stepper:not(.set) .st-label { color: var(--muted); }
+.st-label { font-size: 14px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.st-label i { font-style: normal; font-size: 10px; letter-spacing: .1em; color: var(--thread); border: 1px solid var(--thread); border-radius: 3px; padding: 0 4px; }
+.st-ctrl { display: flex; align-items: center; gap: 2px; }
+.st-ctrl output { font-family: var(--f-mono); font-weight: 600; width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
+.st-ctrl button { width: 28px; height: 28px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 3px; font: inherit; line-height: 1; cursor: pointer; }
+.st-ctrl button:disabled { opacity: .35; cursor: default; }
+fieldset { border: 0; padding: 0; margin: 0; display: contents; }
+legend { display: none; }
+.skills { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.note { font-size: 12px; color: var(--muted); margin: 0; }
+
+.errors { margin: 0; padding-left: 18px; color: var(--bad); font-size: 13px; }
+.errors:empty { display: none; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button.primary, button.ghost { font: inherit; font-weight: 700; padding: 9px 18px; border-radius: 4px; cursor: pointer; letter-spacing: .06em; }
+button.primary { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); }
+button.primary:disabled { opacity: .4; cursor: not-allowed; }
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+.hint { font-size: 13px; color: var(--muted); }
+
+.hero { border: 1px solid var(--thread); border-radius: 4px; padding: 12px 14px; display: grid; gap: 2px; background: var(--bg); }
+.hero strong { font-family: var(--f-display); font-size: 20px; }
+.hero code { font-family: var(--f-mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+.modes { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.modes label { flex: 1; text-align: center; cursor: pointer; }
+.modes input { position: absolute; opacity: 0; pointer-events: none; }
+.modes span { display: block; padding: 7px 4px; font-size: 14px; }
+.modes input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.modes input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sit { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.sit input { width: 100%; accent-color: var(--accent); }
+.sit output { font-family: var(--f-mono); font-weight: 600; width: 3ch; text-align: right; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.check input { accent-color: var(--bad); width: 16px; height: 16px; }
+
+.odds { display: grid; gap: 8px; padding: 12px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); }
+.odds-formula { font-family: var(--f-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.odds-head { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pill { font-weight: 700; color: var(--ink); border: 1px solid var(--ink); border-radius: 999px; padding: 1px 10px; font-size: 13px; }
+.pill.ok { color: var(--ok); border-color: var(--ok); }
+.pill.bad { color: var(--bad); border-color: var(--bad); }
+.bar { display: flex; height: 14px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--line); }
+.seg { display: block; min-width: 2px; }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 10px; font-size: 12px; }
+@media (max-width: 420px) { .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.legend li { display: flex; align-items: center; gap: 5px; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.legend b { margin-left: auto; font-family: var(--f-mono); font-weight: 400; font-variant-numeric: tabular-nums; color: var(--muted); }
+.t-catastrophe { --c: var(--t-catastrophe); } .t-failure { --c: var(--t-failure); } .t-partial { --c: var(--t-partial); }
+.t-success { --c: var(--t-success); } .t-strong { --c: var(--t-strong); } .t-exceptional { --c: var(--t-exceptional); }
+.seg, .legend i { background: var(--c); }
+
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.result { border-left: 3px solid var(--line); padding: 6px 0 6px 12px; display: grid; gap: 4px; }
+.result:first-child { border-left-color: var(--accent); }
+.r-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.r-head code { font-family: var(--f-mono); font-size: 11px; }
+.r-dice { display: flex; gap: 6px; }
+.die { font-family: var(--f-mono); font-weight: 600; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); }
+.die.used { border-color: var(--ink); color: var(--ink); }
+.die.used.n20 { border-color: var(--t-exceptional); color: var(--t-exceptional); }
+.die.used.n1 { border-color: var(--t-catastrophe); color: var(--t-catastrophe); }
+.r-tier { font-family: var(--f-display); font-weight: 900; font-size: 20px; color: var(--c); }
+.r-detail { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) { .result:first-child { animation: drop .25s ease-out; } }
+@keyframes drop { from { transform: translateY(-4px); opacity: .4; } to { transform: none; opacity: 1; } }
+footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">FATEWEAVE<small>規則雛形 v0.3</small></div>
+    <p class="lede">Phase 0–1 原型：依企畫書第二章建立角色，再用 v0.3 判定規則擲骰。每次調整都會即時顯示精確機率；畫面使用的規則引擎與自動化測試是同一套程式。</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel" aria-labelledby="sheet-h">
+      <h2 id="sheet-h">角色建立</h2>
+      <div class="row">
+        <label class="field" for="name">角色名稱<input id="name" type="text" maxlength="24" autocomplete="off"></label>
+        <label class="field" for="cls">職業<select id="cls"></select></label>
+      </div>
+      <div class="class-info" id="class-info"></div>
+
+      <h3>十項屬性 <span class="counter" id="attr-left"></span></h3>
+      <p class="note">每項從 1 起算，再分配 10 點；創角時單項 0–3，總和必須是 20。</p>
+      <div class="steppers" id="attrs"></div>
+
+      <h3>技能 <span class="counter" id="skill-left"></span></h3>
+      <p class="note">20 點技能點數，創角時單項最高 4，職業核心技能合計至少 4。標＊的技能是職業表用到、但初期技能清單沒有的暫定項。</p>
+      <div class="skills" id="skills"></div>
+
+      <ul class="errors" id="errors"></ul>
+      <div class="actions">
+        <button type="button" class="primary" id="create">建立角色</button>
+        <button type="button" class="ghost" id="example">套用職業範例配置</button>
+        <span class="hint" id="create-hint"></span>
+      </div>
+      <div class="hero" id="hero" hidden>
+        <strong id="hero-name"></strong>
+        <span id="hero-meta"></span>
+        <code>角色 ID <span id="hero-id"></span></code>
+      </div>
+    </section>
+
+    <section class="panel dice-panel" aria-labelledby="dice-h">
+      <h2 id="dice-h">行動判定</h2>
+      <p class="note" id="check-source"></p>
+      <form id="chk-form" class="row" style="grid-template-columns: minmax(0,1fr)">
+        <div class="row">
+          <label class="field" for="chk-attr">屬性<select id="chk-attr"></select></label>
+          <label class="field" for="chk-skill">技能<select id="chk-skill"></select></label>
+        </div>
+        <label class="field" for="chk-tn">難度<select id="chk-tn"></select></label>
+        <div class="field" role="radiogroup" aria-label="擲骰方式">
+          <span>擲骰方式</span>
+          <div class="modes">
+            <label><input type="radio" name="mode" id="m-normal" value="normal" checked><span>一般</span></label>
+            <label><input type="radio" name="mode" id="m-adv" value="advantage"><span>優勢</span></label>
+            <label><input type="radio" name="mode" id="m-dis" value="disadvantage"><span>劣勢</span></label>
+          </div>
+        </div>
+        <label class="field" for="chk-sit">情境＋裝備修正（上限 ±5）
+          <span class="sit"><input id="chk-sit" type="range" min="-5" max="5" step="1" value="0"><output id="sit-val">0</output></span>
+        </label>
+        <label class="check" for="chk-risk"><input id="chk-risk" type="checkbox"> GM 已事前標記為高風險（才可能出現災難性失敗）</label>
+
+        <div class="odds" aria-live="polite">
+          <div class="odds-formula" id="odds-formula"></div>
+          <div class="odds-head" id="odds-head"></div>
+          <div class="bar" id="odds-bar"></div>
+          <ul class="legend" id="odds-legend"></ul>
+        </div>
+        <div class="actions"><button type="submit" class="primary">擲骰</button></div>
+      </form>
+
+      <h3>判定紀錄</h3>
+      <p class="note" id="log-empty">還沒有擲骰。按「擲骰」後，結果會依序記在這裡。</p>
+      <ul class="log" id="log"></ul>
+    </section>
+  </div>
+  <footer>雛形只在瀏覽器內運作，重新整理後角色與紀錄會清空。正式版的角色、骰值與紀錄由伺服器保存。</footer>
+</div>
+<script>/*APP*/</script>
