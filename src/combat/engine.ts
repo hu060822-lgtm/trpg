@@ -74,6 +74,15 @@ export function defenseOf(target: Combatant, cfg: CombatConfig): number {
 }
 
 function die(ctx: Ctx, c: Combatant, cause: string) {
+  if (c.deathNeedsRuling) {
+    // The dice already decided; whether the death stands is a GM ruling (PvP). Held unconscious until then.
+    c.condition = 'stable';
+    c.hp = 0;
+    c.dying = { successes: 0, failures: 0 };
+    c.pendingDeath = cause;
+    emit(ctx, 'deathPending', c.id, { cause, characterId: c.characterId ?? null });
+    return;
+  }
   c.condition = 'dead';
   c.hp = 0;
   emit(ctx, 'death', c.id, { cause, permanent: true, characterId: c.characterId ?? null });
@@ -92,7 +101,7 @@ function stabilize(ctx: Ctx, c: Combatant, reason: string) {
 }
 
 function applyDamage(ctx: Ctx, target: Combatant, dmg: number, sourceId: string) {
-  if (dmg <= 0) return;
+  if (dmg <= 0 || target.pendingDeath) return;
   const { cfg } = ctx;
   if (canAct(target)) {
     target.hp = Math.max(0, target.hp - dmg);
@@ -152,6 +161,7 @@ function ableSides(s: CombatState): Set<string> {
 function endIfDecided(ctx: Ctx): boolean {
   const sides = ableSides(ctx.s);
   if (sides.size > 1) return false;
+  if (ctx.s.resolveDying && sides.size === 1 && Object.values(ctx.s.combatants).some((c) => c.condition === 'dying')) return false;
   ctx.s.status = 'ended';
   ctx.s.winner = sides.size === 1 ? [...sides][0] : null;
   ctx.s.turn = null;
@@ -204,6 +214,7 @@ export interface StartOptions {
   cfg?: CombatConfig;
   rng: Rng;
   now: Date;
+  resolveDying?: boolean;
 }
 
 export function startCombat(o: StartOptions): CombatState {
@@ -214,7 +225,7 @@ export function startCombat(o: StartOptions): CombatState {
   }
   const s: CombatState = {
     id: o.id, status: 'active', round: 1, order: [], combatants: {}, turn: null,
-    processed: {}, events: [], winner: null, seq: 0,
+    processed: {}, events: [], winner: null, seq: 0, resolveDying: !!o.resolveDying,
   };
   const ctx: Ctx = { s, rules: o.rules, cfg, rng: o.rng, now: o.now };
   for (const setup of o.combatants) {
@@ -222,7 +233,7 @@ export function startCombat(o: StartOptions): CombatState {
     armor(setup.armorId);
     if (setup.band < 0 || setup.band >= cfg.bands.count) throw new CombatError('bad-band', `band ${setup.band} out of range`);
     const c: Combatant = {
-      potions: 0, medkits: 0, deathProtected: false, ...setup,
+      potions: 0, medkits: 0, deathProtected: false, deathNeedsRuling: false, ...setup,
       hp: setup.hp ?? setup.maxHp, condition: 'healthy', dying: { successes: 0, failures: 0 },
       defending: false, initiative: 0,
     };

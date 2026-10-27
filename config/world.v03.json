@@ -1,0 +1,25 @@
+{
+  "version": "0.3",
+  "status": "provisional",
+  "note": "Phase 3 原型暫定值：區域、敵意宣告、殘影、偷竊與裁決。全部等 PvP 測試後再定案。",
+  "zones": {
+    "safe": { "name": "安全區", "pvp": false, "theft": false, "consequences": false },
+    "controlled": { "name": "管制區", "pvp": true, "theft": true, "consequences": true },
+    "wild": { "name": "荒野", "pvp": true, "theft": true, "consequences": false }
+  },
+  "hostilityLeadMinutes": 60,
+  "duel": { "inviteHours": 24 },
+  "afterimage": { "hours": 24, "coinLossRatio": 0.1 },
+  "awareness": { "base": 8, "attribute": "PER", "skill": "scouting" },
+  "theft": {
+    "approach": { "attribute": "AGI", "skill": "stealth" },
+    "grab": { "attribute": "PRE", "skill": "pickpocket", "tn": 14 },
+    "notice": { "attribute": "PER", "skill": "scouting" },
+    "concealment": { "base": 8, "attribute": "AGI", "skill": "stealth" },
+    "evidence": { "attribute": "INT", "skill": "stealth", "tn": 14 },
+    "guards": { "attribute": 2, "skill": 2 },
+    "minutes": 10
+  },
+  "search": { "attribute": "PER", "skill": "scouting", "minutes": 10 },
+  "rulings": { "uniqueItemTheft": true }
+}

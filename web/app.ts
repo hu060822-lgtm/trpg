@@ -10,6 +10,7 @@ import { randomRng } from '../src/rules/dice';
 import { distribution } from '../src/sim/enumerate';
 import type { AttributeCode, RollMode } from '../src/rules/types';
 import { initCombat } from './combat-ui';
+import { initWorld } from './world-ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -17,6 +18,37 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 let draft: CharacterDraft = { ...exampleBuild('scout', C), name: '灰鴉' };
 let hero: Character | null = null;
 let rollCount = 0;
+
+/** Roll visibility, as in VTT whisper/blind rolls: what the player sees vs what the GM sees. */
+type RollVis = 'public' | 'whisper' | 'blind';
+interface RollEntry { id: string; label: string; body: string; vis: RollVis; hiddenTn: string }
+const rolls: RollEntry[] = [];
+let logAs: 'player' | 'gm' = 'player';
+const VIS_TAG: Record<RollVis, string> = { public: '公開', whisper: '密骰：只有你與 GM', blind: 'GM 暗骰' };
+
+function renderLog() {
+  $('log').innerHTML = rolls.map((r) => {
+    const head = `<div class="r-head"><span>${esc(logAs === 'player' && r.vis === 'blind' ? r.hiddenTn : r.label)}</span><span class="r-vis v-${r.vis}">${VIS_TAG[r.vis]}</span><code>${r.id}</code></div>`;
+    if (logAs === 'player' && r.vis === 'blind') return `<li class="result">${head}<div class="r-detail">GM 替你擲了一次骰。骰值、難度與結果都保密，GM 會用敘事告訴你發生了什麼。</div></li>`;
+    return `<li class="result">${head}${r.body}</li>`;
+  }).join('');
+  $('log-empty').hidden = rolls.length > 0;
+}
+
+/** One-click rolls for the character's strongest pairings, like a VTT macro bar. */
+function renderMacros() {
+  const src = source();
+  const cls = CLASSES.find((c) => c.id === (hero ?? draft).classId)!;
+  const pairs: [AttributeCode, string][] = [];
+  for (const a of cls.coreAttributes) for (const s of cls.coreSkills) pairs.push([a, s]);
+  pairs.push(['PER', 'scouting'], ['INS', 'insight']);
+  const seen = new Set<string>();
+  $('macros').innerHTML = pairs.filter(([a, s]) => !seen.has(a + s) && seen.add(a + s)).map(([a, s]) => {
+    const an = ATTRIBUTES.find((x) => x.code === a)!.name;
+    const sn = SKILLS.find((x) => x.id === s)!.name;
+    return `<button type="button" data-attr="${a}" data-skill="${s}"><b>${esc(an)}＋${esc(sn)}</b><small>D20 ＋ ${src.attributes[a] + (src.skills[s] ?? 0)}</small></button>`;
+  }).join('');
+}
 
 // ---------- character creation ----------
 
@@ -109,6 +141,7 @@ function fillCheckSelects() {
   }).join('');
   aSel.value = a; sSel.value = s;
   $('check-source').textContent = hero ? `使用角色「${hero.name}」` : '使用目前的配置（尚未建立角色）';
+  renderMacros();
 }
 
 function currentInput() {
@@ -180,12 +213,9 @@ function roll(e: Event) {
       <div class="r-tier t-${r.tier}">${esc(r.tierName)}</div>
       <div class="r-detail">總值 ${r.total} − 目標 ${r.input.tn} ＝ 差距 ${r.margin > 0 ? '+' : ''}${r.margin}${esc(nat)}</div>`;
   }
-  const li = document.createElement('li');
-  li.className = 'result';
-  li.innerHTML = `<div class="r-head"><span>${esc(label)}</span><code>${id}</code></div>${body}`;
-  const log = $('log');
-  log.prepend(li);
-  $('log-empty').hidden = true;
+  const vis = ($<HTMLInputElement>('chk-form').querySelector('input[name="vis"]:checked') as HTMLInputElement).value as RollVis;
+  rolls.unshift({ id, label, body, vis, hiddenTn: `${attrName}＋${skillName}｜難度保密` });
+  renderLog();
 }
 
 // ---------- boot ----------
@@ -196,10 +226,10 @@ function boot() {
   clsSel.value = draft.classId;
   $<HTMLInputElement>('name').value = draft.name;
   $<HTMLSelectElement>('chk-tn').innerHTML = C.difficulties.map((d) => `<option value="${d.tn}">${esc(d.name)} ${d.tn}</option>`).join('');
-  $<HTMLSelectElement>('chk-tn').value = '16';
+  $<HTMLSelectElement>('chk-tn').value = '14';
 
   $('name').addEventListener('input', (e) => { draft.name = (e.target as HTMLInputElement).value; renderSheet(); });
-  clsSel.addEventListener('change', () => { draft.classId = clsSel.value; renderSheet(); });
+  clsSel.addEventListener('change', () => { draft.classId = clsSel.value; renderSheet(); renderMacros(); });
   $('attrs').addEventListener('click', (e) => { onStep(e); fillCheckSelects(); renderOdds(); });
   $('skills').addEventListener('click', (e) => { onStep(e); fillCheckSelects(); renderOdds(); });
   $('example').addEventListener('click', () => {
@@ -213,9 +243,25 @@ function boot() {
   $('chk-form').addEventListener('input', renderOdds);
   $('chk-form').addEventListener('change', renderOdds);
   $('chk-form').addEventListener('submit', roll);
+  $('macros').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-attr]');
+    if (!b) return;
+    $<HTMLSelectElement>('chk-attr').value = b.dataset.attr!;
+    $<HTMLSelectElement>('chk-skill').value = b.dataset.skill!;
+    renderOdds();
+    $<HTMLFormElement>('chk-form').requestSubmit();
+  });
+  $('log-as').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-as]');
+    if (!b) return;
+    logAs = b.dataset.as as 'player' | 'gm';
+    for (const x of $('log-as').querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+    renderLog();
+  });
 
   renderSheet(); renderHero(); fillCheckSelects(); renderOdds();
   initCombat(() => ({ draft: hero ?? draft, created: !!hero }));
+  initWorld();
 }
 
 boot();

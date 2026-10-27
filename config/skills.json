@@ -8,7 +8,7 @@
   {"id": "tracking", "name": "追蹤", "category": "探索"},
   {"id": "stealth", "name": "潛行", "category": "探索"},
   {"id": "climbing", "name": "攀爬", "category": "探索"},
-  {"id": "lockpicking", "name": "開鎖", "category": "操作"},
+  {"id": "lockpicking", "name": "開鎖", "category": "操作"}, { "id": "pickpocket", "name": "扒竊", "category": "操作" },
   {"id": "engineering", "name": "工程", "category": "操作"},
   {"id": "crafting", "name": "製作", "category": "操作"},
   {"id": "disarm", "name": "拆陷阱", "category": "操作"},
