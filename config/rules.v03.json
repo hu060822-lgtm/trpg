@@ -9,9 +9,9 @@
   },
   "skill": {
     "min": 0,
-    "max": 12,
+    "max": 7,
     "creationPoints": 20,
-    "creationMax": 4,
+    "creationMax": 3,
     "creationCoreMin": 4,
     "tiers": [
       {
@@ -21,27 +21,27 @@
       },
       {
         "min": 1,
-        "max": 2,
+        "max": 1,
         "name": "初學者"
       },
       {
-        "min": 3,
-        "max": 4,
+        "min": 2,
+        "max": 3,
         "name": "熟練者"
       },
       {
-        "min": 5,
-        "max": 6,
+        "min": 4,
+        "max": 5,
         "name": "專家"
       },
       {
-        "min": 7,
-        "max": 9,
+        "min": 6,
+        "max": 6,
         "name": "大師"
       },
       {
-        "min": 10,
-        "max": 12,
+        "min": 7,
+        "max": 7,
         "name": "傳奇"
       }
     ]
@@ -58,32 +58,32 @@
     {
       "key": "easy",
       "name": "簡單",
-      "tn": 12
+      "tn": 11
     },
     {
       "key": "normal",
       "name": "普通",
-      "tn": 16
+      "tn": 14
     },
     {
       "key": "hard",
       "name": "困難",
-      "tn": 20
+      "tn": 17
     },
     {
       "key": "extreme",
       "name": "極難",
-      "tn": 24
+      "tn": 20
     },
     {
       "key": "legendary",
       "name": "傳奇",
-      "tn": 28
+      "tn": 23
     },
     {
       "key": "mythic",
       "name": "神話",
-      "tn": 32
+      "tn": 26
     }
   ],
   "tiers": [

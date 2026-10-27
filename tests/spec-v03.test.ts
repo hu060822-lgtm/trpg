@@ -35,10 +35,18 @@ describe('ruleset selection', () => {
 });
 
 describe('difficulty table', () => {
-  it('is exactly TN 12/16/20/24/28/32 with the agreed names', () => {
+  it('is TN 11/14/17/20/23/26 (step 3, for skills 0–7) with the agreed names', () => {
     expect(C.difficulties.map((d) => [d.name, d.tn])).toEqual([
-      ['簡單', 12], ['普通', 16], ['困難', 20], ['極難', 24], ['傳奇', 28], ['神話', 32],
+      ['簡單', 11], ['普通', 14], ['困難', 17], ['極難', 20], ['傳奇', 23], ['神話', 26],
     ]);
+  });
+
+  it('keeps 神話 out of reach of a maxed character without outside help', () => {
+    const maxBonus = { attribute: C.attribute.max, skill: C.skill.max };
+    expect(maxBonus.attribute + maxBonus.skill).toBe(13);
+    const mythic = C.difficulties.at(-1)!.tn;
+    expect(distribution({ ...maxBonus, tn: mythic }, C).pSuccess).toBeLessThan(0.5);
+    expect(distribution({ ...maxBonus, tn: mythic, situational: 3, mode: 'advantage' }, C).pSuccess).toBeGreaterThan(0.5);
   });
 });
 
@@ -71,9 +79,12 @@ describe('natural 1/20 switch', () => {
 });
 
 describe('skill tiers', () => {
+  it('skill levels run 0–7 and creation allows at most 3', () => {
+    expect([C.skill.min, C.skill.max, C.skill.creationMax]).toEqual([0, 7, 3]);
+  });
+
   it.each([
-    [0, '未受訓練'], [1, '初學者'], [2, '初學者'], [3, '熟練者'], [4, '熟練者'], [5, '專家'], [6, '專家'],
-    [7, '大師'], [9, '大師'], [10, '傳奇'], [12, '傳奇'],
+    [0, '未受訓練'], [1, '初學者'], [2, '熟練者'], [3, '熟練者'], [4, '專家'], [5, '專家'], [6, '大師'], [7, '傳奇'],
   ])('level %i is %s', (level, name) => {
     expect(skillTierName(level, C)).toBe(name);
   });
@@ -82,7 +93,7 @@ describe('skill tiers', () => {
     for (let lv = C.skill.min; lv <= C.skill.max; lv++) {
       expect(C.skill.tiers.filter((t) => lv >= t.min && lv <= t.max)).toHaveLength(1);
     }
-    expect(() => skillTierName(13, C)).toThrow(RangeError);
+    expect(() => skillTierName(8, C)).toThrow(RangeError);
   });
 });
 
