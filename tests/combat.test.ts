@@ -187,6 +187,25 @@ describe('dying and permanent death', () => {
   });
 });
 
+describe('PvP deaths wait for a GM', () => {
+  it('a combatant whose death needs a ruling is held unconscious instead of dying, and ignores further harm', () => {
+    // massive damage on the dying wolf would normally kill it outright
+    const axe = fight([hero({ weaponId: 'greataxe' }), wolf({ hp: 1, maxHp: 6, deathNeedsRuling: true, characterId: 'c-wolf' }), wolf({ id: 'wolf2' })], [15, 5, 1]);
+    let t = act(axe, 'hero', { type: 'attack', targetId: 'wolf' }, [10]).state;
+    t = submitAction(t, sub(t, 'hero', { type: 'endTurn' }), R, scriptedRng([10]), T0).state;
+    t = act(t, 'wolf2', { type: 'endTurn' }).state;
+    const kill = act(t, 'hero', { type: 'attack', targetId: 'wolf' }, [10]);
+    expect(kill.state.combatants.wolf).toMatchObject({ condition: 'stable', hp: 0, pendingDeath: 'massive-damage' });
+    expect(kill.events.find((e) => e.kind === 'deathPending')!.data).toMatchObject({ cause: 'massive-damage', characterId: 'c-wolf' });
+    expect(kill.events.some((e) => e.kind === 'death')).toBe(false);
+    let u = act(kill.state, 'hero', { type: 'endTurn' }).state; // the held wolf rolls no death saves
+    u = act(u, 'wolf2', { type: 'endTurn' }).state;
+    const again = act(u, 'hero', { type: 'attack', targetId: 'wolf' }, [10]);
+    expect(again.state.combatants.wolf).toMatchObject({ condition: 'stable', hp: 0, pendingDeath: 'massive-damage' });
+    expect(again.events.some((e) => e.kind === 'death' || e.kind === 'dyingHit')).toBe(false);
+  });
+});
+
 describe('rescue, protection, timeouts and the end of combat', () => {
   const medic = (o: Partial<CombatantSetup> = {}): CombatantSetup => ({
     id: 'mira', name: '米菈', side: 'party', controller: 'u2', characterId: 'c-mira',

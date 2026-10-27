@@ -51,7 +51,7 @@ export interface WorldSeed {
 export function createWorld(seed: WorldSeed, gms: WorldState['gms']): WorldState {
   const s: WorldState = {
     id: seed.id, name: seed.name, day: seed.day, locations: {}, npcs: {}, items: {}, characters: {},
-    hostilities: [], rulings: {}, gms, seq: 0,
+    hostilities: [], duels: [], rulings: {}, gms, seq: 0,
   };
   for (const l of seed.locations) s.locations[l.id] = { clock: 0, ...l, version: 1 };
   for (const n of seed.npcs) s.npcs[n.id] = { status: 'alive', ...n, version: 1 };
@@ -223,12 +223,31 @@ export function pvpLegality(s: WorldState, attackerId: string, targetId: string,
     const waited = l.clock - h.at;
     if (waited < cfg.hostilityLeadMinutes) return no(`宣告敵意後要等 ${cfg.hostilityLeadMinutes} 分鐘（遊戲時間），還差 ${cfg.hostilityLeadMinutes - waited} 分鐘`);
   }
-  // Permanent death in PvP needs the victim online or opted in; an afterimage can never be killed.
-  const lethal = t.online && !afterimageActive(t, now) ? true : t.lethalPvpOptIn && !afterimageActive(t, now);
+  // Without an accepted duel, PvP is lethal only if the target opted in; an afterimage can never be killed.
+  const lethal = t.lethalPvpOptIn && !afterimageActive(t, now);
   return {
     allowed: true, lethal, crime: zone.consequences,
-    reason: `${zone.name}允許 PvP${lethal ? '' : '；目標最多被打到穩定昏迷，不會死亡'}${zone.consequences ? '；會留下犯罪紀錄' : ''}`,
+    reason: `${zone.name}允許 PvP${lethal ? '' : '；沒有決鬥約定，目標最多被打到穩定昏迷，不會死亡'}${zone.consequences ? '；會留下犯罪紀錄' : ''}`,
   };
+}
+
+/**
+ * A duel both sides agreed to: needs the same location and a zone that allows PvP, but no hostility lead
+ * (both consented) and it may be lethal. Any death still waits for a GM to confirm it.
+ */
+export function duelLegality(s: WorldState, duelId: string, now: Date, cfg: WorldConfig = WORLD_V03): PvpLegality {
+  const no = (reason: string): PvpLegality => ({ allowed: false, reason, lethal: false, crime: false });
+  const d = s.duels.find((x) => x.id === duelId);
+  if (!d) return no('找不到這份決鬥邀請');
+  if (d.status !== 'pending') return no('這份邀請已經回覆過了');
+  if (now >= new Date(d.expires)) return no('決鬥邀請已經過期');
+  const a = s.characters[d.from];
+  const t = s.characters[d.to];
+  if (a.status === 'dead' || t.status === 'dead') return no('有一方已經死亡');
+  if (a.locationId !== t.locationId) return no('雙方不在同一個地點');
+  const zone = cfg.zones[s.locations[a.locationId].zone];
+  if (!zone.pvp) return no(`${zone.name}禁止決鬥`);
+  return { allowed: true, lethal: true, crime: false, duel: true, reason: `雙方同意的決鬥，可能致命；死亡須經 GM 確認` };
 }
 
 export function afterimageActive(c: WorldCharacter, now: Date) {
@@ -366,6 +385,50 @@ function perform(ctx: Ctx, cmd: WorldCommand): WorldResult['pvp'] {
       gmEvent(ctx, 'pvpLegality', `PvP 合法性：${legality.reason}`, { ...legality, attackerId: c.id, targetId: t.id }, l.id);
       return { attackerId: c.id, targetId: t.id, locationId: l.id, legality };
     }
+    case 'inviteDuel': {
+      const c = active(ctx, cmd.characterId);
+      const t = character(ctx, cmd.targetId);
+      if (t.id === c.id || t.status === 'dead') throw new WorldError('bad-target', '不能向這個角色提出決鬥');
+      const expires = new Date(ctx.now.getTime() + cfg.duel.inviteHours * 3600_000).toISOString();
+      const d = { id: `D${s.seq + 1}`, from: c.id, to: t.id, locationId: c.locationId, expires, status: 'pending' as const };
+      s.duels = s.duels.filter((x) => !(x.from === c.id && x.to === t.id && x.status === 'pending'));
+      s.duels.push(d);
+      audit(ctx, 'character', c.id, null, { duel: d }, 'duel invitation', true);
+      privateEvent(ctx, [c.id, t.id], 'duelInvited', `${c.name} 向 ${t.name} 提出決鬥邀請（${cfg.duel.inviteHours} 小時內有效）。接受就代表同意這場決鬥可能致命。`, { duelId: d.id, from: c.id, to: t.id, expires }, c.locationId);
+      return;
+    }
+    case 'respondDuel': {
+      const c = active(ctx, cmd.characterId);
+      const d = s.duels.find((x) => x.id === cmd.duelId);
+      if (!d || d.to !== c.id) throw new WorldError('bad-duel', '沒有給你的這份決鬥邀請');
+      if (!cmd.accept) {
+        if (d.status !== 'pending') throw new WorldError('bad-duel', '這份邀請已經回覆過了');
+        audit(ctx, 'character', c.id, { duel: { ...d } }, { duel: { ...d, status: 'declined' } }, 'duel declined', false);
+        d.status = 'declined';
+        privateEvent(ctx, [d.from, d.to], 'duelDeclined', `${c.name} 拒絕了決鬥`, { duelId: d.id });
+        return;
+      }
+      const legality = duelLegality(s, d.id, ctx.now, cfg);
+      if (!legality.allowed) throw new WorldError('duel-illegal', legality.reason);
+      audit(ctx, 'character', c.id, { duel: { ...d } }, { duel: { ...d, status: 'accepted' } }, 'duel accepted', false);
+      d.status = 'accepted';
+      const a = character(ctx, d.from);
+      sceneEvent(ctx, c.locationId, 'duelStarted', `${a.name} 與 ${c.name} 的決鬥開始了`, { duelId: d.id, from: a.id, to: c.id });
+      return { attackerId: a.id, targetId: c.id, locationId: c.locationId, legality };
+    }
+    case 'openDeathRuling': {
+      if (ctx.actor.role !== 'system') throw new WorldError('forbidden', '只有系統能建立死亡裁決');
+      const c = character(ctx, cmd.characterId);
+      const id = `R${s.seq + 1}`;
+      s.rulings[id] = {
+        id, kind: 'pvp-death', status: 'open', subjects: [c.id, cmd.attackerId], characterId: c.id, combatId: cmd.combatId, cause: cmd.cause,
+        summary: `${c.name} 在 PvP 戰鬥 ${cmd.combatId} 中被判定死亡`, version: 1,
+      };
+      audit(ctx, 'ruling', id, null, clone(s.rulings[id]), 'pvp death pending', false);
+      gmEvent(ctx, 'rulingOpened', `PvP 死亡待確認（${id}）：${c.name}，原因 ${cmd.cause}。角色暫時昏迷，GM 確認後才寫入永久死亡。`, { rulingId: id, characterId: c.id, combatId: cmd.combatId });
+      privateEvent(ctx, [c.id, cmd.attackerId], 'rulingOpened', `${c.name} 倒下了。這次死亡要等 GM 確認（${id}），在那之前角色處於昏迷。`, { rulingId: id }, c.locationId);
+      return;
+    }
     case 'steal':
       steal(ctx, cmd.characterId, cmd.targetId, cmd.itemId);
       return;
@@ -429,7 +492,10 @@ function perform(ctx: Ctx, cmd: WorldCommand): WorldResult['pvp'] {
         });
       }
       change(ctx, 'ruling', r.id, r, cmd.decision, false, (t) => { t.status = cmd.decision === 'confirm' ? 'confirmed' : 'overturned'; t.decidedBy = ctx.actor.userId; });
-      const text = `裁決單 ${r.id}（${r.summary}）${cmd.decision === 'confirm' ? '維持原結果' : '撤銷，物品歸還原持有者'}`;
+      const outcome = r.kind === 'pvp-death'
+        ? (cmd.decision === 'confirm' ? '確認死亡，寫入永久死亡紀錄' : '不成立，角色以 1 HP 昏迷倖存')
+        : (cmd.decision === 'confirm' ? '維持原結果' : '撤銷，物品歸還原持有者');
+      const text = `裁決單 ${r.id}（${r.summary}）${outcome}`;
       privateEvent(ctx, r.subjects, 'ruling', text, { rulingId: r.id, decision: cmd.decision });
       gmEvent(ctx, 'ruling', text, { rulingId: r.id, decision: cmd.decision });
       return;

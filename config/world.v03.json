@@ -8,11 +8,12 @@
     "wild": { "name": "荒野", "pvp": true, "theft": true, "consequences": false }
   },
   "hostilityLeadMinutes": 60,
+  "duel": { "inviteHours": 24 },
   "afterimage": { "hours": 24, "coinLossRatio": 0.1 },
   "awareness": { "base": 8, "attribute": "PER", "skill": "scouting" },
   "theft": {
     "approach": { "attribute": "AGI", "skill": "stealth" },
-    "grab": { "attribute": "PRE", "skill": "lockpicking", "tn": 14 },
+    "grab": { "attribute": "PRE", "skill": "pickpocket", "tn": 14 },
     "notice": { "attribute": "PER", "skill": "scouting" },
     "concealment": { "base": 8, "attribute": "AGI", "skill": "stealth" },
     "evidence": { "attribute": "INT", "skill": "stealth", "tn": 14 },

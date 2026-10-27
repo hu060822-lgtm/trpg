@@ -144,14 +144,14 @@ export class CombatStore {
 
   // ---------- combats ----------
 
-  createCombat(id: string, combatants: CombatantSetup[], rng: Rng, now: Date): CombatState {
+  createCombat(id: string, combatants: CombatantSetup[], rng: Rng, now: Date, opts: { resolveDying?: boolean } = {}): CombatState {
     return this.tx(() => {
       for (const c of combatants) {
         if (c.characterId && this.getCharacter(c.characterId).status === 'dead') {
           throw new StoreError('character-dead', `${c.name} 已永久死亡，不能參與戰鬥`);
         }
       }
-      const state = startCombat({ id, combatants, rules: this.rules, rng, now });
+      const state = startCombat({ id, combatants, rules: this.rules, rng, now, ...opts });
       this.db.prepare('INSERT INTO combats (id, status, state, deadline, version) VALUES (?, ?, ?, ?, 1)')
         .run(id, state.status, JSON.stringify(state), state.turn?.deadline ?? null);
       this.persistEvents(state, state.events);
@@ -204,13 +204,25 @@ export class CombatStore {
   private syncCharacters(state: CombatState, events: CombatEvent[]) {
     const upd = this.db.prepare("UPDATE characters SET hp = ?, condition = ?, version = version + 1 WHERE id = ? AND status = 'alive'");
     for (const c of Object.values(state.combatants)) {
-      if (c.characterId) upd.run(c.hp, c.condition, c.characterId);
+      if (c.characterId) upd.run(c.hp, c.pendingDeath ? 'deathPending' : c.condition, c.characterId);
     }
     for (const e of events.filter((ev) => ev.kind === 'death' && ev.data.characterId)) {
-      const characterId = e.data.characterId as string;
+      this.recordDeath(e.data.characterId as string, String(e.data.cause), state.id, e.at, e.seq);
+    }
+  }
+
+  /** Writes a permanent death: the character row and its death record commit together. */
+  recordDeath(characterId: string, cause: string, combatId: string | null, at: string, eventSeq: number | null = null) {
+    this.tx(() => {
       this.db.prepare("UPDATE characters SET status = 'dead', condition = 'dead', hp = 0, version = version + 1 WHERE id = ?").run(characterId);
       this.db.prepare('INSERT INTO death_records (character_id, combat_id, cause, at, event_seq) VALUES (?, ?, ?, ?, ?)')
-        .run(characterId, state.id, String(e.data.cause), e.at, e.seq);
-    }
+        .run(characterId, combatId, cause, at, eventSeq);
+    });
+  }
+
+  /** A GM overturned a pending PvP death: the character survives, unconscious at 1 HP. */
+  sparePendingDeath(characterId: string) {
+    const r = this.db.prepare("UPDATE characters SET condition = 'stable', hp = 1, version = version + 1 WHERE id = ? AND condition = 'deathPending'").run(characterId);
+    if (r.changes !== 1) throw new StoreError('not-pending', '這個角色沒有待確認的死亡');
   }
 }

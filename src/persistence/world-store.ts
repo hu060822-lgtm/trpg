@@ -1,4 +1,4 @@
-import type { CombatState } from '../combat/types';
+import type { CombatState, Submission } from '../combat/types';
 import type { Rng } from '../rules/dice';
 import type { RulesConfig } from '../rules/types';
 import { WORLD_V03, WorldError, applyWorld, createWorld, joinWorld, type WorldResult, type WorldSeed } from '../world/engine';
@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS worlds (
   seq INTEGER NOT NULL,
   gms TEXT NOT NULL,
   hostilities TEXT NOT NULL,
+  duels TEXT NOT NULL DEFAULT '[]',
   version INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS world_locations (id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id), data TEXT NOT NULL, version INTEGER NOT NULL);
@@ -103,7 +104,7 @@ export class WorldStore {
   /** Full world state (server side). Life and death always come from the characters table. */
   load(worldId: string): WorldState {
     const w = this.db.prepare('SELECT * FROM worlds WHERE id = ?').get(worldId) as
-      { id: string; name: string; day: number; seq: number; gms: string; hostilities: string } | undefined;
+      { id: string; name: string; day: number; seq: number; gms: string; hostilities: string; duels: string } | undefined;
     if (!w) throw new StoreError('not-found', `world ${worldId} not found`);
     const rows = (table: string) => this.db.prepare(`SELECT id, data, version FROM ${table} WHERE world_id = ?`).all(worldId) as Row[];
     const map = <T>(table: string) => Object.fromEntries(rows(table).map((r) => [r.id, { ...JSON.parse(r.data), version: r.version } as T]));
@@ -114,7 +115,7 @@ export class WorldStore {
       c.condition = stored.condition;
     }
     return {
-      id: w.id, name: w.name, day: w.day, seq: w.seq, gms: JSON.parse(w.gms), hostilities: JSON.parse(w.hostilities),
+      id: w.id, name: w.name, day: w.day, seq: w.seq, gms: JSON.parse(w.gms), hostilities: JSON.parse(w.hostilities), duels: JSON.parse(w.duels),
       locations: map('world_locations'), npcs: map('world_npcs'), items: map('world_items'), characters, rulings: map('world_rulings'),
     };
   }
@@ -148,16 +149,62 @@ export class WorldStore {
       const before = snapshot ?? this.load(worldId);
       const res = applyWorld(before, sub, this.rules, rng, now, this.cfg);
       this.persist(before, res);
+      this.applyDeathRulings(res, now);
       let combat: CombatState | undefined;
       if (res.pvp) combat = this.openPvp(res, now, rng);
       return { ...res, combat };
     });
   }
 
+  /** A closed pvp-death ruling writes its outcome to the character: permanent death, or survival at 1 HP. */
+  private applyDeathRulings(res: WorldResult, now: Date) {
+    for (const c of res.changes) {
+      if (c.entity !== 'ruling') continue;
+      const r = res.state.rulings[c.entityId];
+      if (r.kind !== 'pvp-death' || r.status === 'open' || (c.before as { status?: string } | null)?.status !== 'open') continue;
+      if (r.status === 'confirmed') this.combat.recordDeath(r.characterId!, `pvp:${r.cause}`, r.combatId!, now.toISOString());
+      else this.combat.sparePendingDeath(r.characterId!);
+    }
+  }
+
+  /** A PvP combat command. Deaths it produces are held and turned into GM rulings in the same transaction. */
+  submitCombat(worldId: string, combatId: string, sub: Submission, rng: Rng, now: Date) {
+    return this.combat.tx(() => {
+      const res = this.combat.submit(combatId, sub, rng, now);
+      this.openPendingDeathRulings(worldId, now);
+      return res;
+    });
+  }
+
+  runCombatTimeouts(worldId: string, rng: Rng, now: Date) {
+    return this.combat.tx(() => {
+      const ids = this.combat.runTimeouts(rng, now);
+      this.openPendingDeathRulings(worldId, now);
+      return ids;
+    });
+  }
+
+  private openPendingDeathRulings(worldId: string, now: Date) {
+    const s = this.load(worldId);
+    for (const c of Object.values(s.characters)) {
+      if (c.condition !== 'deathPending') continue;
+      if (Object.values(s.rulings).some((r) => r.kind === 'pvp-death' && r.characterId === c.id && r.status === 'open')) continue;
+      const ev = this.db.prepare("SELECT combat_id, event FROM combat_events WHERE kind = 'deathPending' AND json_extract(event, '$.data.characterId') = ? ORDER BY rowid DESC LIMIT 1")
+        .get(c.id) as { combat_id: string; event: string } | undefined;
+      if (!ev) continue;
+      const combat = this.combat.loadCombat(ev.combat_id);
+      const attacker = Object.values(combat.combatants).find((x) => x.characterId && x.characterId !== c.id)?.characterId ?? 'unknown';
+      this.run(worldId, {
+        actor: { userId: 'system', role: 'system' },
+        command: { type: 'openDeathRuling', characterId: c.id, attackerId: attacker, combatId: ev.combat_id, cause: String(JSON.parse(ev.event).data.cause) },
+      }, () => 1, now);
+    }
+  }
+
   private persist(before: WorldState, res: WorldResult) {
     const s = res.state;
-    const w = this.db.prepare('UPDATE worlds SET day = ?, seq = ?, hostilities = ?, version = version + 1 WHERE id = ? AND seq = ?')
-      .run(s.day, s.seq, JSON.stringify(s.hostilities), s.id, before.seq);
+    const w = this.db.prepare('UPDATE worlds SET day = ?, seq = ?, hostilities = ?, duels = ?, version = version + 1 WHERE id = ? AND seq = ?')
+      .run(s.day, s.seq, JSON.stringify(s.hostilities), JSON.stringify(s.duels), s.id, before.seq);
     if (w.changes !== 1) throw new WorldError('conflict', '世界狀態已被其他操作更新，請重新讀取');
     const write = (table: string, id: string, oldVersion: number | undefined, data: { version: number }, extra: Record<string, string> = {}) => {
       if (oldVersion === undefined) {
@@ -194,9 +241,12 @@ export class WorldStore {
     const { attackerId, targetId, legality } = res.pvp!;
     const id = `pvp-${res.state.id}-${res.state.seq}`;
     return this.combat.createCombat(id, [
-      this.combat.combatantFor(attackerId, { id: attackerId, side: `pvp-${attackerId}`, band: 1, weaponId: 'fists', armorId: 'none' }),
-      this.combat.combatantFor(targetId, { id: targetId, side: `pvp-${targetId}`, band: 1, weaponId: 'fists', armorId: 'none', deathProtected: !legality.lethal }),
-    ], rng, now);
+      // Every PvP death waits for a GM ruling; a non-lethal target cannot reach death at all.
+      this.combat.combatantFor(attackerId, { id: attackerId, side: `pvp-${attackerId}`, band: 1, weaponId: 'fists', armorId: 'none', deathNeedsRuling: true }),
+      this.combat.combatantFor(targetId, {
+        id: targetId, side: `pvp-${targetId}`, band: 1, weaponId: 'fists', armorId: 'none', deathProtected: !legality.lethal, deathNeedsRuling: true,
+      }),
+    ], rng, now, { resolveDying: true });
   }
 
   /** Scheduler hooks: daily tick (1 game day = 1 real day) and afterimage expiry. */

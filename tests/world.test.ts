@@ -24,7 +24,7 @@ function world(where = 'ruins', where2 = where): WorldState {
     'gm-main': { role: 'main' }, 'gm-ruins': { role: 'scene', locations: ['ruins'] }, 'gm-arb': { role: 'arbiter' },
   });
   s = joinWorld(s, { id: 'crow', ownerUserId: 'u1', name: '灰鴉', attributes: attrs({ PER: 2, STR: 3 }), skills: { scouting: 1, melee: 3 }, coins: 50 }, where);
-  s = joinWorld(s, { id: 'nightingale', ownerUserId: 'u2', name: '夜鶯', attributes: attrs({ AGI: 3, PRE: 3, INT: 2, PER: 3 }), skills: { stealth: 3, lockpicking: 3, scouting: 3 } }, where2);
+  s = joinWorld(s, { id: 'nightingale', ownerUserId: 'u2', name: '夜鶯', attributes: attrs({ AGI: 3, PRE: 3, INT: 2, PER: 3 }), skills: { stealth: 3, pickpocket: 3, scouting: 3 } }, where2);
   return s;
 }
 
@@ -156,7 +156,7 @@ describe('PvP legality (approved draft: zones, hostility, afterimage protection)
     s = run(s, U1, { type: 'declareHostility', characterId: 'crow', targetId: 'nightingale' }).state;
     expect(pvpLegality(s, 'crow', 'nightingale', T0).reason).toMatch(/還差 60 分鐘/);
     s = run(s, U1, { type: 'wait', characterId: 'crow', minutes: 60 }).state;
-    expect(pvpLegality(s, 'crow', 'nightingale', T0)).toMatchObject({ allowed: true, lethal: true, crime: true });
+    expect(pvpLegality(s, 'crow', 'nightingale', T0)).toMatchObject({ allowed: true, lethal: false, crime: true }); // no duel, no opt-in
     const r = run(s, U1, { type: 'attack', characterId: 'crow', targetId: 'nightingale' });
     expect(r.pvp).toMatchObject({ attackerId: 'crow', targetId: 'nightingale' });
     expect(r.state.characters.crow.crimes).toEqual([{ locationId: 'market', kind: 'assault', day: 1 }]);
@@ -190,7 +190,7 @@ describe('PvP legality (approved draft: zones, hostility, afterimage protection)
 
 describe('theft in four checks', () => {
   // nightingale: approach AGI 3 + stealth 3 vs crow's awareness 8 + PER 2 + scouting 1 = 11
-  //              grab PRE 3 + lockpicking 3 vs 14; crow notices with PER 2 + scouting 1 vs 8 + 3 + 3 = 14
+  //              grab PRE 3 + pickpocket 3 vs 14; crow notices with PER 2 + scouting 1 vs 8 + 3 + 3 = 14
   //              evidence INT 2 + stealth 3 vs 14
   const robbed = (where: string) => {
     let s = world(where);
@@ -252,5 +252,33 @@ describe('theft in four checks', () => {
     const r = run(s, U2, { type: 'steal', characterId: 'nightingale', targetId: 'crow', itemId: 'bell-heart' }, [5, 10, 3, 12]);
     expect((r.events.find((e) => e.kind === 'theft')!.data as any).steps.notice.by).toBe('guards');
     expect(r.state.items['bell-heart'].holder.id).toBe('nightingale');
+  });
+});
+
+describe('duels (lethal PvP needs an accepted invitation)', () => {
+  it('an accepted duel is lethal and needs no hostility lead, even in a controlled zone', () => {
+    let s = world('market');
+    const inv = run(s, U1, { type: 'inviteDuel', characterId: 'crow', targetId: 'nightingale' });
+    s = inv.state;
+    const duelId = s.duels[0].id;
+    expect(historyFor(s, U2, inv.events).map((e) => e.kind)).toContain('duelInvited');
+    expect(() => run(s, U1, { type: 'respondDuel', characterId: 'crow', duelId, accept: true })).toThrow(/沒有給你/);
+    const r = run(s, U2, { type: 'respondDuel', characterId: 'nightingale', duelId, accept: true });
+    expect(r.pvp!.legality).toMatchObject({ allowed: true, lethal: true, duel: true, crime: false });
+    expect(r.pvp).toMatchObject({ attackerId: 'crow', targetId: 'nightingale' });
+    expect(() => run(r.state, U2, { type: 'respondDuel', characterId: 'nightingale', duelId, accept: true })).toThrow(/回覆過/);
+  });
+
+  it('invitations expire, can be declined, and a duel is still forbidden in a safe zone', () => {
+    let s = run(world('road'), U1, { type: 'inviteDuel', characterId: 'crow', targetId: 'nightingale' }).state;
+    const id = s.duels[0].id;
+    expect(() => run(s, U2, { type: 'respondDuel', characterId: 'nightingale', duelId: id, accept: true }, [], new Date('2026-10-28T12:00:00Z'))).toThrow(/過期/);
+    expect(run(s, U2, { type: 'respondDuel', characterId: 'nightingale', duelId: id, accept: false }).state.duels[0].status).toBe('declined');
+    s = run(world('plaza'), U1, { type: 'inviteDuel', characterId: 'crow', targetId: 'nightingale' }).state;
+    expect(() => run(s, U2, { type: 'respondDuel', characterId: 'nightingale', duelId: s.duels[0].id, accept: true })).toThrow(/安全區禁止決鬥/);
+  });
+
+  it('only the system can open a death ruling', () => {
+    expect(() => run(world(), MAIN, { type: 'openDeathRuling', characterId: 'crow', attackerId: 'nightingale', combatId: 'c', cause: 'x' })).toThrow(/只有系統/);
   });
 });

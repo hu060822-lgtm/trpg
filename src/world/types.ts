@@ -89,9 +89,18 @@ export interface Hostility {
   at: number;
 }
 
+export interface Duel {
+  id: string;
+  from: string;
+  to: string;
+  locationId: string;
+  expires: string;
+  status: 'pending' | 'accepted' | 'declined';
+}
+
 export interface Ruling extends Versioned {
   id: string;
-  kind: 'unique-item-theft';
+  kind: 'unique-item-theft' | 'pvp-death';
   status: 'open' | 'confirmed' | 'overturned';
   subjects: string[];
   itemId?: string;
@@ -99,6 +108,10 @@ export interface Ruling extends Versioned {
   revertTo?: Holder;
   summary: string;
   decidedBy?: string;
+  /** pvp-death: whose death awaits confirmation, from which combat. */
+  characterId?: string;
+  combatId?: string;
+  cause?: string;
 }
 
 export type Visibility = 'public' | 'scene' | 'private' | 'gm';
@@ -140,6 +153,7 @@ export interface WorldState {
   items: Record<string, Item>;
   characters: Record<string, WorldCharacter>;
   hostilities: Hostility[];
+  duels: Duel[];
   rulings: Record<string, Ruling>;
   gms: Record<string, GmGrant>;
   seq: number;
@@ -156,6 +170,9 @@ export type WorldCommand =
   | { type: 'setLethalOptIn'; characterId: string; optIn: boolean }
   | { type: 'declareHostility'; characterId: string; targetId: string }
   | { type: 'attack'; characterId: string; targetId: string }
+  | { type: 'inviteDuel'; characterId: string; targetId: string }
+  | { type: 'respondDuel'; characterId: string; duelId: string; accept: boolean }
+  | { type: 'openDeathRuling'; characterId: string; attackerId: string; combatId: string; cause: string }
   | { type: 'steal'; characterId: string; targetId: string; itemId: string }
   | { type: 'gmSetLocationState'; locationId: string; key: string; value: string | number | boolean; visibility?: 'public' | 'scene' }
   | { type: 'gmSetZone'; locationId: string; zone: Zone }
@@ -178,6 +195,7 @@ export interface WorldConfig {
   status: string;
   zones: Record<Zone, { name: string; pvp: boolean; theft: boolean; consequences: boolean }>;
   hostilityLeadMinutes: number;
+  duel: { inviteHours: number };
   afterimage: { hours: number; coinLossRatio: number };
   awareness: { base: number; attribute: AttributeCode; skill: string };
   theft: {
@@ -197,8 +215,9 @@ export interface WorldConfig {
 export interface PvpLegality {
   allowed: boolean;
   reason: string;
-  /** False: the target can be downed but not killed (offline, afterimage, or no lethal opt-in). */
+  /** False: the target can be downed but not killed. Lethal needs an accepted duel or the target's opt-in. */
   lethal: boolean;
+  duel?: boolean;
   /** Controlled zone: the attack is a recorded crime. */
   crime: boolean;
 }

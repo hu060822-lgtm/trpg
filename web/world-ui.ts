@@ -1,6 +1,10 @@
 // World sandbox (Phase 3): two players and two GMs share one world on the real world engine.
 // Switching the viewer shows exactly what that person's API would return: redacted state and filtered history.
 import seed from '../config/world-seed.json';
+import { autopilot } from '../src/combat/autopilot';
+import { startCombat, submitAction } from '../src/combat/engine';
+import type { CombatantSetup } from '../src/combat/types';
+import { maxHp } from '../src/character/create';
 import { DEFAULT_RULES as R } from '../src/rules/config';
 import { randomRng } from '../src/rules/dice';
 import type { AttributeCode } from '../src/rules/types';
@@ -33,7 +37,7 @@ function reset() {
   now = new Date();
   let s = createWorld(seed as WorldSeed, { 'gm-main': { role: 'main' }, 'gm-ruins': { role: 'scene', locations: ['ruins'] } });
   s = joinWorld(s, { id: 'crow', ownerUserId: 'u1', name: '灰鴉', attributes: attrs({ STR: 3, VIT: 3, PER: 2 }), skills: { melee: 3, scouting: 2 }, coins: 40 }, 'road');
-  s = joinWorld(s, { id: 'nightingale', ownerUserId: 'u2', name: '夜鶯', attributes: attrs({ AGI: 3, PRE: 3, INT: 2 }), skills: { stealth: 3, lockpicking: 3 }, coins: 25 }, 'road');
+  s = joinWorld(s, { id: 'nightingale', ownerUserId: 'u2', name: '夜鶯', attributes: attrs({ AGI: 3, PRE: 3, INT: 2 }), skills: { stealth: 3, pickpocket: 3 }, coins: 25 }, 'road');
   state = s;
   events = [];
   changes = [];
@@ -48,7 +52,9 @@ function send(actor: WorldActor, command: WorldCommand, label?: string): boolean
     events.push(...r.events);
     changes.push(...r.changes);
     const seen = historyFor(state, viewer.actor, r.events).at(-1)?.text;
-    flash = r.pvp ? `✔ ${r.pvp.legality.reason}。（正式版會在這裡開一場戰鬥，${r.pvp.legality.lethal ? '可能致命' : '目標受死亡保護'}）` : `✔ ${label ?? seen ?? '已執行'}`;
+    flash = `✔ ${label ?? seen ?? '已執行'}`;
+    if (r.pvp) flash = `✔ ${r.pvp.legality.reason}。${fightOut(r.pvp.attackerId, r.pvp.targetId, r.pvp.legality.lethal)}`;
+    if (command.type === 'gmRuling') applyDeathRuling(command.rulingId);
     render();
     return true;
   } catch (e) {
@@ -56,6 +62,47 @@ function send(actor: WorldActor, command: WorldCommand, label?: string): boolean
     render();
     return false;
   }
+}
+
+/**
+ * Stands in for the server's PvP combat: both sides fight on autopilot on the real combat engine,
+ * with every death held for a GM ruling, then the results are written back to the world.
+ */
+function fightOut(attackerId: string, targetId: string, lethal: boolean): string {
+  const setup = (id: string, protect: boolean): CombatantSetup => {
+    const c = state.characters[id];
+    return {
+      id, name: c.name, side: id, controller: c.ownerUserId, characterId: id, attributes: c.attributes, skills: c.skills,
+      maxHp: maxHp(c.attributes, R), band: 1, weaponId: 'sword', armorId: 'leather', deathProtected: protect, deathNeedsRuling: true,
+    };
+  };
+  let cs = startCombat({ id: `pvp-${state.seq}`, combatants: [setup(attackerId, false), setup(targetId, !lethal)], rules: R, rng: randomRng, now, resolveDying: true });
+  for (let i = 0; i < 400 && cs.status === 'active' && cs.turn; i++) {
+    const c = cs.combatants[cs.turn.combatantId];
+    cs = submitAction(cs, { actionId: `a${i}`, actor: { userId: c.controller, role: 'player' }, combatantId: c.id, round: cs.round, action: autopilot(cs) }, R, randomRng, now).state;
+  }
+  const lines: string[] = [];
+  for (const c of Object.values(cs.combatants)) {
+    const w = state.characters[c.id];
+    w.condition = c.pendingDeath ? 'deathPending' : c.condition;
+    lines.push(`${c.name} ${c.pendingDeath ? '被判定死亡，等 GM 確認' : c.condition === 'stable' ? '昏迷' : `剩 ${c.hp} HP`}`);
+    if (c.pendingDeath) {
+      const other = c.id === attackerId ? targetId : attackerId;
+      const r = applyWorld(state, { actor: { userId: 'system', role: 'system' }, command: { type: 'openDeathRuling', characterId: c.id, attackerId: other, combatId: cs.id, cause: c.pendingDeath } }, R, randomRng, now);
+      state = r.state;
+      events.push(...r.events);
+      changes.push(...r.changes);
+    }
+  }
+  return `戰鬥打了 ${cs.round} 輪：${lines.join('；')}。`;
+}
+
+/** The server writes a closed death ruling to the character; the sandbox does the same in memory. */
+function applyDeathRuling(id: string) {
+  const r = state.rulings[id];
+  if (r?.kind !== 'pvp-death' || r.status === 'open') return;
+  const c = state.characters[r.characterId!];
+  if (r.status === 'confirmed') { c.status = 'dead'; c.condition = 'dead'; } else c.condition = 'stable';
 }
 
 /** Both players act on the same snapshot of the world; only one commit can win. */
@@ -100,7 +147,7 @@ function render() {
       <p class="loc-desc">${esc(l.description)}</p>
       ${l.gmNotes ? `<p class="loc-gm">GM 備註：${esc(l.gmNotes)}</p>` : ''}
       <ul class="loc-list">
-        ${people.map((c) => `<li>🧍 ${esc(c.name)}${c.online ? '' : c.afterimageUntil || viewer.characterId !== c.id ? '（殘影／離線）' : '（離線）'}${c.crimes.length ? `<span class="crime">前科 ${c.crimes.length}</span>` : ''}</li>`).join('')}
+        ${people.map((c) => `<li>🧍 ${esc(c.name)}${c.online ? '' : c.afterimageUntil || viewer.characterId !== c.id ? '（殘影／離線）' : '（離線）'}${({ dead: '（死亡）', deathPending: '（待確認死亡）', stable: '（昏迷）', dying: '（瀕死）' } as Record<string, string>)[c.status === 'dead' ? 'dead' : c.condition] ?? ''}${c.crimes.length ? `<span class="crime">前科 ${c.crimes.length}</span>` : ''}</li>`).join('')}
         ${npcs.map((n) => `<li>${n.status === 'dead' ? '✝' : '◆'} ${esc(n.name)}${n.status === 'dead' ? '（已死亡）' : ''}${n.public ? '' : '<span class="crime">隱密</span>'}</li>`).join('')}
         ${ground.map((i) => `<li>✦ ${esc(i.name)}${!i.hidden ? '' : viewer.characterId ? '（你發現的）' : `（隱藏・TN ${i.hidden.tn}${i.discoveredBy.length ? `・已被 ${i.discoveredBy.map((c) => esc(state.characters[c].name)).join('、')} 發現` : ''}）`}</li>`).join('')}
         ${st.map(([k, val]) => `<li class="muted">${esc(k)}：${esc(String(val))}</li>`).join('')}
@@ -137,6 +184,7 @@ function renderActions(v: WorldState, me: WorldState['characters'][string] | und
     const legal = pvpLegality(state, me.id, other.id, now);
     const loot = Object.values(state.items).find((i) => i.holder.type === 'character' && i.holder.id === other.id && i.tradable && !i.boundTo && !i.lockedBy);
     const sameSpot = other.locationId === me.locationId;
+    const invite = state.duels.find((d) => d.to === me.id && d.status === 'pending' && now < new Date(d.expires));
     box.innerHTML = `
       <p class="wd-me">${esc(me.name)} 在<b>${esc(l.name)}</b>${zoneBadge(l.zone)}・${me.online ? '在線' : me.afterimageUntil ? `殘影到 ${new Date(me.afterimageUntil).toLocaleString('zh-TW')}` : '已安全下線'}・錢幣 ${me.coins}
         ${mine.length ? `・身上：${mine.map((i) => esc(i.name) + (i.lockedBy ? '（裁決中）' : i.boundTo ? '（綁定）' : '')).join('、')}` : ''}</p>
@@ -150,7 +198,9 @@ function renderActions(v: WorldState, me: WorldState['characters'][string] | und
       <h4 class="wd-sub">對 ${esc(other.name)}${sameSpot ? '' : '（不在這裡）'}</h4>
       <div class="wd-btns">
         ${btn('hostile', '公開宣告敵意', '管制區開打前要先宣告', !me.online || !sameSpot)}
-        ${btn('attack', '發動攻擊', legal.allowed ? (legal.lethal ? '合法・可能致命' : '合法・目標受死亡保護') : legal.reason, !me.online || !legal.allowed)}
+        ${btn('attack', '突襲', legal.allowed ? (legal.lethal ? '合法・可能致命' : '合法・最多打到昏迷') : legal.reason, !me.online || !legal.allowed)}
+        ${btn('duel', '提出決鬥邀請', '對方接受才可能致命', !me.online || other.status === 'dead')}
+        ${invite ? btn(`accept:${invite.id}`, `接受 ${state.characters[invite.from].name} 的決鬥`, '可能致命・死亡要 GM 確認', !me.online) + btn(`decline:${invite.id}`, '拒絕決鬥') : ''}
         ${btn('steal', '偷竊', loot ? `接近→得手→察覺→證據（目標：${loot.name}）` : '對方身上沒有可偷的東西', !me.online || !sameSpot || !loot)}
         ${btn('race', '兩人同時搶沉鐘之心', '模擬同一瞬間的兩筆操作')}
         ${btn('forge', '假冒 GM 發公告', '測試未授權修改')}
@@ -170,7 +220,7 @@ function renderActions(v: WorldState, me: WorldState['characters'][string] | und
       ${btn('day', '推進一天', '1 遊戲日＝現實 1 日')}
       ${btn('skip', '時間快轉 24 小時', '讓殘影到期並結算')}
     </div>
-    ${rulings.length ? `<h4 class="wd-sub">待裁決</h4><div class="wd-btns">${rulings.map((r) => `${btn(`confirm:${r.id}`, `維持 ${r.id}`, r.summary)}${btn(`overturn:${r.id}`, `撤銷 ${r.id}`, '物品歸還原主')}`).join('')}</div>` : '<p class="muted">目前沒有待裁決的案件。</p>'}`;
+    ${rulings.length ? `<h4 class="wd-sub">待裁決</h4><div class="wd-btns">${rulings.map((r) => `${btn(`confirm:${r.id}`, `${r.kind === 'pvp-death' ? '確認死亡' : '維持'} ${r.id}`, r.summary)}${btn(`overturn:${r.id}`, `撤銷 ${r.id}`, r.kind === 'pvp-death' ? '死亡不成立，以 1 HP 倖存' : '物品歸還原主')}`).join('')}</div>` : '<p class="muted">目前沒有待裁決的案件。</p>'}`;
 }
 
 function onCommand(cmd: string) {
@@ -187,6 +237,9 @@ function onCommand(cmd: string) {
     if (k === 'on') return send(a, { type: 'setOnline', characterId: me, online: true });
     if (k === 'hostile') return send(a, { type: 'declareHostility', characterId: me, targetId: other }, '已公開宣告敵意');
     if (k === 'attack') return send(a, { type: 'attack', characterId: me, targetId: other });
+    if (k === 'duel') return send(a, { type: 'inviteDuel', characterId: me, targetId: other }, '已送出決鬥邀請，切換到對方身分就能回覆');
+    if (k === 'accept') return send(a, { type: 'respondDuel', characterId: me, duelId: arg, accept: true });
+    if (k === 'decline') return send(a, { type: 'respondDuel', characterId: me, duelId: arg, accept: false });
     if (k === 'steal') {
       const loot = Object.values(state.items).find((i) => i.holder.type === 'character' && i.holder.id === other && i.tradable && !i.boundTo && !i.lockedBy)!;
       return send(a, { type: 'steal', characterId: me, targetId: other, itemId: loot.id }, '偷竊判定完成，結果在紀錄裡');

@@ -26,6 +26,8 @@ export interface CombatantSetup {
   medkits?: number;
   /** Offline PvP protection: reaching 0 HP stabilizes instead of risking death. */
   deathProtected?: boolean;
+  /** PvP: a death is not final until a GM confirms it; the combatant is held unconscious meanwhile. */
+  deathNeedsRuling?: boolean;
 }
 
 export interface Combatant extends Required<Omit<CombatantSetup, 'characterId'>> {
@@ -34,6 +36,8 @@ export interface Combatant extends Required<Omit<CombatantSetup, 'characterId'>>
   dying: { successes: number; failures: number };
   defending: boolean;
   initiative: number;
+  /** Set when a death awaits GM confirmation; the combatant is out of the fight and ignores further harm. */
+  pendingDeath?: string;
 }
 
 export interface CombatEvent {
@@ -67,6 +71,8 @@ export interface CombatState {
   events: CombatEvent[];
   winner: string | null;
   seq: number;
+  /** Keep the combat open until no one is dying (PvP), so every downed combatant's fate is rolled. */
+  resolveDying?: boolean;
 }
 
 export type CombatAction =

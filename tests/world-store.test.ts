@@ -128,3 +128,47 @@ describe('PvP opens a real combat', () => {
     expect(store.load('greystone').characters.nightingale.status).toBe('dead');
   });
 });
+
+describe('a duel to the death needs a GM to confirm the death', () => {
+  // nightingale starts at 1 HP; crow wins initiative and knocks her down, then she fails her death saves.
+  function duelToDeath() {
+    store.combat.db.prepare("UPDATE characters SET hp = 1 WHERE id = 'nightingale'").run();
+    send(U1, { type: 'inviteDuel', characterId: 'crow', targetId: 'nightingale' });
+    const duelId = store.load('greystone').duels[0].id;
+    const r = send(U2, { type: 'respondDuel', characterId: 'nightingale', duelId, accept: true }, [20, 1]); // initiative
+    const combatId = r.combat!.id;
+    expect(r.combat!.combatants.nightingale).toMatchObject({ deathProtected: false, deathNeedsRuling: true });
+    let k = 0;
+    const act = (who: string, action: import('../src/combat/types').CombatAction, rolls: number[] = []) => {
+      const c = store.combat.loadCombat(combatId);
+      const actor = who === 'crow' ? U1 : U2;
+      return store.submitCombat('greystone', combatId, { actionId: `x${++k}`, actor: { userId: actor.userId, role: 'player' }, combatantId: who, round: c.round, action }, scriptedRng(rolls), T0);
+    };
+    act('crow', { type: 'attack', targetId: 'nightingale' }, [20]);
+    act('crow', { type: 'endTurn' });
+    act('nightingale', { type: 'deathSave' }, [1]); // natural 1: two failures
+    act('crow', { type: 'endTurn' });
+    act('nightingale', { type: 'deathSave' }, [2]); // third failure → death pending
+    return combatId;
+  }
+
+  it('the dice decide, but the character is only held unconscious until a GM rules', () => {
+    const combatId = duelToDeath();
+    expect(store.combat.getCharacter('nightingale')).toMatchObject({ status: 'alive', condition: 'deathPending' });
+    expect(store.combat.deathRecord('nightingale')).toBeUndefined();
+    const ruling = Object.values(store.load('greystone').rulings).find((r) => r.kind === 'pvp-death')!;
+    expect(ruling).toMatchObject({ status: 'open', characterId: 'nightingale', combatId, subjects: ['nightingale', 'crow'] });
+    expect(() => send(U2, { type: 'move', characterId: 'nightingale', to: 'road' })).toThrow(/無法行動/);
+    send(MAIN, { type: 'gmRuling', rulingId: ruling.id, decision: 'confirm' });
+    expect(store.combat.getCharacter('nightingale')).toMatchObject({ status: 'dead', condition: 'dead' });
+    expect(store.combat.deathRecord('nightingale')).toMatchObject({ combat_id: combatId, cause: 'pvp:dying-failures' });
+  });
+
+  it('a GM can rule the death invalid: the character survives at 1 HP', () => {
+    duelToDeath();
+    const ruling = Object.values(store.load('greystone').rulings).find((r) => r.kind === 'pvp-death')!;
+    send(MAIN, { type: 'gmRuling', rulingId: ruling.id, decision: 'overturn' });
+    expect(store.combat.getCharacter('nightingale')).toMatchObject({ status: 'alive', condition: 'stable', hp: 1 });
+    expect(store.combat.deathRecord('nightingale')).toBeUndefined();
+  });
+});
