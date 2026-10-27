@@ -281,6 +281,42 @@ button.token:hover { border-color: var(--t-failure); }
 .cb-log .warn { color: var(--t-partial); } .cb-log .bad { color: var(--bad); font-weight: 700; }
 .cb-cols { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
 @media (max-width: 920px) { .cb-cols { grid-template-columns: minmax(0, 1fr); } }
+/* World sandbox */
+.world { margin-top: 24px; display: grid; gap: 14px; }
+.world > .note { margin: 0; }
+.wd-viewers { display: flex; flex-wrap: wrap; gap: 6px; }
+.wd-viewers button { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.wd-viewers button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.wd-map { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 920px) { .wd-map { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .wd-map { grid-template-columns: minmax(0, 1fr); } }
+.loc { border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); display: grid; gap: 6px; align-content: start; font-size: 13px; min-width: 0; }
+.loc.here { border-color: var(--thread); box-shadow: 0 0 0 1px var(--thread); }
+.loc header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.loc header b { font-size: 15px; }
+.loc-desc { margin: 0; color: var(--muted); }
+.loc-gm { margin: 0; color: var(--t-exceptional); font-size: 12px; }
+.loc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.loc footer { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.zone { font-size: 11px; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.zone-safe { border-color: var(--ok); color: var(--ok); } .zone-controlled { border-color: var(--t-partial); color: var(--t-partial); } .zone-wild { border-color: var(--bad); color: var(--bad); }
+.crime { font-size: 10px; margin-left: 4px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--muted); color: var(--muted); }
+.muted { color: var(--muted); }
+.wd-panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.wd-me { margin: 0; font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.wd-sub { margin: 4px 0 0; font-size: 12px; letter-spacing: .1em; color: var(--muted); font-weight: 500; }
+.wd-btns { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 6px; }
+.wd-btns button { font: inherit; padding: 7px 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 4px; cursor: pointer; display: grid; gap: 1px; text-align: left; min-width: 0; }
+.wd-btns button b { font-size: 14px; }
+.wd-btns button small { font-size: 11px; color: var(--muted); }
+.wd-btns button:disabled { opacity: .45; cursor: default; }
+.wd-flash { margin: 0; font-size: 13px; color: var(--ok); min-height: 1.3em; }
+.wd-flash.bad { color: var(--bad); }
+.wd-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; max-height: 380px; overflow-y: auto; }
+.wd-history li { display: grid; grid-template-columns: 3.4em 1fr; gap: 8px; padding-bottom: 4px; border-bottom: 1px dotted var(--line); }
+.vis { font-size: 11px; text-align: center; border-radius: 3px; padding: 1px 0; height: fit-content; border: 1px solid var(--line); color: var(--muted); }
+.v-public .vis { border-color: var(--accent); color: var(--accent); } .v-private .vis { border-color: var(--thread); color: var(--thread); }
+.v-gm .vis { border-color: var(--t-exceptional); color: var(--t-exceptional); }
 footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
 </style>
 
@@ -415,6 +451,29 @@ footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
         <div class="lastroll" id="cb-lastroll" aria-live="polite"></div>
         <h3>戰鬥紀錄</h3>
         <div class="cb-log" id="cb-log"></div>
+      </div>
+    </div>
+  </section>
+  <section class="panel world" aria-labelledby="wd-h">
+    <div class="cb-head">
+      <h2 id="wd-h">世界沙盒</h2>
+      <span class="cb-round" id="wd-clock"></span>
+    </div>
+    <p class="note">Phase 3 原型：灰鴉和夜鶯兩名玩家、主 GM 和遺跡場景 GM 共用同一個世界。切換身分時，畫面只顯示那個人的 API 會拿到的資料：看不到的地點細節、別人的背包、GM 備註和不在場的紀錄都會被伺服器過濾掉。區域、敵意、殘影與偷竊數值都是暫定值。</p>
+    <div class="wd-viewers" id="wd-viewers" role="group" aria-label="切換身分"></div>
+    <div class="wd-map" id="wd-map"></div>
+    <div class="cb-cols">
+      <div class="wd-panel">
+        <h3>行動</h3>
+        <div id="wd-actions"></div>
+        <p class="wd-flash" id="wd-flash" aria-live="polite"></p>
+        <div class="actions"><button type="button" class="cb-small" id="wd-reset">重置世界</button></div>
+      </div>
+      <div class="wd-panel">
+        <h3>世界歷史（這個身分看得到的）</h3>
+        <ul class="wd-history" id="wd-history"></ul>
+        <p class="note" id="wd-hidden"></p>
+        <p class="note" id="wd-audit"></p>
       </div>
     </div>
   </section>

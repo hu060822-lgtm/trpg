@@ -82,8 +82,13 @@ export class CombatStore {
     this.db.close();
   }
 
-  private tx<T>(fn: () => T): T {
+  private depth = 0;
+
+  /** Runs fn in one IMMEDIATE transaction; nested calls (e.g. a world command opening a combat) join the outer one. */
+  tx<T>(fn: () => T): T {
+    if (this.depth > 0) return fn();
     this.db.exec('BEGIN IMMEDIATE');
+    this.depth += 1;
     try {
       const out = fn();
       this.db.exec('COMMIT');
@@ -91,6 +96,8 @@ export class CombatStore {
     } catch (e) {
       this.db.exec('ROLLBACK');
       throw e;
+    } finally {
+      this.depth -= 1;
     }
   }
 
