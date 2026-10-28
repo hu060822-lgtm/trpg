@@ -13,6 +13,7 @@
 | `src/combat/` | 戰鬥引擎：先攻、行動點、距離、攻防、傷害、瀕死、救援、死亡、逾時；以及模擬用的簡單 AI |
 | `src/world/` | 世界引擎：地點、NPC、唯一物品、場景時鐘、世界歷史與稽核、GM 權限、PvP 合法性、殘影、偷竊；交易引擎（`economy.ts`）：帳本、資產鎖定、商店、直接交易、委託、多人契約、隊伍共同金庫、爭議；以及依身分過濾的世界檢視 |
 | `src/server/` | 遊戲伺服器：HTTP API、token 驗證、排程（見 docs/server-v0.3.md） |
+| `src/bot/` | Discord 機器人：玩家與 GM 查資訊的斜線指令、世界紀錄推播（見 docs/discord-v0.3.md） |
 | `src/persistence/` | 原型資料庫（SQLite）：角色、戰鬥狀態、戰鬥事件、死亡紀錄、世界狀態（每個實體一列並帶版本號）、世界歷史、交易紀錄、只增不改的帳本、防重複請求表 |
 | `web/` | 瀏覽器試玩頁，打包成單一 HTML |
 | `reports/` | 模擬器產生的成功率報告 |
@@ -21,6 +22,7 @@
 | `docs/combat-v0.3.md` | 戰鬥規格（Phase 2，數值暫定） |
 | `docs/world-v0.3.md` | 共享世界與 PvP 規格（Phase 3，數值暫定） |
 | `docs/server-v0.3.md` | 伺服器 API、權限與部署 |
+| `docs/discord-v0.3.md` | Discord 機器人設定、指令與推播規則 |
 | `docs/economy-v0.3.md` | 商店、交易、委託、多人契約、隊伍與爭議規格（Phase 4） |
 | `docs/plan-v0.3-revisions.md` | 企畫書需要修改的段落與替換文字 |
 | `CONFLICTS.md` | 已裁決與尚待確認的規格衝突 |
@@ -39,6 +41,7 @@ npm run demo        # 在終端機建立角色並擲幾次骰
 npm run build:web   # 產生 web/dist/fateweave-demo.html
 npm run admin       # 伺服器管理：建立世界、發 token、設定 GM
 npm run server      # 啟動遊戲伺服器（PORT、DATABASE_PATH）
+npm run bot         # 啟動 Discord 機器人（環境變數見 docs/discord-v0.3.md）
 ```
 
 ## 設計重點
@@ -56,4 +59,4 @@ npm run server      # 啟動遊戲伺服器（PORT、DATABASE_PATH）
 
 ## 還沒做的部分（第十六章第 9 步以後）
 
-PostgreSQL、Discord 機器人；NPC 委託與打工等收入管道；物價與報酬的平衡數值。
+PostgreSQL；在 Discord 裡直接下指令行動（目前機器人只能查資訊）；Discord 登入網頁；NPC 委託與打工等收入管道；物價與報酬的平衡數值。

@@ -10,6 +10,7 @@
     "build:web": "tsx scripts/build-web.ts",
     "sim:combat": "tsx scripts/combat-sim.ts",
     "server": "tsx src/server/main.ts",
+    "bot": "tsx src/bot/main.ts",
     "admin": "tsx scripts/admin.ts"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
     "node": ">=22.13"
   },
   "dependencies": {
+    "discord.js": "^14.27.0",
     "express": "^5.1.0"
   }
 }

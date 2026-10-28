@@ -16,3 +16,29 @@ services:
       name: fateweave-data
       mountPath: /var/data
       sizeGB: 1
+  # Discord bot: read-only views and notifications. Fill the sync: false values in the Render dashboard.
+  - type: worker
+    name: fateweave-bot
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev
+    startCommand: npm run bot
+    envVars:
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: GAME_API_URL
+        sync: false
+      - key: GAME_SERVICE_TOKEN
+        sync: false
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_APP_ID
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: WORLD_ID
+        sync: false
+      - key: WORLD_CHANNEL_ID
+        sync: false
+      - key: GM_CHANNEL_ID
+        sync: false

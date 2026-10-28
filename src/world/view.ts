@@ -109,7 +109,8 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   }
   for (const [id, n] of Object.entries(v.npcs)) if (!n.public && !here.has(n.locationId)) delete v.npcs[id];
   v.hostilities = v.hostilities.filter((h) => ids.includes(h.from) || ids.includes(h.against));
-  v.rulings = Object.fromEntries(Object.entries(v.rulings).filter(([, r]) => r.subjects.some((x) => ids.includes(x))));
+  // An arbiter's job is the rulings, so they see every one; players see those about their own characters.
+  if (grant?.role !== 'arbiter') v.rulings = Object.fromEntries(Object.entries(v.rulings).filter(([, r]) => r.subjects.some((x) => ids.includes(x))));
   v.gms = {};
   // Shops, team rosters and the commission board are public; trades, contracts, locks, disputes and team treasuries only to their parties.
   // An arbiter rules on disputes, so they see the whole economy.
