@@ -531,6 +531,21 @@ function perform(ctx: Ctx, cmd: WorldCommand): WorldResult['pvp'] {
             coins: lost, reason: 'afterimage expired',
           });
         }
+        // A team that chose to share the risk loses the same ratio of this member's share of the treasury.
+        const team = Object.values(s.economy.teams).find((t) => t.status === 'active' && t.afterimageShare && t.members.includes(c.id));
+        if (team) {
+          const living = team.members.filter((m) => s.characters[m]?.status === 'alive').length || 1;
+          const teamLost = Math.floor((team.coins / living) * cfg.afterimage.coinLossRatio);
+          if (teamLost) {
+            change(ctx, 'team', team.id, team, `afterimage of ${c.id}`, false, (t) => { t.coins -= teamLost; });
+            s.seq += 1;
+            ctx.ledger.push({
+              seq: s.seq, at: ctx.now.toISOString(), tx: `afterimage-${c.id}-${s.day}`, from: { type: 'team', id: team.id }, to: { type: 'sink', id: 'afterimage' },
+              coins: teamLost, reason: `afterimage expired (${c.id}'s share)`,
+            });
+            privateEvent(ctx, team.members, 'teamAfterimageLoss', `${c.name} 的殘影到期，依隊伍規則，「${team.name}」金庫損失 ${teamLost} 枚`, { teamId: team.id, lost: teamLost });
+          }
+        }
         sceneEvent(ctx, from.id, 'afterimageGone', `${c.name} 的殘影消失了`, { characterId: c.id });
         privateEvent(ctx, [c.id], 'afterimageReturned', `你的殘影無人接應，被送回${s.locations[outpost].name}，損失 ${lost} 枚錢幣。`, { lost, to: outpost });
       }

@@ -52,4 +52,4 @@ npm run build:web   # 產生 web/dist/fateweave-demo.html
 
 ## 還沒做的部分（第十六章第 9 步以後）
 
-伺服器（Express＋PostgreSQL）、Discord 與部署；隊伍當契約或委託的一方；NPC 委託與打工等收入管道；物價與報酬的平衡數值。
+伺服器（Express＋PostgreSQL）、Discord 與部署；NPC 委託與打工等收入管道；物價與報酬的平衡數值。

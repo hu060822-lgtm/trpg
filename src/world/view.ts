@@ -1,3 +1,4 @@
+import { TEAM_PREFIX } from './economy';
 import { gmGrant, itemLocation } from './engine';
 import type { Change, LedgerEntry, Lock, WorldActor, WorldEvent, WorldState } from './types';
 
@@ -33,8 +34,9 @@ export function auditFor(s: WorldState, viewer: WorldActor, changes: Change[]): 
 }
 
 /** Locks a viewer may see: their own, and those behind a trade, commission or contract they are party to. */
-function visibleLocks(s: WorldState, ids: string[]): Set<string> {
+function visibleLocks(s: WorldState, chars: string[]): Set<string> {
   const e = s.economy;
+  const ids = asParties(s, chars);
   const mineToo = (...xs: (string | undefined)[]) => xs.some((x) => !!x && ids.includes(x));
   const party = (l: Lock) => {
     if (ids.includes(l.ownerId)) return true;
@@ -47,6 +49,9 @@ function visibleLocks(s: WorldState, ids: string[]): Set<string> {
   };
   return new Set(Object.values(e.locks).filter(party).map((l) => l.id));
 }
+
+/** The characters plus the teams they belong to, as contract and commission parties (`team:<id>`). */
+const asParties = (s: WorldState, chars: string[]) => [...chars, ...[...myTeams(s, chars)].map((t) => `${TEAM_PREFIX}${t}`)];
 
 /** Teams any of these characters belongs to. */
 const myTeams = (s: WorldState, ids: string[]) =>
@@ -110,7 +115,8 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   // An arbiter rules on disputes, so they see the whole economy.
   if (grant?.role !== 'arbiter') {
     const e = v.economy;
-    const involves = (...xs: (string | undefined)[]) => xs.some((x) => !!x && ids.includes(x));
+    const parties = asParties(s, ids);
+    const involves = (...xs: (string | undefined)[]) => xs.some((x) => !!x && parties.includes(x));
     for (const sh of Object.values(e.shops)) if (!sh.open && !involves(sh.ownerId)) sh.listings = [];
     // A team's name and members are public; its treasury, votes and other people's invitations are not.
     for (const t of Object.values(e.teams)) {
