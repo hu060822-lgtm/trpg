@@ -22,17 +22,27 @@ export function parseGrant(spec: string): GmGrant {
   throw new Error(`unknown GM grant ${spec}`);
 }
 
-/** `sb:uuid=main,dev:luz=arbiter` → grant table. */
+/** `sb:uuid=main,dev:luz=arbiter,sb:x=scene:ruins,road` → grant table. A comma starts a new pair only when one follows. */
 export function parseGrants(list: string): Record<string, GmGrant> {
-  return Object.fromEntries(list.split(/[\s,;]+/).filter(Boolean).map((pair) => {
+  return Object.fromEntries(list.split(/[\s;]+|,(?=[^,=]+=)/).filter(Boolean).map((pair) => {
     const at = pair.lastIndexOf('=');
     return [pair.slice(0, at), parseGrant(pair.slice(at + 1))];
   }));
 }
 
-/** First start on an empty database: creates the seed world so there is somewhere to play. */
-export async function ensureWorld(store: WorldStore, gms: Record<string, GmGrant>) {
-  if ((await store.worldIds()).length > 0) return false;
-  await store.createWorld(seed as WorldSeed, gms);
-  return true;
+/**
+ * First start on an empty database: creates the seed world so there is somewhere to play.
+ * Later starts give the listed users their grant in the first world if they have none yet, so the deployer can sign
+ * in, copy their user id into INITIAL_GMS and restart. Existing grants are never changed or removed here.
+ */
+export async function ensureWorld(store: WorldStore, gms: Record<string, GmGrant>): Promise<{ created: boolean; granted: string[] }> {
+  const [first] = await store.worldIds();
+  if (!first) {
+    await store.createWorld(seed as WorldSeed, gms);
+    return { created: true, granted: Object.keys(gms) };
+  }
+  const current = (await store.load(first)).gms;
+  const granted = Object.keys(gms).filter((u) => !current[u]);
+  for (const u of granted) await store.setGm(first, u, gms[u]);
+  return { created: false, granted };
 }

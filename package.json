@@ -1,7 +1,7 @@
 {
   "name": "fateweave",
   "version": "0.1.0",
-  "description": "FATEWEAVE rules engine prototype (Phase 0-1)",
+  "description": "FATEWEAVE: rules engine, game server and web client",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc",
@@ -10,7 +10,9 @@
     "build:web": "tsx scripts/build-web.ts",
     "sim:combat": "tsx scripts/combat-sim.ts",
     "server": "tsx src/server/main.ts",
-    "admin": "tsx scripts/admin.ts"
+    "admin": "tsx scripts/admin.ts",
+    "web:dev": "npm --prefix client run dev",
+    "web:build": "npm --prefix client run build"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

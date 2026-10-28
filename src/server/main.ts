@@ -13,7 +13,7 @@ import { Scheduler } from './scheduler';
  *   SUPABASE_JWT_SECRET   legacy shared-secret projects only
  *   AUTH_DEV=1            accepts `dev:<name>` tokens; never set this in production
  *   CORS_ORIGINS          comma-separated origins of the web client, e.g. https://<user>.github.io
- *   INITIAL_GMS           on an empty database, creates the seed world with these GMs: `sb:<user id>=main`
+ *   INITIAL_GMS           GMs of the first world, `sb:<user id>=main`; created on an empty database, added later if missing
  */
 const env = process.env;
 const url = env.DATABASE_URL ?? './data/pglite';
@@ -23,9 +23,9 @@ const { store, auth } = await openGame(url, {
   supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, dev: env.AUTH_DEV === '1',
 });
 const initialGms = parseGrants(env.INITIAL_GMS ?? (env.AUTH_DEV === '1' ? 'dev:gm=main' : ''));
-if (await ensureWorld(store, initialGms)) {
-  console.log(`created the seed world, GMs: ${Object.keys(initialGms).join(', ') || 'none (set INITIAL_GMS or run admin set-gm)'}`);
-}
+const seeded = await ensureWorld(store, initialGms);
+if (seeded.created) console.log(`created the seed world, GMs: ${seeded.granted.join(', ') || 'none yet (set INITIAL_GMS and restart)'}`);
+else if (seeded.granted.length) console.log(`gave GM grants from INITIAL_GMS to ${seeded.granted.join(', ')}`);
 const scheduler = await Scheduler.open(store, randomRng);
 const report = async (now: Date) => {
   for (const r of await scheduler.tick(now)) if (r.errors.length) console.error(`[scheduler] ${r.worldId}`, r.errors);

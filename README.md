@@ -1,6 +1,8 @@
-# FATEWEAVE 規則引擎雛形
+# FATEWEAVE
 
-企畫書 v0.3 第十六章第 1–8 步：Phase 0（規則驗證）、Phase 1 的角色建立、Phase 2（戰鬥、傷勢、瀕死與永久死亡）、Phase 3（共享世界與多人互動），以及 Phase 4（商店、交易、委託與契約）。
+非同步多人 TRPG，由真人 GM 主持。這個 repo 包含規則引擎（企畫書 v0.3 第十六章 Phase 0–4）、遊戲伺服器，以及可以多人連線試玩的網頁版。
+
+網頁版放在 GitHub Pages，伺服器放在 Render，資料與登入用 Supabase。上線步驟見 `docs/deploy.md`。
 
 ## 內容
 
@@ -12,22 +14,24 @@
 | `src/character/` | 角色建立：點數驗證、職業核心技能檢查、角色 ID、生命值 |
 | `src/combat/` | 戰鬥引擎：先攻、行動點、距離、攻防、傷害、瀕死、救援、死亡、逾時；以及模擬用的簡單 AI |
 | `src/world/` | 世界引擎：地點、NPC、唯一物品、場景時鐘、世界歷史與稽核、GM 權限、PvP 合法性、殘影、偷竊；交易引擎（`economy.ts`）：帳本、資產鎖定、商店、直接交易、委託、多人契約、隊伍共同金庫、爭議；以及依身分過濾的世界檢視 |
-| `src/server/` | 遊戲伺服器：HTTP API、token 驗證、排程（見 docs/server-v0.3.md） |
-| `src/persistence/` | 原型資料庫（SQLite）：角色、戰鬥狀態、戰鬥事件、死亡紀錄、世界狀態（每個實體一列並帶版本號）、世界歷史、交易紀錄、只增不改的帳本、防重複請求表 |
-| `web/` | 瀏覽器試玩頁，打包成單一 HTML |
+| `client/` | 網頁版（React）：登入、創角、遊戲桌、戰鬥、市場、GM 桌 |
+| `src/server/` | 遊戲伺服器：HTTP API、Supabase 登入驗證、排程（見 docs/server-v0.3.md） |
+| `src/persistence/` | PostgreSQL 資料層（正式用 Supabase，本機與測試用 PGlite）：角色、戰鬥狀態、戰鬥事件、死亡紀錄、世界狀態（每個實體一列並帶版本號）、世界歷史、交易紀錄、只增不改的帳本、防重複請求表 |
+| `web/` | 規則測試頁，打包成單一 HTML（不連線，只在瀏覽器裡跑） |
 | `reports/` | 模擬器產生的成功率報告 |
 | `tests/` | 自動化測試 |
 | `docs/rules-v0.3.md` | 正式規則規格（判定、角色建立、技能） |
 | `docs/combat-v0.3.md` | 戰鬥規格（Phase 2，數值暫定） |
 | `docs/world-v0.3.md` | 共享世界與 PvP 規格（Phase 3，數值暫定） |
-| `docs/server-v0.3.md` | 伺服器 API、權限與部署 |
+| `docs/server-v0.3.md` | 伺服器 API、權限與排程 |
+| `docs/deploy.md` | 上線步驟：Supabase、Render、GitHub Pages |
 | `docs/economy-v0.3.md` | 商店、交易、委託、多人契約、隊伍與爭議規格（Phase 4） |
 | `docs/plan-v0.3-revisions.md` | 企畫書需要修改的段落與替換文字 |
 | `CONFLICTS.md` | 已裁決與尚待確認的規格衝突 |
 
 ## 執行
 
-需要 Node.js 22.13 以上（使用內建的 `node:sqlite`）。
+需要 Node.js 22.13 以上。
 
 ```bash
 npm install
@@ -38,7 +42,8 @@ npm run sim:combat  # 戰鬥模擬，產生 reports/combat-sim-v0.3.md
 npm run demo        # 在終端機建立角色並擲幾次骰
 npm run build:web   # 產生 web/dist/fateweave-demo.html
 npm run admin       # 伺服器管理：建立世界、發 token、設定 GM
-npm run server      # 啟動遊戲伺服器（PORT、DATABASE_PATH）
+AUTH_DEV=1 npm run server   # 本機啟動遊戲伺服器（不需要 Supabase）
+npm run web:dev     # 網頁版開發伺服器（先在 client/ 執行 npm install）
 ```
 
 ## 設計重點
@@ -56,4 +61,4 @@ npm run server      # 啟動遊戲伺服器（PORT、DATABASE_PATH）
 
 ## 還沒做的部分（第十六章第 9 步以後）
 
-PostgreSQL、Discord 機器人；NPC 委託與打工等收入管道；物價與報酬的平衡數值。
+網頁版的隊伍與多人契約畫面；Discord 機器人（PR #8，暫停）；NPC 委託與打工等收入管道；物價、報酬與怪物的平衡數值。

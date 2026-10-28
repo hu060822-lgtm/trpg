@@ -7,7 +7,7 @@ import type { Database } from './db';
 
 /**
  * Prototype persistence for Phase 2: characters, combats, combat events and death records.
- * SQLite stands in for PostgreSQL; every write that matters runs in one transaction with a version check.
+ * Every write that matters runs in one PostgreSQL transaction with a version check.
  */
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS characters (

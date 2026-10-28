@@ -9,7 +9,7 @@ import { RULES_V03 as R } from '../src/rules/config';
 import { scriptedRng } from '../src/rules/dice';
 import { createApp } from '../src/server/app';
 import type { Auth } from '../src/server/auth';
-import { ensureWorld, openGame } from '../src/server/boot';
+import { ensureWorld, openGame, parseGrants } from '../src/server/boot';
 import { Scheduler } from '../src/server/scheduler';
 import { freshDatabaseUrl } from './helpers/db';
 
@@ -251,5 +251,17 @@ describe('bot feed and scheduler', () => {
     const w = await call(tok.p1, 'GET', '/api/worlds');
     expect(w.body[0]).toMatchObject({ id: 'greystone' });
     expect(w.body[0].outposts.map((o: { id: string }) => o.id)).toContain('plaza');
+  });
+});
+
+describe('first start', () => {
+  it('INITIAL_GMS adds missing grants to an existing world without touching current ones', async () => {
+    const out = await ensureWorld(store, parseGrants('sb:luz=main,user:gm=arbiter,sb:s=scene:ruins,road'));
+    expect(out).toEqual({ created: false, granted: ['sb:luz', 'sb:s'] });
+    const [w] = await store.worldIds();
+    expect((await store.load(w)).gms).toEqual({
+      'user:gm': { role: 'main' }, 'sb:luz': { role: 'main' }, 'sb:s': { role: 'scene', locations: ['ruins', 'road'] },
+    });
+    expect(await ensureWorld(store, parseGrants('sb:luz=main'))).toEqual({ created: false, granted: [] });
   });
 });

@@ -2,7 +2,7 @@ import type { CharacterDraft } from '../../src/character/create';
 import type { CombatAction, CombatEvent, CombatState } from '../../src/combat/types';
 import type { Change, GmGrant, LedgerEntry, WorldCommand, WorldEvent, WorldState } from '../../src/world/types';
 
-export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000').replace(/\/$/, '');
+export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
 
 export interface StoredCharacter {
   id: string; name: string; classId: string; ownerUserId: string; attributes: Record<string, number>; skills: Record<string, number>;
