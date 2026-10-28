@@ -1,10 +1,12 @@
+import attributesJson from '../../config/attributes.json';
+import skillsJson from '../../config/skills.json';
 import worldJson from '../../config/world.v03.json';
 import { performCheck, type PerformedCheck } from '../rules/check';
 import { assertActive } from '../rules/config';
 import type { Rng } from '../rules/dice';
 import type { CheckInput, RulesConfig } from '../rules/types';
 import type {
-  Change, GmRole, Holder, Item, Location, PvpLegality, WorldActor, WorldCharacter, WorldCommand, WorldConfig,
+  Change, GmRole, Holder, Item, Location, PendingCheck, PvpLegality, WorldActor, WorldCharacter, WorldCommand, WorldConfig,
   WorldEvent, WorldState, WorldSubmission, LedgerEntry, EconomyCommand,
 } from './types';
 import { performEconomy } from './economy';
@@ -18,6 +20,16 @@ export class WorldError extends Error {
 }
 
 const ABLE = ['healthy', 'wounded', 'severe'];
+const SKILL_NAMES: Record<string, string> = Object.fromEntries((skillsJson as { id: string; name: string }[]).map((k) => [k.id, k.name]));
+const ATTRIBUTE_NAMES: Record<string, string> = Object.fromEntries((attributesJson as { code: string; name: string }[]).map((a) => [a.code, a.name]));
+const MAX_TEXT = 500;
+
+function text(t: unknown, what: string): string {
+  const v = typeof t === 'string' ? t.trim() : '';
+  if (!v) throw new WorldError('bad-text', `${what}不能是空的`);
+  if (v.length > MAX_TEXT) throw new WorldError('bad-text', `${what}最多 ${MAX_TEXT} 字`);
+  return v;
+}
 
 export interface Ctx {
   s: WorldState;
@@ -133,6 +145,27 @@ function rollData(r: PerformedCheck) {
 }
 
 const isProtectedSpot = (l: Location) => l.zone === 'safe' || l.outpost;
+
+/** 「PER＋偵查，難度 14（困難），情境 +1，優勢，高風險」 */
+export function describeCheck(ctx: Pick<Ctx, 'rules'>, c: Pick<PendingCheck, 'attribute' | 'skill' | 'tn' | 'situational' | 'mode' | 'highRisk'>) {
+  const d = ctx.rules.difficulties.find((x) => x.tn === c.tn);
+  return [
+    `${ATTRIBUTE_NAMES[c.attribute] ?? c.attribute}${c.skill ? `＋${SKILL_NAMES[c.skill] ?? c.skill}` : ''}`,
+    `難度 ${c.tn}${d ? `（${d.name}）` : ''}`,
+    c.situational ? `情境 ${c.situational > 0 ? '+' : ''}${c.situational}` : '',
+    c.mode === 'advantage' ? '優勢' : c.mode === 'disadvantage' ? '劣勢' : '',
+    c.highRisk ? '高風險' : '',
+  ].filter(Boolean).join('，');
+}
+
+function rollText(ctx: Ctx, r: PerformedCheck) {
+  if (r.kind === 'auto') return '能力足夠，自動成功';
+  if (r.kind === 'impossible') return '以目前能力不可能做到';
+  if (r.kind === 'skill-required') return '需要受過訓練才能嘗試';
+  const x = r.result;
+  const dice = x.rolls.d20.length > 1 ? `${x.rolls.d20.join('／')}→${x.d20}` : `${x.d20}`;
+  return `d20=${dice}，合計 ${x.total} 對 ${x.input.tn}，${x.tierName}${x.natural ? `（自然 ${x.natural}）` : ''}`;
+}
 
 // ---------- authorization ----------
 
@@ -476,6 +509,97 @@ function perform(ctx: Ctx, cmd: WorldCommand): WorldResult['pvp'] {
       change(ctx, 'item', i.id, i, cmd.basis, cmd.status !== 'destroyed', (t) => { t.status = cmd.status; });
       const word = { present: '重新出現', sealed: '被封存', destroyed: '被摧毀' }[cmd.status];
       emit(ctx, { kind: 'itemStatus', text: `${i.name}${word}`, visibility: i.unique ? 'public' : 'gm', locationId: itemLocation(s, i), data: { itemId: i.id, status: cmd.status } });
+      return;
+    }
+    case 'say': {
+      // Out-of-character table talk is allowed even while down; speaking or acting in character needs to be able to act.
+      const c = cmd.mode === 'ooc' ? own(ctx, cmd.characterId) : active(ctx, cmd.characterId);
+      const body = text(cmd.text, '內容');
+      const line = cmd.mode === 'act' ? `＊${c.name} ${body}` : cmd.mode === 'ooc' ? `（${c.name}，場外）${body}` : `${c.name}：「${body}」`;
+      sceneEvent(ctx, c.locationId, 'said', line, { characterId: c.id, mode: cmd.mode, text: body });
+      return;
+    }
+    case 'whisper': {
+      const c = active(ctx, cmd.characterId);
+      const to = character(ctx, cmd.to);
+      if (to.id === c.id || to.status === 'dead' || to.locationId !== c.locationId) throw new WorldError('not-here', `${to.name} 不在這裡`);
+      const body = text(cmd.text, '悄悄話');
+      privateEvent(ctx, [c.id, to.id], 'whispered', `${c.name} 對 ${to.name} 悄聲說：「${body}」`, { from: c.id, to: to.id, text: body }, c.locationId);
+      sceneEvent(ctx, c.locationId, 'whisperSeen', `${c.name} 和 ${to.name} 低聲交談`, { from: c.id, to: to.id });
+      return;
+    }
+    case 'gmNarrate': {
+      const l = location(ctx, cmd.locationId);
+      requireGm(ctx, ['main', 'scene'], l.id);
+      const body = text(cmd.text, '敘述');
+      if (cmd.to?.length) {
+        const to = cmd.to.map((id) => character(ctx, id));
+        if (to.some((c) => c.locationId !== l.id)) throw new WorldError('not-here', '只能私下描述給在這個地點的角色');
+        privateEvent(ctx, to.map((c) => c.id), 'narration', body, { gm: true }, l.id);
+      } else {
+        sceneEvent(ctx, l.id, 'narration', body, { gm: true });
+      }
+      return;
+    }
+    case 'gmRequestCheck': {
+      const c = character(ctx, cmd.characterId);
+      requireGm(ctx, ['main', 'scene'], c.locationId);
+      if (c.status === 'dead') throw new WorldError('character-dead', `${c.name} 已永久死亡`);
+      if (!(cmd.attribute in c.attributes)) throw new WorldError('bad-check', `沒有屬性 ${cmd.attribute}`);
+      if (cmd.skill !== null && !SKILL_NAMES[cmd.skill]) throw new WorldError('bad-check', `沒有技能 ${cmd.skill}`);
+      if (!ctx.rules.difficulties.some((d) => d.tn === cmd.tn)) throw new WorldError('bad-check', `難度要是 ${ctx.rules.difficulties.map((d) => d.tn).join('／')} 其中之一`);
+      const situational = cmd.situational ?? 0;
+      if (!Number.isInteger(situational) || Math.abs(situational) > ctx.rules.check.modifierCap) {
+        throw new WorldError('bad-check', `情境修正要在 ±${ctx.rules.check.modifierCap} 以內`);
+      }
+      const check: PendingCheck = {
+        id: `chk-${s.seq + 1}`, label: text(cmd.label, '檢定名稱'), attribute: cmd.attribute, skill: cmd.skill, tn: cmd.tn, situational,
+        mode: cmd.mode ?? 'normal', highRisk: !!cmd.highRisk, secret: !!cmd.secret, requestedBy: ctx.actor.userId, at: ctx.now.toISOString(),
+      };
+      change(ctx, 'character', c.id, c, `check requested: ${check.label}`, true, (t) => { t.pendingChecks = [...(t.pendingChecks ?? []), check]; });
+      const desc = describeCheck(ctx, check);
+      privateEvent(ctx, [c.id], 'checkRequested', `GM 要求你進行檢定：${check.label}（${desc}）`, { checkId: check.id }, c.locationId);
+      if (!check.secret) sceneEvent(ctx, c.locationId, 'checkCalled', `GM 要求 ${c.name} 進行「${check.label}」檢定`, { characterId: c.id, checkId: check.id });
+      return;
+    }
+    case 'rollCheck': {
+      const c = character(ctx, cmd.characterId);
+      // The player rolls their own check; a GM of the scene may roll for them (e.g. when they are away).
+      if (ctx.actor.role === 'player') {
+        own(ctx, c.id);
+        if (!ABLE.includes(c.condition)) throw new WorldError('incapacitated', `${c.name} 目前無法行動`);
+      } else {
+        requireGm(ctx, ['main', 'scene'], c.locationId);
+      }
+      const pending = (c.pendingChecks ?? []).find((x) => x.id === cmd.checkId);
+      if (!pending) throw new WorldError('unknown-check', '沒有這個待擲的檢定');
+      const r = check(ctx, {
+        attribute: c.attributes[pending.attribute], skill: pending.skill ? c.skills[pending.skill] ?? 0 : 0,
+        situational: pending.situational, tn: pending.tn, mode: pending.mode, highRisk: pending.highRisk,
+      });
+      change(ctx, 'character', c.id, c, `check rolled: ${pending.label}`, false, (t) => {
+        t.pendingChecks = (t.pendingChecks ?? []).filter((x) => x.id !== pending.id);
+      });
+      const outcome = rollText(ctx, r);
+      const data = { characterId: c.id, checkId: pending.id, label: pending.label, ...rollData(r), success: passed(r) };
+      const who = ctx.actor.role === 'player' ? c.name : `GM 代 ${c.name}`;
+      if (pending.secret) {
+        privateEvent(ctx, [c.id], 'checkRolled', `${who}擲了「${pending.label}」，結果由 GM 掌握`, { characterId: c.id, checkId: pending.id, secret: true }, c.locationId);
+        gmEvent(ctx, 'checkResult', `${c.name}「${pending.label}」（暗骰）：${outcome}`, data, c.locationId);
+      } else {
+        sceneEvent(ctx, c.locationId, 'checkResult', `${who}擲「${pending.label}」：${outcome}`, data);
+      }
+      return;
+    }
+    case 'gmCancelCheck': {
+      const c = character(ctx, cmd.characterId);
+      requireGm(ctx, ['main', 'scene'], c.locationId);
+      const pending = (c.pendingChecks ?? []).find((x) => x.id === cmd.checkId);
+      if (!pending) throw new WorldError('unknown-check', '沒有這個待擲的檢定');
+      change(ctx, 'character', c.id, c, `check cancelled: ${pending.label}`, true, (t) => {
+        t.pendingChecks = (t.pendingChecks ?? []).filter((x) => x.id !== pending.id);
+      });
+      privateEvent(ctx, [c.id], 'checkCancelled', `GM 取消了「${pending.label}」檢定`, { checkId: pending.id }, c.locationId);
       return;
     }
     case 'gmPublish': {

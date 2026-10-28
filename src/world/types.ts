@@ -80,6 +80,27 @@ export interface WorldCharacter extends Versioned {
   lethalPvpOptIn: boolean;
   coins: number;
   crimes: { locationId: string; kind: string; day: number }[];
+  /** Checks a GM asked this character to roll. Seen only by the owner and GMs. */
+  pendingChecks?: PendingCheck[];
+}
+
+/**
+ * A GM's call for a check (rules v0.3 §2): attribute + skill against a TN, with the GM's situational modifier and,
+ * decided before the roll, whether failure can be catastrophic. A secret check's result goes to GMs only.
+ */
+export interface PendingCheck {
+  id: string;
+  label: string;
+  attribute: AttributeCode;
+  /** null: a raw attribute check. */
+  skill: string | null;
+  tn: number;
+  situational: number;
+  mode: 'normal' | 'advantage' | 'disadvantage';
+  highRisk: boolean;
+  secret: boolean;
+  requestedBy: string;
+  at: string;
 }
 
 export interface Hostility {
@@ -368,6 +389,15 @@ export type WorldCommand =
   | { type: 'gmSetNpcStatus'; npcId: string; status: 'alive' | 'dead'; basis: string }
   | { type: 'gmItemStatus'; itemId: string; status: Item['status']; basis: string }
   | { type: 'gmPublish'; title: string; body: string }
+  | { type: 'say'; characterId: string; text: string; mode: 'say' | 'act' | 'ooc' }
+  | { type: 'whisper'; characterId: string; to: string; text: string }
+  | { type: 'gmNarrate'; locationId: string; text: string; to?: string[] }
+  | {
+    type: 'gmRequestCheck'; characterId: string; label: string; attribute: AttributeCode; skill: string | null; tn: number;
+    situational?: number; mode?: PendingCheck['mode']; highRisk?: boolean; secret?: boolean;
+  }
+  | { type: 'rollCheck'; characterId: string; checkId: string }
+  | { type: 'gmCancelCheck'; characterId: string; checkId: string }
   | { type: 'gmRuling'; rulingId: string; decision: 'confirm' | 'overturn' }
   | { type: 'advanceDay' }
   | { type: 'expireAfterimages' }

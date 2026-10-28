@@ -81,10 +81,11 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   if (grant?.role === 'main') return structuredClone(s);
   const v = structuredClone(s);
   const ids = mine(s, viewer.userId);
-  const here = new Set(ids.map((id) => s.characters[id].locationId));
+  // A scene GM watches their assigned locations as if standing there.
+  const here = new Set([...ids.map((id) => s.characters[id].locationId), ...(grant?.role === 'scene' ? grant.locations ?? [] : [])]);
   const locks = visibleLocks(s, ids);
   const teams = myTeams(s, ids);
-  for (const l of Object.values(v.locations)) l.gmNotes = '';
+  for (const l of Object.values(v.locations)) if (!(grant?.role === 'scene' && grant.locations?.includes(l.id))) l.gmNotes = '';
   for (const [id, i] of Object.entries(v.items)) {
     const visibleHidden = !i.hidden || i.discoveredBy.some((c) => ids.includes(c));
     const heldByMe = i.holder.type === 'character' && ids.includes(i.holder.id);
@@ -100,6 +101,8 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   }
   for (const c of Object.values(v.characters)) {
     if (ids.includes(c.id)) continue;
+    // A scene GM sees the checks they called in their own locations; nobody else sees another player's.
+    if (!(grant?.role === 'scene' && grant.locations?.includes(c.locationId))) delete c.pendingChecks;
     if (!here.has(c.locationId)) c.locationId = ''; // where other players are is not public
     c.coins = 0;
     c.lethalPvpOptIn = false;
