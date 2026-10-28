@@ -117,6 +117,11 @@ export class CombatStore {
     };
   }
 
+  charactersOf(ownerUserId: string): StoredCharacter[] {
+    const ids = this.db.prepare('SELECT id FROM characters WHERE owner_user_id = ? ORDER BY rowid').all(ownerUserId) as { id: string }[];
+    return ids.map((r) => this.getCharacter(r.id));
+  }
+
   /** The only general-purpose character edit. Dead characters and other players' characters are refused. */
   renameCharacter(actor: Actor, id: string, name: string) {
     const c = this.getCharacter(id);

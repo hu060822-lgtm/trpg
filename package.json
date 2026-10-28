@@ -8,9 +8,12 @@
     "sim": "tsx scripts/sim-report.ts",
     "demo": "tsx scripts/demo.ts",
     "build:web": "tsx scripts/build-web.ts",
-    "sim:combat": "tsx scripts/combat-sim.ts"
+    "sim:combat": "tsx scripts/combat-sim.ts",
+    "server": "tsx src/server/main.ts",
+    "admin": "tsx scripts/admin.ts"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/node": "^26.6.5",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
@@ -21,5 +24,8 @@
   "type": "module",
   "engines": {
     "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
   }
 }
