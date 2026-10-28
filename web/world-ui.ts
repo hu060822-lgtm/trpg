@@ -255,7 +255,8 @@ function onCommand(cmd: string) {
   const a = viewer.actor;
   const me = viewer.characterId;
   const other = me === 'crow' ? 'nightingale' : 'crow';
-  const [k, arg] = cmd.split(':');
+  const at = cmd.indexOf(':');
+  const [k, arg] = at < 0 ? [cmd, ''] : [cmd.slice(0, at), cmd.slice(at + 1)];
   if (me) {
     if (k === 'move') return send(a, { type: 'move', characterId: me, to: arg });
     if (k === 'take') return send(a, { type: 'take', characterId: me, itemId: arg }, `取得${state.items[arg].name}`);
@@ -297,7 +298,11 @@ const STATUS: Record<string, [string, string]> = {
   proposed: ['待簽署', 'wait'], active: ['生效中', 'wait'], fulfilled: ['已履行', 'ok'], breached: ['違約', 'bad'],
 };
 const stBadge = (st: string) => `<span class="st${STATUS[st]?.[1] ? ` st-${STATUS[st][1]}` : ''}">${STATUS[st]?.[0] ?? st}</span>`;
-const who = (id: string) => state.characters[id]?.name ?? id;
+const who = (id: string) => (id.startsWith('team:') ? `隊伍「${state.economy.teams[id.slice(5)]?.name ?? id}」` : state.characters[id]?.name ?? id);
+const ACTS: Record<string, string> = {
+  proposeContract: '提出契約', signContract: '簽署契約', fulfillClause: '履行條款', requestCancelContract: '撤回或解除契約', raiseDispute: '提出爭議',
+  postCommission: '發布委託', acceptCommission: '接下委託', submitCommission: '提交委託', cancelCommission: '取消委託',
+};
 const itemName = (id: string) => state.items[id]?.name ?? id;
 
 function party(p: LedgerEntry['from']): string {
@@ -407,6 +412,13 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
       acts.push(btn(`m-motion:${t.id}|coins`, '領 5 枚給自己', t.policy === 'leader' && leader === me.id ? '隊長可以直接領' : '要過半數同意', !t.coins));
       if (held.length) acts.push(btn(`m-motion:${t.id}|item`, `領${held[0].name}給自己`, t.policy === 'leader' && leader === me.id ? '隊長可以直接領' : '要過半數同意'));
       acts.push(btn(`m-motion:${t.id}|policy`, t.policy === 'leader' ? '提議改成多數決' : '提議改成隊長決定', '要過半數同意'));
+      acts.push(btn(`m-motion:${t.id}|afterimage`, t.afterimageShare ? '提議：殘影不扣金庫' : '提議：殘影也扣金庫份額', `目前${t.afterimageShare ? '會扣' : '不扣'}・要過半數同意`));
+      acts.push(btn(`m-motion:${t.id}|post`, '提議以隊伍發布委託', '報酬 10 從金庫出・GM 驗收', t.coins < 10));
+      for (const k of Object.values(state.economy.contracts).filter((k) => k.parties.includes(`team:${t.id}`))) {
+        const tk = `team:${t.id}`;
+        if (k.status === 'proposed' && !k.signed.includes(tk)) acts.push(btn(`m-motion:${t.id}|sign:${k.id}`, `提議以隊伍簽署「${k.title}」`, k.deposits[tk] ? `押金 ${k.deposits[tk]} 從金庫出` : ''));
+        if (k.status === 'active') for (const c of k.clauses.filter((c) => !c.done && c.from === tk && c.kind === 'payCoins')) acts.push(btn(`m-motion:${t.id}|pay:${k.id}:${c.id}`, `提議以隊伍履行：${clauseText(c)}`));
+      }
       for (const m of t.members.filter((m) => m !== leader)) acts.push(btn(`m-motion:${t.id}|kick:${m}`, `提議請出 ${who(m)}`, '要過半數同意'));
       acts.push(btn(`m-motion:${t.id}|disband`, '提議解散', '金庫要先清空'));
       if (leader === me.id) for (const c of Object.values(state.characters).filter((c) => !t.members.includes(c.id) && !t.invites.includes(c.id))) acts.push(btn(`m-invite:${t.id}|${c.id}`, `邀請 ${c.name}`));
@@ -420,7 +432,9 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
       ${props.map((p) => {
         const voted = me && (p.approvals.includes(me.id) || p.rejections.includes(me.id));
         const text = p.kind === 'withdraw' ? `提領${[p.coins ? `${p.coins} 枚` : '', ...p.itemIds.map(itemName)].filter(Boolean).join('＋')}給 ${who(p.to)}`
-          : p.kind === 'policy' ? `改成${p.policy === 'leader' ? '隊長決定' : '多數決'}` : p.kind === 'kick' ? `請出 ${who(p.target)}` : '解散隊伍';
+          : p.kind === 'policy' ? `改成${p.policy === 'leader' ? '隊長決定' : '多數決'}` : p.kind === 'kick' ? `請出 ${who(p.target)}`
+          : p.kind === 'afterimage' ? (p.share ? '殘影到期時，隊員在金庫的份額也照比例損失' : '殘影損失不影響金庫')
+          : p.kind === 'act' ? `以隊伍名義${ACTS[p.command.type]}${'contractId' in p.command ? `（${state.economy.contracts[p.command.contractId]?.title ?? ''}）` : 'title' in p.command ? `「${p.command.title}」` : ''}` : '解散隊伍';
         return `<div class="wd-card"><header><b>${esc(who(p.by))} 提案</b><span class="st st-wait">${p.approvals.length} 同意／${p.rejections.length} 反對・需 ${Math.floor(alive / 2) + 1} 票</span></header><span>${esc(text)}</span>
           ${mine && !voted ? `<div class="wd-btns">${btn(`m-vote:${t.id}|${p.id},1`, '同意')}${btn(`m-vote:${t.id}|${p.id},0`, '反對')}</div>` : ''}</div>`;
       }).join('')}
@@ -447,6 +461,8 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
       ${k.breachedBy ? `<span class="muted">違約方：${k.breachedBy.map(who).map(esc).join('、')}</span>` : ''}
       ${acts.length ? `<div class="wd-btns">${acts.join('')}</div>` : ''}</div>`;
   }).join('') : '<p class="muted">沒有看得到的契約。</p>');
+  const foreign = me ? teams.filter((t) => !t.members.includes(me.id)) : [];
+  if (me && foreign.length) out.push(`<div class="wd-btns">${foreign.map((t) => btn(`m-proposeteam:${t.id}`, `向「${t.name}」提議護衛契約`, '隊伍從金庫付你 10 枚・押金你 2／隊伍 4', !me.online)).join('')}</div>`);
   if (me && other) out.push(`<div class="wd-btns">${btn('m-propose3', '三人立約：探索遺跡', '另外兩人協助探索（GM 確認），你各付 4 枚・押金各 3', !me.online)}${btn('m-propose', `和 ${other.name} 立約：月光草供貨`, `你付 8 枚，對方交 1 株月光草・押金各 5`, !me.online || other.status === 'dead')}${btn('m-proposegm', `和 ${other.name} 立約：護送`, '對方護送你到遺跡・GM 確認・押金各 5', !me.online || other.status === 'dead')}</div>`);
 
   // Disputes and GM tools
@@ -534,6 +550,13 @@ function onMarket(k: string, arg = '') {
       clauses: [...rest.map((c) => ({ kind: 'gmVerified' as const, from: c, text: `${who(c)} 協助探索遺跡` })), ...rest.map((c) => ({ kind: 'payCoins' as const, from: me, to: c, amount: 4 }))],
     }, '已提出三人契約，另外兩人都簽署才會生效');
   }
+  if (k === 'm-proposeteam') {
+    const tk = `team:${x}`;
+    return go({
+      type: 'proposeContract', characterId: me, with: [tk], title: `護衛${state.economy.teams[x].name}`, deadline: later(2), deposits: { [me]: 2, [tk]: 4 },
+      clauses: [{ kind: 'gmVerified', from: me, text: `${who(me)}護衛隊伍走完古道` }, { kind: 'payCoins', from: tk, to: me, amount: 10 }],
+    }, '已提出契約，隊員要投票通過才會以隊伍名義簽署');
+  }
   if (k === 'm-sign') return go({ type: 'signContract', characterId: me, contractId: x });
   if (k === 'm-createteam') return go({ type: 'createTeam', characterId: me, teamId: `${me}-team`, name: `${who(me)}的隊伍`, policy: x as 'leader' });
   if (k === 'm-invite') return go({ type: 'inviteToTeam', characterId: me, teamId: x, targetId: y }, '已送出邀請，切換到對方身分就能回覆');
@@ -547,6 +570,10 @@ function onMarket(k: string, arg = '') {
     const motion: TeamMotion = y === 'coins' ? { kind: 'withdraw', to: me, coins: Math.min(5, t.coins), itemIds: [] }
       : y === 'item' ? { kind: 'withdraw', to: me, coins: 0, itemIds: item ? [item.id] : [] }
       : y === 'policy' ? { kind: 'policy', policy: t.policy === 'leader' ? 'majority' : 'leader' }
+      : y === 'afterimage' ? { kind: 'afterimage', share: !t.afterimageShare }
+      : y === 'post' ? { kind: 'act', command: { type: 'postCommission', characterId: `team:${x}`, title: `${t.name}：清理古道上的狼群`, requirement: { kind: 'gm', text: '回報古道安全' }, reward: 10, deadline: later(2) } }
+      : y.startsWith('sign:') ? { kind: 'act', command: { type: 'signContract', characterId: `team:${x}`, contractId: y.slice(5) } }
+      : y.startsWith('pay:') ? { kind: 'act', command: { type: 'fulfillClause', characterId: `team:${x}`, contractId: y.split(':')[1], clauseId: y.split(':')[2] } }
       : y === 'disband' ? { kind: 'disband' } : { kind: 'kick', target: y.slice(5) };
     return go({ type: 'proposeTeam', characterId: me, teamId: x, motion });
   }

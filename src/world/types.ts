@@ -253,9 +253,16 @@ export interface Dispute extends Versioned {
 }
 
 /** A change to the team that needs members' votes. */
+/** What a team can do as a party, once its members vote for it; `characterId` is `team:<id>`. */
+export type TeamAction = Extract<EconomyCommand, { type:
+  'proposeContract' | 'signContract' | 'fulfillClause' | 'requestCancelContract' | 'raiseDispute'
+  | 'postCommission' | 'acceptCommission' | 'submitCommission' | 'cancelCommission' }>;
+
 export type TeamMotion =
   | { kind: 'withdraw'; to: string; coins: number; itemIds: string[] }
   | { kind: 'policy'; policy: Team['policy'] }
+  | { kind: 'afterimage'; share: boolean }
+  | { kind: 'act'; command: TeamAction }
   | { kind: 'kick'; target: string }
   | { kind: 'disband' };
 
@@ -278,6 +285,8 @@ export interface Team extends Versioned {
   coins: number;
   /** leader: the leader withdraws alone; majority: every withdrawal needs a vote. Other motions always need a vote. */
   policy: 'leader' | 'majority';
+  /** Chosen by the team: when a member's afterimage expires, their share of the treasury takes the same loss. */
+  afterimageShare: boolean;
   proposals: TeamProposal[];
   status: 'active' | 'disbanded';
 }

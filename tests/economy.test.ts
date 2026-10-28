@@ -535,6 +535,120 @@ describe('teams and their shared treasury', () => {
   });
 });
 
+describe('a team as a party to contracts and commissions', () => {
+  const T = 'crows';
+  const TK = 'team:crows';
+  /** 灰鴉 (leader) and 夜鶯 share a 30-coin treasury; 鷦鷯 is outside. */
+  function pair(r: Run, policy: 'leader' | 'majority' = 'leader') {
+    r.do(U1, { type: 'createTeam', characterId: 'crow', teamId: T, name: '鴉群', policy });
+    r.do(U1, { type: 'inviteToTeam', characterId: 'crow', teamId: T, targetId: 'nightingale' });
+    r.do(U2, { type: 'respondTeamInvite', characterId: 'nightingale', teamId: T, accept: true });
+    r.do(U1, { type: 'depositToTeam', characterId: 'crow', teamId: T, coins: 30, itemIds: [] });
+    r.do(MAIN, { type: 'gmGrantCoins', characterId: 'wren', amount: 20, reason: '測試' });
+  }
+  /** Proposes a team action and has 夜鶯 vote for it. */
+  const act = (r: Run, command: WorldCommand) => {
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'act', command: command as never } });
+    const p = r.s.economy.teams[T].proposals.at(-1)!;
+    if (p.status === 'open') r.do(U2, { type: 'voteTeam', characterId: 'nightingale', teamId: T, proposalId: p.id, approve: true });
+    return r.s.economy.teams[T].proposals.at(-1)!;
+  };
+
+  it('nobody can act in the team\'s name without a vote, not even the leader', () => {
+    const r = new Run(world());
+    pair(r);
+    expect(() => r.do(U1, { type: 'postCommission', characterId: TK, title: 'x', requirement: { kind: 'gm', text: 'x' }, reward: 5, deadline: DEADLINE })).toThrow(/投票/);
+    expect(() => r.do(U1, { type: 'proposeContract', characterId: TK, with: ['wren'], title: 'x', deadline: DEADLINE, deposits: {}, clauses: [{ kind: 'gmVerified', from: TK, text: 'x' }] })).toThrow(/投票/);
+  });
+
+  it('a commission posted by vote is paid from the treasury, and its reward returns there if cancelled', () => {
+    const r = new Run(world());
+    pair(r);
+    const p = act(r, { type: 'postCommission', characterId: TK, title: '找回遺失的鐘錘', requirement: { kind: 'gm', text: '帶回鐘錘' }, reward: 12, deadline: DEADLINE });
+    expect(p.status).toBe('passed');
+    const k = Object.values(r.s.economy.commissions)[0];
+    expect(k.issuerId).toBe(TK);
+    expect(r.s.economy.teams[T].coins).toBe(18);
+    r.do(U3, { type: 'acceptCommission', characterId: 'wren', commissionId: k.id });
+    r.do(U3, { type: 'submitCommission', characterId: 'wren', commissionId: k.id, itemIds: [] });
+    r.do(MAIN, { type: 'reviewCommission', characterId: '', commissionId: k.id, approve: true });
+    expect(coins(r.s, 'wren')).toBe(32);
+    assertConservation(r);
+  });
+
+  it('a motion the team could not carry out is refused when proposed, before anyone votes', () => {
+    const r = new Run(world());
+    pair(r);
+    expect(() => r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'act', command: { type: 'postCommission', characterId: TK, title: 'x', requirement: { kind: 'gm', text: 'x' }, reward: 99, deadline: DEADLINE } } }))
+      .toThrow(/不夠/);
+    expect(() => r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'act', command: { type: 'postCommission', characterId: 'team:other', title: 'x', requirement: { kind: 'gm', text: 'x' }, reward: 1, deadline: DEADLINE } } }))
+      .toThrow(/這支隊伍/);
+    expect(r.s.economy.teams[T].coins).toBe(30);
+  });
+
+  it('signs a contract by vote, pays from the treasury and receives items into it; breaching costs the team its deposit', () => {
+    const r = new Run(world());
+    pair(r);
+    r.s.items['moonherb-3'].holder = { type: 'character', id: 'wren' };
+    r.do(U3, {
+      type: 'proposeContract', characterId: 'wren', with: [TK], title: '月光草換錢', deadline: DEADLINE, deposits: { wren: 4, [TK]: 6 },
+      clauses: [{ kind: 'deliverItem', from: 'wren', to: TK, itemId: 'moonherb-3' }, { kind: 'payCoins', from: TK, to: 'wren', amount: 10 }],
+    });
+    const id = Object.keys(r.s.economy.contracts)[0];
+    act(r, { type: 'signContract', characterId: TK, contractId: id });
+    expect(r.s.economy.contracts[id].status).toBe('active');
+    expect(r.s.economy.teams[T].coins).toBe(24); // deposit locked from the treasury
+    r.do(U3, { type: 'fulfillClause', characterId: 'wren', contractId: id, clauseId: `${id}-1` });
+    expect(holder(r.s, 'moonherb-3')).toEqual({ type: 'team', id: T });
+    r.do(SYS, { type: 'settleDeadlines' }, LATER); // the team never voted to pay
+    expect(r.s.economy.contracts[id].breachedBy).toEqual([TK]);
+    expect(coins(r.s, 'wren')).toBe(26); // 20 - 4 + 4 back + 6 forfeited by the team
+    expect(r.s.economy.teams[T].coins).toBe(24);
+    assertConservation(r);
+  });
+
+  it('pays a clause by vote and the contract completes', () => {
+    const r = new Run(world());
+    pair(r);
+    r.do(U3, { type: 'proposeContract', characterId: 'wren', with: [TK], title: '護衛費', deadline: DEADLINE, deposits: {}, clauses: [{ kind: 'payCoins', from: TK, to: 'wren', amount: 10 }] });
+    const id = Object.keys(r.s.economy.contracts)[0];
+    act(r, { type: 'signContract', characterId: TK, contractId: id });
+    act(r, { type: 'fulfillClause', characterId: TK, contractId: id, clauseId: `${id}-1` });
+    expect(r.s.economy.contracts[id].status).toBe('fulfilled');
+    expect([coins(r.s, 'wren'), r.s.economy.teams[T].coins]).toEqual([30, 20]);
+  });
+
+  it('members of the team see its contracts; outsiders do not', () => {
+    const r = new Run(world());
+    pair(r);
+    r.do(U3, { type: 'proposeContract', characterId: 'wren', with: [TK], title: '護衛費', deadline: DEADLINE, deposits: { wren: 2 }, clauses: [{ kind: 'payCoins', from: TK, to: 'wren', amount: 10 }] });
+    expect(Object.keys(viewFor(r.s, U2).economy.contracts)).toHaveLength(1);
+    r.do(U2, { type: 'leaveTeam', characterId: 'nightingale', teamId: T });
+    expect(Object.keys(viewFor(r.s, U2).economy.contracts)).toHaveLength(0);
+    expect(Object.keys(viewFor(r.s, U1).economy.locks)).toHaveLength(1);
+  });
+
+  it('the team decides by vote whether a member\'s afterimage loss also hits their share of the treasury', () => {
+    const r = new Run(world());
+    pair(r);
+    const expire = (rr: Run) => {
+      rr.s.characters.crow.online = false;
+      rr.s.characters.crow.afterimageUntil = T0.toISOString();
+      rr.do(SYS, { type: 'expireAfterimages' }, LATER);
+    };
+    const off = new Run(structuredClone(r.s));
+    expire(off);
+    expect(off.s.economy.teams[T].coins).toBe(30); // default: the treasury is untouched
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'afterimage', share: true } });
+    r.do(U2, { type: 'voteTeam', characterId: 'nightingale', teamId: T, proposalId: r.s.economy.teams[T].proposals[0].id, approve: true });
+    expect(r.s.economy.teams[T].afterimageShare).toBe(true);
+    expire(r);
+    // crow's share is 30 / 2 living members = 15; 10% of it, rounded down, is 1.
+    expect(r.s.economy.teams[T].coins).toBe(29);
+    expect(r.ledger.at(-1)).toMatchObject({ from: { type: 'team', id: T }, to: { type: 'sink' }, coins: 1 });
+  });
+});
+
 describe('who sees what', () => {
   it('trades, contracts and their escrow are visible only to the parties; shops and commissions are public', () => {
     const r = new Run(world());

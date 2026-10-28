@@ -3,7 +3,7 @@
 // can always be recomputed and nothing is ever moved without a record.
 import type { Ctx, Helpers } from './engine';
 import type {
-  Bundle, Clause, Commission, Contract, Dispute, EconomyCommand, Item, LedgerEntry, Lock, Party, Shop, Team, TeamMotion, TeamProposal, Trade,
+  Bundle, Clause, Commission, Contract, Dispute, EconomyCommand, Item, LedgerEntry, Lock, Party, Shop, Team, TeamAction, TeamMotion, TeamProposal, Trade,
   WorldCharacter,
 } from './types';
 
@@ -22,14 +22,52 @@ export const ECONOMY_COLLECTIONS = {
   team: 'teams', shop: 'shops', trade: 'trades', commission: 'commissions', contract: 'contracts', lock: 'locks', dispute: 'disputes',
 } as const;
 
-export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void {
+/** What a team motion of kind `act` may do, and how it reads to the members. */
+const ACT_LABELS: Record<TeamAction['type'], string> = {
+  proposeContract: '提出契約', signContract: '簽署契約', fulfillClause: '履行契約條款', requestCancelContract: '撤回或提議解除契約',
+  raiseDispute: '提出爭議', postCommission: '發布委託', acceptCommission: '接下委託', submitCommission: '提交委託', cancelCommission: '取消委託',
+};
+
+/** Prefix that turns a team id into a party id for contracts and commissions. */
+export const TEAM_PREFIX = 'team:';
+
+/** `actingTeam` is set only while carrying out a motion a team's members passed. */
+export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers, actingTeam?: string): void {
   const { s } = ctx;
   const eco = s.economy;
   const fail: Fail = (code, message) => { throw new h.WorldError(code, message); };
   const tx = `T${s.seq + 1}`;
   const nextId = (prefix: string) => `${prefix}${s.seq + 1}`;
-  const name = (id: string) => s.characters[id]?.name ?? id;
   const coinsOk = (n: unknown) => Number.isInteger(n) && (n as number) >= 0;
+
+  // ---------- accounts: a character, or a team acting through its treasury ----------
+
+  /** A team takes part in contracts and commissions as `team:<id>`. */
+  const teamKey = (id: string) => (id.startsWith(TEAM_PREFIX) ? id.slice(TEAM_PREFIX.length) : undefined);
+  interface Acct { id: string; name: string; party: Party; holder: Item['holder']; coins: number; alive: boolean; members: string[] }
+  const acct = (id: string): Acct => {
+    const tk = teamKey(id);
+    if (tk) {
+      const t = eco.teams[tk] ?? fail('unknown-team', `找不到隊伍 ${tk}`);
+      return { id, name: `隊伍「${t.name}」`, party: { type: 'team', id: t.id }, holder: { type: 'team', id: t.id }, coins: t.coins, alive: t.status === 'active', members: [...t.members] };
+    }
+    const c = h.character(ctx, id);
+    return { id, name: c.name, party: { type: 'character', id }, holder: { type: 'character', id }, coins: c.coins, alive: c.status === 'alive', members: [id] };
+  };
+  const name = (id: string) => (teamKey(id) ? `隊伍「${eco.teams[teamKey(id)!]?.name ?? id}」` : s.characters[id]?.name ?? id);
+  /** Who acts: a team only inside a motion its members passed; a character only for its own player. */
+  const acting = (id: string): Acct => {
+    if (teamKey(id)) {
+      if (actingTeam !== id) fail('team-vote', '隊伍的行動要先由隊員投票通過');
+      const a = acct(id);
+      if (!a.alive) fail('team-disbanded', `${a.name}已經解散`);
+      return a;
+    }
+    return acct(h.active(ctx, id).id);
+  };
+  /** A player standing for themselves or for a team they belong to (for cancelling, disputing). */
+  /** For steps that do not need the character online (cancelling, disputing): a team still needs a vote. */
+  const standsFor = (id: string): Acct => (teamKey(id) ? acting(id) : acct(h.own(ctx, id).id));
 
   // ---------- ledger and asset movement ----------
 
@@ -38,17 +76,21 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     const e: LedgerEntry = { seq: s.seq, at: ctx.now.toISOString(), tx, from, to, ...what, reason };
     ctx.ledger.push(e);
   };
-  const ch = (id: string): Party => ({ type: 'character', id });
+  const ch = (id: string): Party => acct(id).party;
 
-  const addCoins = (c: WorldCharacter, delta: number, basis: string) => {
-    if (c.coins + delta < 0) fail('insufficient-coins', `${c.name} 的錢幣不夠（有 ${c.coins}，需要 ${-delta}）`);
-    h.change(ctx, 'character', c.id, c, basis, false, (t) => { t.coins += delta; });
+  const addCoins = (x: { id: string }, delta: number, basis: string) => {
+    const a = acct(x.id);
+    if (a.coins + delta < 0) fail('insufficient-coins', `${a.name} 的錢幣不夠（有 ${a.coins}，需要 ${-delta}）`);
+    const tk = teamKey(x.id);
+    if (tk) h.change(ctx, 'team', tk, eco.teams[tk], basis, false, (t) => { t.coins += delta; });
+    else h.change(ctx, 'character', x.id, s.characters[x.id], basis, false, (t) => { t.coins += delta; });
   };
 
-  /** An item a character can hand over: theirs, present, tradable, unbound and not frozen. */
-  const handable = (c: WorldCharacter, id: string): Item => {
+  /** An item an account can hand over: theirs, present, tradable, unbound and not frozen. */
+  const handable = (x: { id: string }, id: string): Item => {
+    const a = acct(x.id);
     const i = h.item(ctx, id);
-    if (i.holder.type !== 'character' || i.holder.id !== c.id) fail('not-yours', `${c.name} 沒有${i.name}`);
+    if (i.holder.type !== a.holder.type || i.holder.id !== a.holder.id) fail('not-yours', `${a.name} 沒有${i.name}`);
     h.movable(i);
     if (!i.tradable || i.boundTo) fail('bound', `${i.name} 已綁定，不能交易`);
     return i;
@@ -65,24 +107,26 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     ledger(from, to, { itemId: i.id }, reason);
   };
 
-  /** Character → character, all or nothing (validated before anything moves). */
-  const transfer = (from: WorldCharacter, to: WorldCharacter, b: Bundle, reason: string) => {
+  /** Account → account, all or nothing (validated before anything moves). */
+  const transfer = (from: { id: string }, to: { id: string }, b: Bundle, reason: string) => {
     checkBundle(b);
     const items = b.itemIds.map((id) => handable(from, id));
-    if (from.coins < b.coins) fail('insufficient-coins', `${from.name} 的錢幣不夠（有 ${from.coins}，需要 ${b.coins}）`);
+    const f = acct(from.id);
+    if (f.coins < b.coins) fail('insufficient-coins', `${f.name} 的錢幣不夠（有 ${f.coins}，需要 ${b.coins}）`);
     if (b.coins) {
       addCoins(from, -b.coins, reason);
       addCoins(to, b.coins, reason);
       ledger(ch(from.id), ch(to.id), { coins: b.coins }, reason);
     }
-    for (const i of items) moveItem(i, { type: 'character', id: to.id }, reason);
+    for (const i of items) moveItem(i, acct(to.id).holder, reason);
   };
 
   /** Sets assets aside: coins leave the balance, items move to the escrow holder. */
-  const lock = (owner: WorldCharacter, b: Bundle, purpose: Lock['purpose'], ref: string): Lock => {
+  const lock = (owner: { id: string }, b: Bundle, purpose: Lock['purpose'], ref: string): Lock => {
     checkBundle(b);
     const items = b.itemIds.map((id) => handable(owner, id));
-    if (owner.coins < b.coins) fail('insufficient-coins', `${owner.name} 的錢幣不夠（有 ${owner.coins}，需要 ${b.coins}）`);
+    const o = acct(owner.id);
+    if (o.coins < b.coins) fail('insufficient-coins', `${o.name} 的錢幣不夠（有 ${o.coins}，需要 ${b.coins}）`);
     const id = nextId('L');
     const l: Lock = { id, ownerId: owner.id, purpose, ref, coins: b.coins, itemIds: [...b.itemIds], status: 'held', version: 1 };
     eco.locks[id] = l;
@@ -99,12 +143,12 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
   const release = (lockId: string, to: string, reason: string) => {
     const l = eco.locks[lockId];
     if (!l || l.status !== 'held') fail('lock-closed', `鎖定 ${lockId} 已經結算`);
-    const target = h.character(ctx, to);
+    const target = acct(to);
     if (l.coins) {
       addCoins(target, l.coins, reason);
-      ledger({ type: 'escrow', id: l.id }, ch(to), { coins: l.coins }, reason);
+      ledger({ type: 'escrow', id: l.id }, target.party, { coins: l.coins }, reason);
     }
-    for (const id of l.itemIds) moveItem(h.item(ctx, id), { type: 'character', id: to }, reason);
+    for (const id of l.itemIds) moveItem(h.item(ctx, id), target.holder, reason);
     h.change(ctx, 'lock', l.id, l, reason, false, (t) => { t.status = to === l.ownerId ? 'released' : 'consumed'; });
   };
 
@@ -115,17 +159,20 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     if (l.itemIds.length || shares.reduce((a, [, n]) => a + n, 0) !== l.coins) fail('bad-split', `鎖定 ${lockId} 的分配不正確`);
     for (const [to, n] of shares) {
       if (!n) continue;
-      if (to.type === 'character') addCoins(h.character(ctx, to.id), n, reason);
-      else if (to.type === 'team') h.change(ctx, 'team', to.id, eco.teams[to.id], reason, false, (t) => { t.coins += n; });
+      if (to.type === 'character') addCoins({ id: to.id }, n, reason);
+      else if (to.type === 'team') addCoins({ id: `${TEAM_PREFIX}${to.id}` }, n, reason);
       else if (to.type !== 'sink') fail('bad-split', `不能把錢付給 ${to.type}`);
       ledger({ type: 'escrow', id: l.id }, to, { coins: n }, reason);
     }
-    const consumed = shares.some(([to, n]) => n && !(to.type === 'character' && to.id === l.ownerId));
+    const owner = ch(l.ownerId);
+    const consumed = shares.some(([to, n]) => n && !(to.type === owner.type && to.id === owner.id));
     h.change(ctx, 'lock', l.id, l, reason, false, (t) => { t.status = consumed ? 'consumed' : 'released'; });
   };
 
   const tell = (to: string[], kind: string, text: string, data: Record<string, unknown> = {}) => {
-    h.privateEvent(ctx, to, kind, text, data);
+    // A team hears through its members.
+    const people = [...new Set(to.flatMap((id) => (teamKey(id) ? eco.teams[teamKey(id)!]?.members ?? [] : [id])))];
+    h.privateEvent(ctx, people, kind, text, data);
     h.gmEvent(ctx, kind, text, data);
   };
 
@@ -145,7 +192,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
   const contract = (id: string): Contract => eco.contracts[id] ?? fail('unknown-contract', `找不到契約 ${id}`);
 
   /** Template items a character holds, checked for a delivery of exactly qty items. */
-  const templateItems = (c: WorldCharacter, ids: string[], template: string, qty: number) => {
+  const templateItems = (c: { id: string }, ids: string[], template: string, qty: number) => {
     if (ids.length !== qty) fail('wrong-quantity', `需要剛好 ${qty} 件`);
     const items = ids.map((id) => handable(c, id));
     const wrong = items.find((i) => i.template !== template);
@@ -217,6 +264,8 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
   const motionText = (t: Team, m: TeamMotion) => {
     if (m.kind === 'withdraw') return `從金庫提領${[m.coins ? `${m.coins} 枚` : '', ...m.itemIds.map((id) => s.items[id]?.name ?? id)].filter(Boolean).join('＋')}給 ${name(m.to)}`;
     if (m.kind === 'policy') return `把提領規則改成${m.policy === 'leader' ? '隊長決定' : '多數決'}`;
+    if (m.kind === 'afterimage') return m.share ? '殘影到期時，該隊員在金庫的份額也照比例損失' : '殘影損失不影響金庫';
+    if (m.kind === 'act') return `以隊伍名義${ACT_LABELS[m.command.type]}`;
     if (m.kind === 'kick') return `把 ${name(m.target)} 請出「${t.name}」`;
     return `解散「${t.name}」`;
   };
@@ -231,6 +280,17 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     }
     if (m.kind === 'kick' && (!t.members.includes(m.target) || m.target === leaderOf(t))) return '只能請出隊長以外的隊員';
     if (m.kind === 'disband' && (t.coins || teamItems(t).length)) return '金庫還有東西，要先分配完才能解散';
+    if (m.kind === 'act') {
+      if (m.command.characterId !== `${TEAM_PREFIX}${t.id}`) return '提案的行動必須以這支隊伍的名義進行';
+      if (!(m.command.type in ACT_LABELS)) return '隊伍不能做這種行動';
+      // Rehearse on a copy of the world, so a motion that would fail is never half carried out.
+      try {
+        performEconomy({ ...ctx, s: structuredClone(ctx.s), events: [], changes: [], ledger: [] }, m.command, h, m.command.characterId);
+      } catch (e) {
+        if (e instanceof h.WorldError) return e.message;
+        throw e;
+      }
+    }
     return undefined;
   };
 
@@ -254,6 +314,10 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       for (const id of m.itemIds) moveItem(h.item(ctx, id), { type: 'character', id: to.id }, why);
     } else if (m.kind === 'policy') {
       h.change(ctx, 'team', t.id, t, why, true, (x) => { x.policy = m.policy; });
+    } else if (m.kind === 'afterimage') {
+      h.change(ctx, 'team', t.id, t, why, true, (x) => { x.afterimageShare = m.share; });
+    } else if (m.kind === 'act') {
+      performEconomy(ctx, m.command, h, m.command.characterId);
     } else if (m.kind === 'kick') {
       removeMember(t, m.target, why);
     } else {
@@ -297,7 +361,9 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       if (eco.teams[cmd.teamId]) fail('team-exists', '這個隊伍代號已經被使用');
       if (teamOf(c.id)) fail('already-in-team', `${c.name} 已經在一支隊伍裡`);
       if (!['leader', 'majority'].includes(cmd.policy)) fail('bad-policy', '提領規則只能是隊長決定或多數決');
-      const t: Team = { id: cmd.teamId, name: cmd.name, leaderId: c.id, members: [c.id], invites: [], coins: 0, policy: cmd.policy, proposals: [], status: 'active', version: 1 };
+      const t: Team = {
+        id: cmd.teamId, name: cmd.name, leaderId: c.id, members: [c.id], invites: [], coins: 0, policy: cmd.policy, afterimageShare: false, proposals: [], status: 'active', version: 1,
+      };
       eco.teams[t.id] = t;
       h.audit(ctx, 'team', t.id, null, h.clone(t), 'create team', true);
       h.emit(ctx, { kind: 'teamCreated', text: `${c.name} 組成了隊伍「${t.name}」`, visibility: 'public', data: { teamId: t.id } });
@@ -366,7 +432,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
         if (!m.coins && !m.itemIds.length) fail('empty', '至少要提領一樣東西');
       }
       if (m.kind === 'policy' && !['leader', 'majority'].includes(m.policy)) fail('bad-policy', '提領規則只能是隊長決定或多數決');
-      if (!['withdraw', 'policy', 'kick', 'disband'].includes(m.kind)) fail('bad-motion', '不認得這種提案');
+      if (!['withdraw', 'policy', 'afterimage', 'kick', 'disband', 'act'].includes(m.kind)) fail('bad-motion', '不認得這種提案');
       const problem = motionProblem(t, m);
       if (problem) fail('cannot-carry-out', problem);
       // Under the leader policy the leader's own withdrawals go through at once; everything else is voted on.
@@ -495,7 +561,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
 
     // ---------- commissions ----------
     case 'postCommission': {
-      const c = h.active(ctx, cmd.characterId);
+      const c = acting(cmd.characterId);
       if (!Number.isInteger(cmd.reward) || cmd.reward < 1) fail('bad-amount', '報酬必須是正整數');
       deadlineOk(cmd.deadline);
       const r = cmd.requirement;
@@ -509,7 +575,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'acceptCommission': {
-      const c = h.active(ctx, cmd.characterId);
+      const c = acting(cmd.characterId);
       const k = commission(cmd.commissionId);
       if (k.status !== 'published') fail('commission-closed', '這份委託已經有人接或已經結束');
       if (k.issuerId === c.id) fail('own-commission', '不能接自己的委託');
@@ -519,7 +585,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'submitCommission': {
-      const c = h.active(ctx, cmd.characterId);
+      const c = acting(cmd.characterId);
       const k = commission(cmd.commissionId);
       if (k.contractorId !== c.id) fail('forbidden', '這份委託不是你接的');
       if (k.status !== 'accepted') fail('bad-state', '這份委託現在不能提交');
@@ -556,7 +622,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'cancelCommission': {
-      const c = h.own(ctx, cmd.characterId);
+      const c = standsFor(cmd.characterId);
       const k = commission(cmd.commissionId);
       if (k.issuerId !== c.id) fail('forbidden', '只有發布者能取消委託');
       if (k.status !== 'published') fail('bad-state', '已經有人接的委託不能單方面取消，請提出爭議');
@@ -568,10 +634,10 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
 
     // ---------- contracts ----------
     case 'proposeContract': {
-      const c = h.active(ctx, cmd.characterId);
-      const others = cmd.with.map((id) => h.character(ctx, id));
+      const c = acting(cmd.characterId);
+      const others = cmd.with.map((id) => acct(id));
       if (!others.length) fail('bad-target', '契約至少要有兩位立約人');
-      if (others.some((o) => o.id === c.id || o.status === 'dead')) fail('bad-target', '不能和這個角色立約');
+      if (others.some((o) => o.id === c.id || !o.alive)) fail('bad-target', '不能和這個角色或隊伍立約');
       if (new Set(cmd.with).size !== cmd.with.length) fail('bad-target', '同一位立約人不能列兩次');
       if (others.length + 1 > ctx.cfg.economy.contractMaxParties) fail('too-many-parties', `一份契約最多 ${ctx.cfg.economy.contractMaxParties} 位立約人`);
       deadlineOk(cmd.deadline);
@@ -596,7 +662,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'signContract': {
-      const c = h.active(ctx, cmd.characterId);
+      const c = acting(cmd.characterId);
       const k = contract(cmd.contractId);
       if (!k.parties.includes(c.id)) fail('forbidden', '你不是這份契約的立約人');
       if (k.status !== 'proposed') fail('bad-state', '這份契約不在待簽署狀態');
@@ -615,7 +681,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'fulfillClause': {
-      const c = h.active(ctx, cmd.characterId);
+      const c = acting(cmd.characterId);
       const k = contract(cmd.contractId);
       if (k.status !== 'active') fail('bad-state', '這份契約目前不能履行條款');
       const cl = k.clauses.find((x) => x.id === cmd.clauseId) ?? fail('unknown-clause', '找不到這條條款');
@@ -624,7 +690,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       if (new Date(k.deadline) <= ctx.now) fail('expired', '契約期限已過');
       // Each clause moves only what it names, and only when its own obligor performs it.
       if (cl.kind === 'gmVerified') fail('needs-gm', '這條條款要由 GM 確認');
-      const to = h.character(ctx, cl.to);
+      const to = acct(cl.to);
       if (cl.kind === 'payCoins') transfer(c, to, { coins: cl.amount, itemIds: [] }, `contract ${k.id} clause ${cl.id}`);
       if (cl.kind === 'deliverItem') transfer(c, to, { coins: 0, itemIds: [cl.itemId] }, `contract ${k.id} clause ${cl.id}`);
       if (cl.kind === 'deliverTemplate') {
@@ -649,7 +715,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       return;
     }
     case 'requestCancelContract': {
-      const c = h.own(ctx, cmd.characterId);
+      const c = standsFor(cmd.characterId);
       const k = contract(cmd.contractId);
       if (!k.parties.includes(c.id)) fail('forbidden', '你不是這份契約的立約人');
       if (k.status === 'proposed') {
@@ -673,7 +739,7 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
 
     // ---------- disputes and deadlines ----------
     case 'raiseDispute': {
-      const c = h.own(ctx, cmd.characterId);
+      const c = standsFor(cmd.characterId);
       const id = nextId('P');
       if (cmd.kind === 'commission') {
         const k = commission(cmd.ref);
