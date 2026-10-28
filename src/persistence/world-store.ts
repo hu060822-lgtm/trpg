@@ -147,7 +147,7 @@ export class WorldStore {
       c.status = stored.status;
       c.condition = stored.condition;
     }
-    const economy: Economy = { shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} };
+    const economy: Economy = { teams: {}, shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} };
     const records = this.db.prepare('SELECT kind, id, data, version FROM world_records WHERE world_id = ?').all(worldId) as (Row & { kind: EconomyKind })[];
     for (const r of records) (economy[ECONOMY_COLLECTIONS[r.kind]] as Record<string, unknown>)[r.id] = { ...JSON.parse(r.data), version: r.version };
     return {

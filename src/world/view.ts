@@ -48,6 +48,10 @@ function visibleLocks(s: WorldState, ids: string[]): Set<string> {
   return new Set(Object.values(e.locks).filter(party).map((l) => l.id));
 }
 
+/** Teams any of these characters belongs to. */
+const myTeams = (s: WorldState, ids: string[]) =>
+  new Set(Object.values(s.economy.teams).filter((t) => t.members.some((m) => ids.includes(m))).map((t) => t.id));
+
 /**
  * Ledger entries a viewer may read. Main GM and arbiter: everything. Players: entries where their characters,
  * a lock they can see, or a shop on the market (sales are public listings) is on either side.
@@ -57,7 +61,8 @@ export function ledgerFor(s: WorldState, viewer: WorldActor, entries: LedgerEntr
   if (g?.role === 'main' || g?.role === 'arbiter') return entries;
   const ids = mine(s, viewer.userId);
   const locks = visibleLocks(s, ids);
-  const sees = (p: LedgerEntry['from']) => (p.type === 'character' && ids.includes(p.id)) || (p.type === 'escrow' && locks.has(p.id));
+  const teams = myTeams(s, ids);
+  const sees = (p: LedgerEntry['from']) => (p.type === 'character' && ids.includes(p.id)) || (p.type === 'escrow' && locks.has(p.id)) || (p.type === 'team' && teams.has(p.id));
   return entries.filter((e) => sees(e.from) || sees(e.to));
 }
 
@@ -73,6 +78,7 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   const ids = mine(s, viewer.userId);
   const here = new Set(ids.map((id) => s.characters[id].locationId));
   const locks = visibleLocks(s, ids);
+  const teams = myTeams(s, ids);
   for (const l of Object.values(v.locations)) l.gmNotes = '';
   for (const [id, i] of Object.entries(v.items)) {
     const visibleHidden = !i.hidden || i.discoveredBy.some((c) => ids.includes(c));
@@ -83,7 +89,8 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
     // Shop stock is on public display; escrowed items are seen by the parties to that lock.
     const onSale = i.holder.type === 'shop' && !!s.economy.shops[i.holder.id]?.open;
     const inMyEscrow = i.holder.type === 'escrow' && locks.has(i.holder.id);
-    if (!(heldByMe || (onGround && visibleHidden) || publicFate || onSale || inMyEscrow || grant?.role === 'arbiter')) delete v.items[id];
+    const inMyTreasury = i.holder.type === 'team' && teams.has(i.holder.id);
+    if (!(heldByMe || (onGround && visibleHidden) || publicFate || onSale || inMyEscrow || inMyTreasury || grant?.role === 'arbiter')) delete v.items[id];
     else { i.discoveredBy = i.discoveredBy.filter((c) => ids.includes(c)); }
   }
   for (const c of Object.values(v.characters)) {
@@ -99,12 +106,19 @@ export function viewFor(s: WorldState, viewer: WorldActor): WorldState {
   v.hostilities = v.hostilities.filter((h) => ids.includes(h.from) || ids.includes(h.against));
   v.rulings = Object.fromEntries(Object.entries(v.rulings).filter(([, r]) => r.subjects.some((x) => ids.includes(x))));
   v.gms = {};
-  // Shops and the commission board are public; trades, contracts, locks and disputes only to their parties.
+  // Shops, team rosters and the commission board are public; trades, contracts, locks, disputes and team treasuries only to their parties.
   // An arbiter rules on disputes, so they see the whole economy.
   if (grant?.role !== 'arbiter') {
     const e = v.economy;
     const involves = (...xs: (string | undefined)[]) => xs.some((x) => !!x && ids.includes(x));
     for (const sh of Object.values(e.shops)) if (!sh.open && !involves(sh.ownerId)) sh.listings = [];
+    // A team's name and members are public; its treasury, votes and other people's invitations are not.
+    for (const t of Object.values(e.teams)) {
+      if (teams.has(t.id)) continue;
+      t.coins = 0;
+      t.proposals = [];
+      t.invites = t.invites.filter((i) => ids.includes(i));
+    }
     e.trades = Object.fromEntries(Object.entries(e.trades).filter(([, t]) => involves(t.from, t.to)));
     e.contracts = Object.fromEntries(Object.entries(e.contracts).filter(([, c]) => involves(...c.parties)));
     e.locks = Object.fromEntries(Object.entries(e.locks).filter(([id]) => locks.has(id)));
