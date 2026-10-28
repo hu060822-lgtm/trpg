@@ -3,7 +3,8 @@
 // can always be recomputed and nothing is ever moved without a record.
 import type { Ctx, Helpers } from './engine';
 import type {
-  Bundle, Clause, Commission, Contract, Dispute, EconomyCommand, Item, LedgerEntry, Lock, Party, Shop, Trade, WorldCharacter,
+  Bundle, Clause, Commission, Contract, Dispute, EconomyCommand, Item, LedgerEntry, Lock, Party, Shop, Team, TeamMotion, TeamProposal, Trade,
+  WorldCharacter,
 } from './types';
 
 type Fail = (code: string, message: string) => never;
@@ -13,11 +14,12 @@ export const ECONOMY_COMMANDS: ReadonlySet<string> = new Set<EconomyCommand['typ
   'gmGrantCoins', 'openShop', 'setShopOpen', 'stockItem', 'unstockItem', 'buy', 'proposeTrade', 'acceptTrade', 'declineTrade', 'cancelTrade',
   'postCommission', 'acceptCommission', 'submitCommission', 'reviewCommission', 'cancelCommission', 'proposeContract', 'signContract',
   'fulfillClause', 'requestCancelContract', 'raiseDispute', 'gmVerifyClause', 'gmResolveDispute', 'settleDeadlines',
+  'createTeam', 'inviteToTeam', 'respondTeamInvite', 'leaveTeam', 'depositToTeam', 'proposeTeam', 'voteTeam',
 ]);
 
 /** Where each economy entity kind lives in WorldState.economy. */
 export const ECONOMY_COLLECTIONS = {
-  shop: 'shops', trade: 'trades', commission: 'commissions', contract: 'contracts', lock: 'locks', dispute: 'disputes',
+  team: 'teams', shop: 'shops', trade: 'trades', commission: 'commissions', contract: 'contracts', lock: 'locks', dispute: 'disputes',
 } as const;
 
 export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void {
@@ -106,6 +108,22 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     h.change(ctx, 'lock', l.id, l, reason, false, (t) => { t.status = to === l.ownerId ? 'released' : 'consumed'; });
   };
 
+  /** Splits a coin-only lock between several recipients (a sink destroys its share). Shares must add up to the lock. */
+  const payOut = (lockId: string, shares: [Party, number][], reason: string) => {
+    const l = eco.locks[lockId];
+    if (!l || l.status !== 'held') fail('lock-closed', `鎖定 ${lockId} 已經結算`);
+    if (l.itemIds.length || shares.reduce((a, [, n]) => a + n, 0) !== l.coins) fail('bad-split', `鎖定 ${lockId} 的分配不正確`);
+    for (const [to, n] of shares) {
+      if (!n) continue;
+      if (to.type === 'character') addCoins(h.character(ctx, to.id), n, reason);
+      else if (to.type === 'team') h.change(ctx, 'team', to.id, eco.teams[to.id], reason, false, (t) => { t.coins += n; });
+      else if (to.type !== 'sink') fail('bad-split', `不能把錢付給 ${to.type}`);
+      ledger({ type: 'escrow', id: l.id }, to, { coins: n }, reason);
+    }
+    const consumed = shares.some(([to, n]) => n && !(to.type === 'character' && to.id === l.ownerId));
+    h.change(ctx, 'lock', l.id, l, reason, false, (t) => { t.status = consumed ? 'consumed' : 'released'; });
+  };
+
   const tell = (to: string[], kind: string, text: string, data: Record<string, unknown> = {}) => {
     h.privateEvent(ctx, to, kind, text, data);
     h.gmEvent(ctx, kind, text, data);
@@ -145,23 +163,121 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     h.change(ctx, 'contract', k.id, k, basis, false, (t) => { t.status = status; if (breachedBy) t.breachedBy = breachedBy; });
   };
 
-  /** Breach: a lone breaching party forfeits their deposit to the other; if both breached, both get theirs back. */
+  /**
+   * Breach. Each breaching party's deposit is split evenly among the parties who kept the contract (any remainder
+   * goes to the first of them, in the contract's party order). If every party breached, each gets back
+   * `allBreachRefundRatio` of their deposit (rounded down) and the rest is destroyed.
+   */
   const breach = (k: Contract, by: string[], basis: string) => {
-    if (by.length === 1) {
-      const other = k.parties.find((p) => p !== by[0])!;
-      const forfeit = k.depositLocks[by[0]];
-      if (forfeit && eco.locks[forfeit]?.status === 'held') release(forfeit, other, `breach of ${k.id}: deposit forfeited`);
+    const kept = k.parties.filter((p) => !by.includes(p));
+    const ratio = ctx.cfg.economy.allBreachRefundRatio;
+    for (const p of by) {
+      const lockId = k.depositLocks[p];
+      if (!lockId || eco.locks[lockId]?.status !== 'held') continue;
+      const total = eco.locks[lockId].coins;
+      if (kept.length) {
+        const each = Math.floor(total / kept.length);
+        payOut(lockId, kept.map((q, n) => [ch(q), each + (n === 0 ? total - each * kept.length : 0)]), `breach of ${k.id}: deposit forfeited`);
+      } else {
+        const back = Math.floor(total * ratio);
+        payOut(lockId, [[ch(p), back], [{ type: 'sink', id: 'breach' }, total - back]], `breach of ${k.id}: partial refund`);
+      }
     }
     refundDeposits(k, `contract ${k.id} closed`);
     closeContract(k, 'breached', basis, by);
-    tell(k.parties, 'contractBreached', `契約「${k.title}」違約：${by.map(name).join('、')}${by.length === 1 ? '的押金歸對方' : '雙方都未履行，押金各自退回'}`, { contractId: k.id, by });
+    const outcome = kept.length
+      ? `${by.map(name).join('、')}的押金分給守約的${kept.map(name).join('、')}`
+      : `所有立約人都未履行，押金各退回 ${Math.round(ratio * 100)}%，其餘沒收`;
+    tell(k.parties, 'contractBreached', `契約「${k.title}」違約：${outcome}`, { contractId: k.id, by });
   };
 
   const maybeFulfilled = (k: Contract) => {
     if (!k.clauses.every((c) => c.done)) return;
     refundDeposits(k, `contract ${k.id} fulfilled`);
     closeContract(k, 'fulfilled', 'all clauses done');
-    tell(k.parties, 'contractFulfilled', `契約「${k.title}」所有條款都已履行，押金退回雙方`, { contractId: k.id });
+    tell(k.parties, 'contractFulfilled', `契約「${k.title}」所有條款都已履行，押金全數退回`, { contractId: k.id });
+  };
+
+  // ---------- teams ----------
+
+  const team = (id: string): Team => {
+    const t = eco.teams[id] ?? fail('unknown-team', `找不到隊伍 ${id}`);
+    if (t.status !== 'active') fail('team-disbanded', `隊伍「${t.name}」已經解散`);
+    return t;
+  };
+  const teamOf = (characterId: string) => Object.values(eco.teams).find((t) => t.status === 'active' && t.members.includes(characterId));
+  /** Only living members vote; a dead member's seat stops counting toward a majority. */
+  const voters = (t: Team) => t.members.filter((m) => s.characters[m]?.status === 'alive');
+  const member = (t: Team, c: WorldCharacter) => { if (!t.members.includes(c.id)) fail('forbidden', `${c.name} 不是「${t.name}」的成員`); };
+  /** The leader, or the first living member if the leader has died. */
+  const leaderOf = (t: Team) => (s.characters[t.leaderId]?.status === 'alive' ? t.leaderId : voters(t)[0]);
+  const teamItems = (t: Team) => Object.values(s.items).filter((i) => i.holder.type === 'team' && i.holder.id === t.id);
+  const tp = (id: string): Party => ({ type: 'team', id });
+
+  const motionText = (t: Team, m: TeamMotion) => {
+    if (m.kind === 'withdraw') return `從金庫提領${[m.coins ? `${m.coins} 枚` : '', ...m.itemIds.map((id) => s.items[id]?.name ?? id)].filter(Boolean).join('＋')}給 ${name(m.to)}`;
+    if (m.kind === 'policy') return `把提領規則改成${m.policy === 'leader' ? '隊長決定' : '多數決'}`;
+    if (m.kind === 'kick') return `把 ${name(m.target)} 請出「${t.name}」`;
+    return `解散「${t.name}」`;
+  };
+
+  /** Checks that a motion can be carried out right now; returns a reason when it cannot. */
+  const motionProblem = (t: Team, m: TeamMotion): string | undefined => {
+    if (m.kind === 'withdraw') {
+      if (!t.members.includes(m.to) || s.characters[m.to]?.status !== 'alive') return '只能提領給活著的隊員';
+      if (t.coins < m.coins) return `金庫只有 ${t.coins} 枚`;
+      const missing = m.itemIds.find((id) => s.items[id]?.holder.type !== 'team' || s.items[id].holder.id !== t.id);
+      if (missing) return `金庫裡沒有${s.items[missing]?.name ?? missing}`;
+    }
+    if (m.kind === 'kick' && (!t.members.includes(m.target) || m.target === leaderOf(t))) return '只能請出隊長以外的隊員';
+    if (m.kind === 'disband' && (t.coins || teamItems(t).length)) return '金庫還有東西，要先分配完才能解散';
+    return undefined;
+  };
+
+  const removeMember = (t: Team, id: string, basis: string) => {
+    h.change(ctx, 'team', t.id, t, basis, false, (x) => {
+      x.members = x.members.filter((m) => m !== id);
+      for (const p of x.proposals) if (p.status === 'open') { p.approvals = p.approvals.filter((v) => v !== id); p.rejections = p.rejections.filter((v) => v !== id); }
+      if (x.leaderId === id && x.members.length) x.leaderId = x.members.find((m) => s.characters[m]?.status === 'alive') ?? x.members[0];
+      if (!x.members.length) x.status = 'disbanded';
+    });
+  };
+
+  const carryOut = (t: Team, m: TeamMotion, why: string) => {
+    if (m.kind === 'withdraw') {
+      const to = h.character(ctx, m.to);
+      if (m.coins) {
+        h.change(ctx, 'team', t.id, t, why, false, (x) => { x.coins -= m.coins; });
+        addCoins(to, m.coins, why);
+        ledger(tp(t.id), ch(to.id), { coins: m.coins }, why);
+      }
+      for (const id of m.itemIds) moveItem(h.item(ctx, id), { type: 'character', id: to.id }, why);
+    } else if (m.kind === 'policy') {
+      h.change(ctx, 'team', t.id, t, why, true, (x) => { x.policy = m.policy; });
+    } else if (m.kind === 'kick') {
+      removeMember(t, m.target, why);
+    } else {
+      h.change(ctx, 'team', t.id, t, why, false, (x) => { x.status = 'disbanded'; });
+    }
+  };
+
+  /** Settles an open proposal once enough living members have voted either way. */
+  const tally = (t: Team, pid: string) => {
+    const p = t.proposals.find((x) => x.id === pid)!;
+    const n = voters(t).length;
+    const yes = p.approvals.filter((v) => voters(t).includes(v)).length;
+    const no = p.rejections.filter((v) => voters(t).includes(v)).length;
+    const audience = [...t.members];
+    if (yes * 2 > n) {
+      const problem = motionProblem(t, p);
+      h.change(ctx, 'team', t.id, t, `proposal ${pid} ${problem ? 'void' : 'passed'}`, false, (x) => { x.proposals.find((y) => y.id === pid)!.status = problem ? 'void' : 'passed'; });
+      if (problem) { tell(audience, 'teamProposalVoid', `「${t.name}」的提案 ${pid} 通過了，但無法執行：${problem}`, { teamId: t.id, proposalId: pid }); return; }
+      carryOut(t, p, `team ${t.id} proposal ${pid}`);
+      tell(audience, 'teamProposalPassed', `「${t.name}」通過提案：${motionText(t, p)}（${yes}／${n} 票同意）`, { teamId: t.id, proposalId: pid });
+    } else if (no * 2 >= n) {
+      h.change(ctx, 'team', t.id, t, `proposal ${pid} rejected`, false, (x) => { x.proposals.find((y) => y.id === pid)!.status = 'rejected'; });
+      tell(audience, 'teamProposalRejected', `「${t.name}」否決提案：${motionText(t, p)}`, { teamId: t.id, proposalId: pid });
+    }
   };
 
   switch (cmd.type) {
@@ -172,6 +288,112 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       addCoins(c, cmd.amount, `grant: ${cmd.reason}`);
       ledger({ type: 'mint', id: ctx.actor.userId }, ch(c.id), { coins: cmd.amount }, `grant: ${cmd.reason}`);
       tell([c.id], 'coinsGranted', `${c.name} 獲得 ${cmd.amount} 枚錢幣（${cmd.reason}）`, { amount: cmd.amount });
+      return;
+    }
+
+    // ---------- teams ----------
+    case 'createTeam': {
+      const c = h.active(ctx, cmd.characterId);
+      if (eco.teams[cmd.teamId]) fail('team-exists', '這個隊伍代號已經被使用');
+      if (teamOf(c.id)) fail('already-in-team', `${c.name} 已經在一支隊伍裡`);
+      if (!['leader', 'majority'].includes(cmd.policy)) fail('bad-policy', '提領規則只能是隊長決定或多數決');
+      const t: Team = { id: cmd.teamId, name: cmd.name, leaderId: c.id, members: [c.id], invites: [], coins: 0, policy: cmd.policy, proposals: [], status: 'active', version: 1 };
+      eco.teams[t.id] = t;
+      h.audit(ctx, 'team', t.id, null, h.clone(t), 'create team', true);
+      h.emit(ctx, { kind: 'teamCreated', text: `${c.name} 組成了隊伍「${t.name}」`, visibility: 'public', data: { teamId: t.id } });
+      return;
+    }
+    case 'inviteToTeam': {
+      const c = h.active(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      if (leaderOf(t) !== c.id) fail('forbidden', '只有隊長能邀請');
+      const target = h.character(ctx, cmd.targetId);
+      if (target.status === 'dead') fail('bad-target', `${target.name} 已經死亡`);
+      if (t.members.includes(target.id) || t.invites.includes(target.id)) fail('already-invited', `${target.name} 已經是隊員或已被邀請`);
+      if (t.members.length + t.invites.length >= ctx.cfg.economy.teamMaxMembers) fail('team-full', `一支隊伍最多 ${ctx.cfg.economy.teamMaxMembers} 人（含邀請中）`);
+      h.change(ctx, 'team', t.id, t, `invite ${target.id}`, true, (x) => { x.invites.push(target.id); });
+      tell([c.id, target.id], 'teamInvited', `${c.name} 邀請 ${target.name} 加入「${t.name}」`, { teamId: t.id });
+      return;
+    }
+    case 'respondTeamInvite': {
+      const c = h.own(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      if (!t.invites.includes(c.id)) fail('not-invited', '你沒有收到這支隊伍的邀請');
+      if (cmd.accept && teamOf(c.id)) fail('already-in-team', `${c.name} 已經在一支隊伍裡，要先離隊`);
+      h.change(ctx, 'team', t.id, t, cmd.accept ? `join ${c.id}` : `decline ${c.id}`, true, (x) => {
+        x.invites = x.invites.filter((i) => i !== c.id);
+        if (cmd.accept) x.members.push(c.id);
+      });
+      tell([...t.members, c.id], 'teamInviteAnswered', `${c.name} ${cmd.accept ? '加入' : '婉拒加入'}「${t.name}」`, { teamId: t.id });
+      return;
+    }
+    case 'leaveTeam': {
+      const c = h.own(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      member(t, c);
+      if (t.members.length === 1 && (t.coins || teamItems(t).length)) fail('treasury-not-empty', '你是最後一位隊員，要先把金庫領完才能離隊');
+      const audience = [...t.members];
+      removeMember(t, c.id, `leave ${c.id}`);
+      tell(audience, 'teamLeft', t.status === 'disbanded'
+        ? `${c.name} 離開，「${t.name}」解散了`
+        : `${c.name} 離開了「${t.name}」，存進金庫的東西留在金庫；隊長是 ${name(t.leaderId)}`, { teamId: t.id, leader: t.leaderId });
+      return;
+    }
+    case 'depositToTeam': {
+      const c = h.own(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      member(t, c);
+      checkBundle({ coins: cmd.coins, itemIds: cmd.itemIds });
+      if (!cmd.coins && !cmd.itemIds.length) fail('empty', '至少要存一樣東西');
+      const items = cmd.itemIds.map((id) => handable(c, id));
+      const why = `deposit to team ${t.id}`;
+      if (cmd.coins) {
+        addCoins(c, -cmd.coins, why);
+        h.change(ctx, 'team', t.id, t, why, false, (x) => { x.coins += cmd.coins; });
+        ledger(ch(c.id), tp(t.id), { coins: cmd.coins }, why);
+      }
+      for (const i of items) moveItem(i, { type: 'team', id: t.id }, why);
+      tell(t.members, 'teamDeposit', `${c.name} 存入「${t.name}」金庫：${[cmd.coins ? `${cmd.coins} 枚` : '', ...items.map((i) => i.name)].filter(Boolean).join('＋')}`, { teamId: t.id });
+      return;
+    }
+    case 'proposeTeam': {
+      const c = h.own(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      member(t, c);
+      const m = cmd.motion;
+      if (m.kind === 'withdraw') {
+        checkBundle({ coins: m.coins, itemIds: m.itemIds });
+        if (!m.coins && !m.itemIds.length) fail('empty', '至少要提領一樣東西');
+      }
+      if (m.kind === 'policy' && !['leader', 'majority'].includes(m.policy)) fail('bad-policy', '提領規則只能是隊長決定或多數決');
+      if (!['withdraw', 'policy', 'kick', 'disband'].includes(m.kind)) fail('bad-motion', '不認得這種提案');
+      const problem = motionProblem(t, m);
+      if (problem) fail('cannot-carry-out', problem);
+      // Under the leader policy the leader's own withdrawals go through at once; everything else is voted on.
+      if (m.kind === 'withdraw' && t.policy === 'leader' && leaderOf(t) === c.id) {
+        carryOut(t, m, `team ${t.id} leader withdrawal`);
+        tell(t.members, 'teamWithdrawal', `隊長 ${c.name} ${motionText(t, m)}`, { teamId: t.id });
+        return;
+      }
+      const pid = `${t.id}-P${s.seq + 1}`;
+      const proposal = { ...m, id: pid, by: c.id, approvals: [c.id], rejections: [], status: 'open' } as TeamProposal;
+      h.change(ctx, 'team', t.id, t, `propose ${pid}`, true, (x) => { x.proposals.push(proposal); });
+      tell(t.members, 'teamProposal', `${c.name} 提案：${motionText(t, m)}。過半數活著的隊員同意才會執行`, { teamId: t.id, proposalId: pid });
+      tally(t, pid);
+      return;
+    }
+    case 'voteTeam': {
+      const c = h.own(ctx, cmd.characterId);
+      const t = team(cmd.teamId);
+      member(t, c);
+      const p = t.proposals.find((x) => x.id === cmd.proposalId) ?? fail('unknown-proposal', '找不到這個提案');
+      if (p.status !== 'open') fail('proposal-closed', '這個提案已經結束');
+      if (p.approvals.includes(c.id) || p.rejections.includes(c.id)) fail('already-voted', '你已經投過票了');
+      h.change(ctx, 'team', t.id, t, `vote ${p.id} ${cmd.approve ? 'yes' : 'no'}`, true, (x) => {
+        const y = x.proposals.find((q) => q.id === p.id)!;
+        (cmd.approve ? y.approvals : y.rejections).push(c.id);
+      });
+      tally(t, p.id);
       return;
     }
 
@@ -347,13 +569,16 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
     // ---------- contracts ----------
     case 'proposeContract': {
       const c = h.active(ctx, cmd.characterId);
-      const other = h.character(ctx, cmd.with);
-      if (other.id === c.id || other.status === 'dead') fail('bad-target', '不能和這個角色立約');
+      const others = cmd.with.map((id) => h.character(ctx, id));
+      if (!others.length) fail('bad-target', '契約至少要有兩位立約人');
+      if (others.some((o) => o.id === c.id || o.status === 'dead')) fail('bad-target', '不能和這個角色立約');
+      if (new Set(cmd.with).size !== cmd.with.length) fail('bad-target', '同一位立約人不能列兩次');
+      if (others.length + 1 > ctx.cfg.economy.contractMaxParties) fail('too-many-parties', `一份契約最多 ${ctx.cfg.economy.contractMaxParties} 位立約人`);
       deadlineOk(cmd.deadline);
-      const parties: [string, string] = [c.id, other.id];
+      const parties = [c.id, ...others.map((o) => o.id)];
       if (!cmd.clauses.length) fail('no-clauses', '契約至少要有一條條款');
       cmd.clauses.forEach((cl) => {
-        if (!parties.includes(cl.from) || ('to' in cl && (!parties.includes(cl.to) || cl.to === cl.from))) fail('bad-clause', '條款的雙方必須是立約人');
+        if (!parties.includes(cl.from) || ('to' in cl && (!parties.includes(cl.to) || cl.to === cl.from))) fail('bad-clause', '條款的付出方與接受方都必須是立約人，且不能是同一人');
         if (cl.kind === 'payCoins' && (!Number.isInteger(cl.amount) || cl.amount < 1)) fail('bad-clause', '付款金額必須是正整數');
         if (cl.kind === 'deliverTemplate' && (!Number.isInteger(cl.qty) || cl.qty < 1)) fail('bad-clause', '交付數量必須是正整數');
       });
@@ -361,13 +586,13 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       const id = nextId('K');
       const k: Contract = {
         id, parties, title: cmd.title, clauses: cmd.clauses.map((cl, n) => ({ ...cl, id: `${id}-${n + 1}`, done: false }) as Clause),
-        deposits: { [c.id]: cmd.deposits[c.id] ?? 0, [other.id]: cmd.deposits[other.id] ?? 0 }, depositLocks: {}, signed: [c.id],
+        deposits: Object.fromEntries(parties.map((p) => [p, cmd.deposits[p] ?? 0])), depositLocks: {}, signed: [c.id],
         cancelRequests: [], deadline: cmd.deadline, status: 'proposed', version: 1,
       };
       eco.contracts[id] = k;
       if (k.deposits[c.id]) k.depositLocks[c.id] = lock(c, { coins: k.deposits[c.id], itemIds: [] }, 'contract-deposit', id).id;
       h.audit(ctx, 'contract', id, null, h.clone(k), 'propose contract', true);
-      tell(parties, 'contractProposed', `${c.name} 向 ${other.name} 提出契約「${k.title}」，共 ${k.clauses.length} 條條款`, { contractId: id });
+      tell(parties, 'contractProposed', `${c.name} 向 ${others.map((o) => o.name).join('、')} 提出契約「${k.title}」，共 ${k.clauses.length} 條條款`, { contractId: id });
       return;
     }
     case 'signContract': {
@@ -381,9 +606,12 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       h.change(ctx, 'contract', k.id, k, 'signed', false, (t) => {
         t.signed.push(c.id);
         if (depositLock) t.depositLocks[c.id] = depositLock;
-        t.status = 'active';
+        if (t.signed.length === t.parties.length) t.status = 'active';
       });
-      tell(k.parties, 'contractSigned', `契約「${k.title}」雙方都已簽署，開始生效，押金已鎖定`, { contractId: k.id });
+      const waiting = k.parties.filter((p) => !k.signed.includes(p));
+      tell(k.parties, 'contractSigned', waiting.length
+        ? `${c.name} 簽署了契約「${k.title}」，還在等 ${waiting.map(name).join('、')}`
+        : `契約「${k.title}」所有立約人都已簽署，開始生效，押金已鎖定`, { contractId: k.id });
       return;
     }
     case 'fulfillClause': {
@@ -427,19 +655,19 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
       if (k.status === 'proposed') {
         refundDeposits(k, `contract ${k.id} withdrawn`);
         closeContract(k, 'cancelled', `withdrawn by ${c.id}`);
-        tell(k.parties, 'contractCancelled', `契約「${k.title}」在生效前撤回`, { contractId: k.id });
+        tell(k.parties, 'contractCancelled', `契約「${k.title}」在生效前被 ${c.name} 撤回或拒絕`, { contractId: k.id });
         return;
       }
       if (k.status !== 'active') fail('bad-state', '這份契約已經結束');
       if (k.cancelRequests.includes(c.id)) fail('already-requested', '你已經提出解約了');
       h.change(ctx, 'contract', k.id, k, `cancel request ${c.id}`, true, (t) => { t.cancelRequests.push(c.id); });
-      if (k.cancelRequests.length < 2) {
-        tell(k.parties, 'contractCancelRequested', `${c.name} 提議解除契約「${k.title}」，對方同意才會解約`, { contractId: k.id });
+      if (k.cancelRequests.length < k.parties.length) {
+        tell(k.parties, 'contractCancelRequested', `${c.name} 提議解除契約「${k.title}」，所有立約人都同意才會解約`, { contractId: k.id });
         return;
       }
       refundDeposits(k, `contract ${k.id} cancelled by agreement`);
       closeContract(k, 'cancelled', 'mutual cancel');
-      tell(k.parties, 'contractCancelled', `雙方同意解除契約「${k.title}」，押金退回；已履行的條款不會撤銷`, { contractId: k.id });
+      tell(k.parties, 'contractCancelled', `所有立約人同意解除契約「${k.title}」，押金退回；已履行的條款不會撤銷`, { contractId: k.id });
       return;
     }
 
@@ -491,11 +719,14 @@ export function performEconomy(ctx: Ctx, cmd: EconomyCommand, h: Helpers): void 
         const k = contract(d.ref);
         if (o === 'fulfilled') { refundDeposits(k, `dispute ${d.id}: fulfilled`); closeContract(k, 'fulfilled', `dispute ${d.id}`); summary = '視為履行完成'; }
         else if (o === 'cancel') { refundDeposits(k, `dispute ${d.id}: cancel`); closeContract(k, 'cancelled', `dispute ${d.id}`); summary = '解除契約，押金退回'; }
-        else if (typeof o === 'object' && k.parties.includes(o.breachBy)) { breach(k, [o.breachBy], `dispute ${d.id}`); summary = `${name(o.breachBy)} 違約`; }
+        else if (typeof o === 'object' && o.breachBy.length && new Set(o.breachBy).size === o.breachBy.length && o.breachBy.every((p) => k.parties.includes(p))) {
+          breach(k, o.breachBy, `dispute ${d.id}`);
+          summary = `${o.breachBy.map(name).join('、')} 違約`;
+        }
         else fail('bad-outcome', '契約爭議的裁決不正確');
         tell([...k.parties], 'disputeResolved', `爭議 ${d.id} 裁決：${summary}`, { disputeId: d.id });
       }
-      h.change(ctx, 'dispute', d.id, d, 'resolved', false, (t) => { t.status = 'resolved'; t.outcome = typeof o === 'string' ? o : `breach:${o.breachBy}`; });
+      h.change(ctx, 'dispute', d.id, d, 'resolved', false, (t) => { t.status = 'resolved'; t.outcome = typeof o === 'string' ? o : `breach:${o.breachBy.join(',')}`; });
       return;
     }
     case 'settleDeadlines': {

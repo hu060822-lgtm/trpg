@@ -9,7 +9,7 @@ import { DEFAULT_RULES as R } from '../src/rules/config';
 import { randomRng } from '../src/rules/dice';
 import type { AttributeCode } from '../src/rules/types';
 import { WORLD_V03 as CFG, WorldError, applyWorld, createWorld, joinWorld, pvpLegality, type WorldSeed } from '../src/world/engine';
-import type { LedgerEntry, WorldActor, WorldCommand, WorldEvent, WorldState } from '../src/world/types';
+import type { LedgerEntry, TeamMotion, WorldActor, WorldCommand, WorldEvent, WorldState } from '../src/world/types';
 import { auditFor, historyFor, ledgerFor, viewFor } from '../src/world/view';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -21,6 +21,7 @@ interface Viewer { key: string; label: string; actor: WorldActor; characterId?: 
 const VIEWERS: Viewer[] = [
   { key: 'crow', label: '灰鴉（玩家 A）', actor: { userId: 'u1', role: 'player' }, characterId: 'crow' },
   { key: 'nightingale', label: '夜鶯（玩家 B）', actor: { userId: 'u2', role: 'player' }, characterId: 'nightingale' },
+  { key: 'wren', label: '鷦鷯（玩家 C）', actor: { userId: 'u3', role: 'player' }, characterId: 'wren' },
   { key: 'main', label: '主 GM', actor: { userId: 'gm-main', role: 'gm' } },
   { key: 'scene', label: '遺跡場景 GM', actor: { userId: 'gm-ruins', role: 'gm' } },
   { key: 'arb', label: '仲裁 GM', actor: { userId: 'gm-arb', role: 'gm' } },
@@ -34,6 +35,7 @@ let ledger: LedgerEntry[] = [];
 /** Stands in for the store's request table: a request id is applied once. */
 let requests = new Map<string, string>();
 let reqSeq = 0;
+const START_COINS = 40 + 25 + 10;
 let now = new Date();
 let viewer = VIEWERS[0];
 let flash = '';
@@ -43,6 +45,7 @@ function reset() {
   let s = createWorld(seed as WorldSeed, { 'gm-main': { role: 'main' }, 'gm-ruins': { role: 'scene', locations: ['ruins'] }, 'gm-arb': { role: 'arbiter' } });
   s = joinWorld(s, { id: 'crow', ownerUserId: 'u1', name: '灰鴉', attributes: attrs({ STR: 3, VIT: 3, PER: 2 }), skills: { melee: 3, scouting: 2 }, coins: 40 }, 'road');
   s = joinWorld(s, { id: 'nightingale', ownerUserId: 'u2', name: '夜鶯', attributes: attrs({ AGI: 3, PRE: 3, INT: 2 }), skills: { stealth: 3, pickpocket: 3 }, coins: 25 }, 'road');
+  s = joinWorld(s, { id: 'wren', ownerUserId: 'u3', name: '鷦鷯', attributes: attrs({ INT: 3, CHA: 3 }), skills: { scouting: 2 }, coins: 10 }, 'plaza');
   state = s;
   events = [];
   changes = [];
@@ -185,11 +188,11 @@ function render() {
   $('wd-ledger').innerHTML = lines.length
     ? lines.map((e) => `<li><span>${esc(party(e.from))} → ${esc(party(e.to))}<br><small class="muted">${esc(reasonText(e.reason))}</small></span><span class="amt">${e.coins ? `${e.coins} 枚` : esc(state.items[e.itemId!]?.name ?? e.itemId!)}</span></li>`).join('')
     : '<li class="muted">還沒有看得到的帳目。</li>';
-  const coinsNow = Object.values(state.characters).reduce((a, c) => a + c.coins, 0) + Object.values(state.economy.locks).filter((l) => l.status === 'held').reduce((a, l) => a + l.coins, 0);
+  const coinsNow = Object.values(state.characters).reduce((a, c) => a + c.coins, 0) + Object.values(state.economy.teams).reduce((a, t) => a + t.coins, 0) + Object.values(state.economy.locks).filter((l) => l.status === 'held').reduce((a, l) => a + l.coins, 0);
   const minted = ledger.filter((e) => e.from.type === 'mint').reduce((a, e) => a + (e.coins ?? 0), 0);
   const sunk = ledger.filter((e) => e.to.type === 'sink').reduce((a, e) => a + (e.coins ?? 0), 0);
   $('wd-ledger-note').textContent = viewer.key === 'main' || viewer.key === 'arb'
-    ? `對帳：角色錢幣＋鎖定中 = ${coinsNow}；起始 65＋發放 ${minted}－銷毀 ${sunk} = ${65 + minted - sunk}${coinsNow === 65 + minted - sunk ? '，一致 ✔' : '，不一致 ✘'}`
+    ? `對帳：角色錢幣＋隊伍金庫＋鎖定中 = ${coinsNow}；起始 ${START_COINS}＋發放 ${minted}－銷毀 ${sunk} = ${START_COINS + minted - sunk}${coinsNow === START_COINS + minted - sunk ? '，一致 ✔' : '，不一致 ✘'}`
     : '玩家只看得到和自己角色、自己參與的鎖定有關的帳目。';
   $('wd-flash').textContent = flash;
   $('wd-flash').className = `wd-flash${flash.startsWith('✘') ? ' bad' : ''}`;
@@ -301,6 +304,7 @@ function party(p: LedgerEntry['from']): string {
   if (p.type === 'character') return who(p.id);
   if (p.type === 'escrow') return `鎖定 ${p.id}`;
   if (p.type === 'shop') return `商店「${state.economy.shops[p.id]?.name ?? p.id}」`;
+  if (p.type === 'team') return `隊伍「${state.economy.teams[p.id]?.name ?? p.id}」`;
   if (p.type === 'mint') return 'GM 發放';
   if (p.type === 'sink') return '銷毀';
   return p.id;
@@ -313,7 +317,8 @@ const REASONS: [RegExp, string][] = [
   [/\bdispute\b/, '爭議'], [/\breward\b/, '報酬'], [/\bdelivery\b/, '交付'], [/\breturn delivery\b/, '退回交付'], [/\breturned\b/, '退回'],
   [/\brefund\b/, '退款'], [/\bpay\b/, '付款'], [/\bfulfilled\b/, '履行完成'], [/\bclosed\b/, '結束'], [/\bcancelled by agreement\b/, '雙方解約'],
   [/\bcancelled\b/, '取消'], [/\bcancel\b/, '解約'], [/\bdeclined\b/, '被拒絕'], [/\bexpired unsigned\b/, '未簽署作廢'], [/\bexpired\b/, '逾期'],
-  [/\bwithdrawn\b/, '撤回'], [/ at /, '，商店 '], [/^afterimage 逾期$/, '殘影到期'],
+  [/\bwithdrawn\b/, '撤回'], [/^deposit to team (\S+)/, '存入隊伍 $1'], [/^team (\S+) leader withdrawal/, '隊長從 $1 提領'],
+  [/^team (\S+) proposal (\S+)/, '隊伍 $1 提案 $2 通過'], [/partial refund/, '全員違約，退回一部分'], [/ at /, '，商店 '], [/^afterimage 逾期$/, '殘影到期'],
 ];
 const reasonText = (r: string) => REASONS.reduce((t, [re, to]) => t.replace(new RegExp(re.source, 'g'), to), r);
 
@@ -386,6 +391,43 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
   }).join('') : '<p class="muted">委託板是空的。</p>');
   if (me) out.push(`<div class="wd-btns">${btn('m-postdeliver', '發布：採三株月光草', '報酬 15・兩天內・自動驗收', !me.online)}${btn('m-postgm', '發布：查出走私販下落', '報酬 10・兩天內・GM 驗收', !me.online)}</div>`);
 
+  // Teams
+  out.push('<h4 class="wd-sub">隊伍</h4>');
+  const teams = Object.values(e.teams).filter((t) => t.status === 'active');
+  const myTeam = me ? teams.find((t) => t.members.includes(me.id)) : undefined;
+  out.push(teams.length ? teams.map((t) => {
+    const mine = !!me && t.members.includes(me.id);
+    const insider = mine || viewer.key === 'main' || viewer.key === 'arb';
+    const leader = t.members.find((m) => state.characters[m]?.status === 'alive' && m === t.leaderId) ?? t.members.find((m) => state.characters[m]?.status === 'alive');
+    const held = Object.values(v.items).filter((i) => i.holder.type === 'team' && i.holder.id === t.id);
+    const acts: string[] = [];
+    if (mine && me) {
+      acts.push(btn(`m-deposit:${t.id}|coins`, '存入 5 枚', '', me.coins < 5));
+      for (const i of myItems) acts.push(btn(`m-deposit:${t.id}|${i.id}`, `存入${i.name}`));
+      acts.push(btn(`m-motion:${t.id}|coins`, '領 5 枚給自己', t.policy === 'leader' && leader === me.id ? '隊長可以直接領' : '要過半數同意', !t.coins));
+      if (held.length) acts.push(btn(`m-motion:${t.id}|item`, `領${held[0].name}給自己`, t.policy === 'leader' && leader === me.id ? '隊長可以直接領' : '要過半數同意'));
+      acts.push(btn(`m-motion:${t.id}|policy`, t.policy === 'leader' ? '提議改成多數決' : '提議改成隊長決定', '要過半數同意'));
+      for (const m of t.members.filter((m) => m !== leader)) acts.push(btn(`m-motion:${t.id}|kick:${m}`, `提議請出 ${who(m)}`, '要過半數同意'));
+      acts.push(btn(`m-motion:${t.id}|disband`, '提議解散', '金庫要先清空'));
+      if (leader === me.id) for (const c of Object.values(state.characters).filter((c) => !t.members.includes(c.id) && !t.invites.includes(c.id))) acts.push(btn(`m-invite:${t.id}|${c.id}`, `邀請 ${c.name}`));
+      acts.push(btn(`m-leave:${t.id}`, '離隊', '存入的東西會留在金庫'));
+    }
+    if (me && t.invites.includes(me.id)) acts.push(btn(`m-join:${t.id}|1`, `加入「${t.name}」`, myTeam ? '要先離開現在的隊伍' : '', !!myTeam), btn(`m-join:${t.id}|0`, '婉拒'));
+    const props = insider ? t.proposals.filter((p) => p.status === 'open') : [];
+    const alive = t.members.filter((m) => state.characters[m]?.status === 'alive').length;
+    return `<div class="wd-card"><header><b>${esc(t.name)}</b><span class="muted">隊長 ${esc(who(leader ?? t.leaderId))}・${t.members.map(who).map(esc).join('、')}</span>${insider ? `<span class="st">${t.policy === 'leader' ? '隊長決定提領' : '多數決提領'}</span>` : ''}</header>
+      ${insider ? `<span>金庫：${t.coins} 枚${held.length ? `＋${held.map((i) => esc(i.name)).join('、')}` : ''}${t.invites.length ? `・邀請中：${t.invites.map(who).map(esc).join('、')}` : ''}</span>` : '<span class="muted">金庫與投票只有隊員看得到</span>'}
+      ${props.map((p) => {
+        const voted = me && (p.approvals.includes(me.id) || p.rejections.includes(me.id));
+        const text = p.kind === 'withdraw' ? `提領${[p.coins ? `${p.coins} 枚` : '', ...p.itemIds.map(itemName)].filter(Boolean).join('＋')}給 ${who(p.to)}`
+          : p.kind === 'policy' ? `改成${p.policy === 'leader' ? '隊長決定' : '多數決'}` : p.kind === 'kick' ? `請出 ${who(p.target)}` : '解散隊伍';
+        return `<div class="wd-card"><header><b>${esc(who(p.by))} 提案</b><span class="st st-wait">${p.approvals.length} 同意／${p.rejections.length} 反對・需 ${Math.floor(alive / 2) + 1} 票</span></header><span>${esc(text)}</span>
+          ${mine && !voted ? `<div class="wd-btns">${btn(`m-vote:${t.id}|${p.id},1`, '同意')}${btn(`m-vote:${t.id}|${p.id},0`, '反對')}</div>` : ''}</div>`;
+      }).join('')}
+      ${acts.length ? `<div class="wd-btns">${acts.join('')}</div>` : ''}</div>`;
+  }).join('') : '<p class="muted">還沒有隊伍。</p>');
+  if (me && !myTeam) out.push(`<div class="wd-btns">${btn('m-createteam:leader', '組隊（隊長決定提領）', '隊長可以直接動用金庫', !me.online)}${btn('m-createteam:majority', '組隊（多數決提領）', '每次提領都要投票', !me.online)}</div>`);
+
   // Contracts
   const ks = Object.values(e.contracts);
   out.push('<h4 class="wd-sub">契約</h4>');
@@ -400,12 +442,12 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
       if (k.status === 'proposed' || k.status === 'active') acts.push(btn(`m-cancelk:${k.id}`, k.status === 'proposed' ? '撤回' : k.cancelRequests.includes(me.id) ? '已提議解約' : '提議解約', k.status === 'active' ? '雙方都同意才解約' : '', k.cancelRequests.includes(me.id)));
     }
     if (gm && k.status === 'active') for (const c of k.clauses.filter((c) => !c.done && c.kind === 'gmVerified')) acts.push(btn(`m-verify:${k.id}|${c.id}`, `確認條款 ${c.id.split('-').pop()}`, c.kind === 'gmVerified' ? c.text : ''));
-    return `<div class="wd-card"><header><b>${esc(k.title)}</b>${stBadge(k.status)}<span class="muted">${k.parties.map(who).map(esc).join(' ⇄ ')}・押金 ${k.parties.map((p) => k.deposits[p] ?? 0).join('／')}</span></header>
+    return `<div class="wd-card"><header><b>${esc(k.title)}</b>${stBadge(k.status)}<span class="muted">${k.parties.map(who).map(esc).join(' ⇄ ')}・押金 ${k.parties.map((p) => k.deposits[p] ?? 0).join('／')}${k.status === 'proposed' ? `・已簽 ${k.signed.length}／${k.parties.length}` : ''}</span></header>
       <ul class="loc-list">${k.clauses.map((c) => `<li>${c.done ? '☑' : '☐'} ${esc(clauseText(c))}</li>`).join('')}</ul>
       ${k.breachedBy ? `<span class="muted">違約方：${k.breachedBy.map(who).map(esc).join('、')}</span>` : ''}
       ${acts.length ? `<div class="wd-btns">${acts.join('')}</div>` : ''}</div>`;
   }).join('') : '<p class="muted">沒有看得到的契約。</p>');
-  if (me && other) out.push(`<div class="wd-btns">${btn('m-propose', `和 ${other.name} 立約：月光草供貨`, `你付 8 枚，對方交 1 株月光草・押金各 5`, !me.online || other.status === 'dead')}${btn('m-proposegm', `和 ${other.name} 立約：護送`, '對方護送你到遺跡・GM 確認・押金各 5', !me.online || other.status === 'dead')}</div>`);
+  if (me && other) out.push(`<div class="wd-btns">${btn('m-propose3', '三人立約：探索遺跡', '另外兩人協助探索（GM 確認），你各付 4 枚・押金各 3', !me.online)}${btn('m-propose', `和 ${other.name} 立約：月光草供貨`, `你付 8 枚，對方交 1 株月光草・押金各 5`, !me.online || other.status === 'dead')}${btn('m-proposegm', `和 ${other.name} 立約：護送`, '對方護送你到遺跡・GM 確認・押金各 5', !me.online || other.status === 'dead')}</div>`);
 
   // Disputes and GM tools
   const ds = Object.values(e.disputes).filter((d) => d.status === 'open');
@@ -414,7 +456,8 @@ function renderMarket(v: WorldState, me: WorldState['characters'][string] | unde
     out.push(ds.map((d) => {
       const opts = gm ? (d.kind === 'commission'
         ? btn(`m-resolve:${d.id}|pay`, '付給接案人') + btn(`m-resolve:${d.id}|refund`, '退回發布者')
-        : btn(`m-resolve:${d.id}|fulfilled`, '視為履行') + btn(`m-resolve:${d.id}|cancel`, '解除契約') + state.economy.contracts[d.ref].parties.map((p) => btn(`m-resolve:${d.id}|breach-${p}`, `${who(p)} 違約`, '押金歸對方')).join('')) : '';
+        : btn(`m-resolve:${d.id}|fulfilled`, '視為履行') + btn(`m-resolve:${d.id}|cancel`, '解除契約') + state.economy.contracts[d.ref].parties.map((p) => btn(`m-resolve:${d.id}|breach-${p}`, `${who(p)} 違約`, '押金分給其他人')).join('')
+          + btn(`m-resolve:${d.id}|breach-${state.economy.contracts[d.ref].parties.join(',')}`, '全部違約', '押金各退一部分')) : '';
       return `<div class="wd-card"><header><b>${d.id}</b><span class="st st-bad">待仲裁</span><span class="muted">${d.kind === 'commission' ? '委託' : '契約'} ${d.ref}・${esc(who(d.raisedBy))} 提出</span></header><span>${esc(d.reason)}</span>${opts ? `<div class="wd-btns">${opts}</div>` : ''}</div>`;
     }).join(''));
   }
@@ -438,7 +481,7 @@ function onMarket(k: string, arg = '') {
   }
   if (k === 'm-review') return go({ type: 'reviewCommission', characterId: '', commissionId: x, approve: y === '1' });
   if (k === 'm-verify') return go({ type: 'gmVerifyClause', contractId: x, clauseId: y });
-  if (k === 'm-resolve') return go({ type: 'gmResolveDispute', disputeId: x, outcome: y.startsWith('breach-') ? { breachBy: y.slice(7) } : (y as 'pay') });
+  if (k === 'm-resolve') return go({ type: 'gmResolveDispute', disputeId: x, outcome: y.startsWith('breach-') ? { breachBy: y.slice(7).split(',') } : (y as 'pay') });
   if (!me) return;
   if (k === 'm-openshop') return go({ type: 'openShop', characterId: me, shopId: `${me}-shop`, name: me === 'crow' ? '灰鴉的路邊攤' : '夜鶯的暗巷舖', description: '' });
   if (k === 'm-shopopen') return go({ type: 'setShopOpen', characterId: me, shopId: x, open: y === '1' });
@@ -474,17 +517,39 @@ function onMarket(k: string, arg = '') {
   if (k === 'm-dispute') return go({ type: 'raiseDispute', characterId: me, kind: x as 'contract', ref: y, reason: '對方沒有照約定履行' });
   if (k === 'm-propose') {
     return go({
-      type: 'proposeContract', characterId: me, with: other, title: '月光草供貨', deadline: later(2), deposits: { [me]: 5, [other]: 5 },
+      type: 'proposeContract', characterId: me, with: [other], title: '月光草供貨', deadline: later(2), deposits: { [me]: 5, [other]: 5 },
       clauses: [{ kind: 'payCoins', from: me, to: other, amount: 8 }, { kind: 'deliverTemplate', from: other, to: me, template: 'moonherb', qty: 1 }],
     }, '已提出契約，切換到對方身分就能簽署');
   }
   if (k === 'm-proposegm') {
     return go({
-      type: 'proposeContract', characterId: me, with: other, title: '護送到沉鐘遺跡', deadline: later(2), deposits: { [me]: 5, [other]: 5 },
+      type: 'proposeContract', characterId: me, with: [other], title: '護送到沉鐘遺跡', deadline: later(2), deposits: { [me]: 5, [other]: 5 },
       clauses: [{ kind: 'gmVerified', from: other, text: `護送${who(me)}到沉鐘遺跡` }, { kind: 'payCoins', from: me, to: other, amount: 10 }],
     }, '已提出契約，切換到對方身分就能簽署');
   }
+  if (k === 'm-propose3') {
+    const rest = Object.keys(state.characters).filter((c) => c !== me);
+    return go({
+      type: 'proposeContract', characterId: me, with: rest, title: '三人探索沉鐘遺跡', deadline: later(2), deposits: Object.fromEntries([me, ...rest].map((c) => [c, 3])),
+      clauses: [...rest.map((c) => ({ kind: 'gmVerified' as const, from: c, text: `${who(c)} 協助探索遺跡` })), ...rest.map((c) => ({ kind: 'payCoins' as const, from: me, to: c, amount: 4 }))],
+    }, '已提出三人契約，另外兩人都簽署才會生效');
+  }
   if (k === 'm-sign') return go({ type: 'signContract', characterId: me, contractId: x });
+  if (k === 'm-createteam') return go({ type: 'createTeam', characterId: me, teamId: `${me}-team`, name: `${who(me)}的隊伍`, policy: x as 'leader' });
+  if (k === 'm-invite') return go({ type: 'inviteToTeam', characterId: me, teamId: x, targetId: y }, '已送出邀請，切換到對方身分就能回覆');
+  if (k === 'm-join') return go({ type: 'respondTeamInvite', characterId: me, teamId: x, accept: y === '1' });
+  if (k === 'm-leave') return go({ type: 'leaveTeam', characterId: me, teamId: x });
+  if (k === 'm-deposit') return go({ type: 'depositToTeam', characterId: me, teamId: x, coins: y === 'coins' ? 5 : 0, itemIds: y === 'coins' ? [] : [y] });
+  if (k === 'm-vote') { const [pid, yes] = y.split(','); return go({ type: 'voteTeam', characterId: me, teamId: x, proposalId: pid, approve: yes === '1' }); }
+  if (k === 'm-motion') {
+    const t = state.economy.teams[x];
+    const item = Object.values(state.items).find((i) => i.holder.type === 'team' && i.holder.id === x);
+    const motion: TeamMotion = y === 'coins' ? { kind: 'withdraw', to: me, coins: Math.min(5, t.coins), itemIds: [] }
+      : y === 'item' ? { kind: 'withdraw', to: me, coins: 0, itemIds: item ? [item.id] : [] }
+      : y === 'policy' ? { kind: 'policy', policy: t.policy === 'leader' ? 'majority' : 'leader' }
+      : y === 'disband' ? { kind: 'disband' } : { kind: 'kick', target: y.slice(5) };
+    return go({ type: 'proposeTeam', characterId: me, teamId: x, motion });
+  }
   if (k === 'm-fulfill') {
     const c = state.economy.contracts[x].clauses.find((c) => c.id === y)!;
     const ids = c.kind === 'deliverTemplate'

@@ -55,7 +55,7 @@ export function createWorld(seed: WorldSeed, gms: WorldState['gms']): WorldState
   const s: WorldState = {
     id: seed.id, name: seed.name, day: seed.day, locations: {}, npcs: {}, items: {}, characters: {},
     hostilities: [], duels: [], rulings: {}, gms, seq: 0,
-    economy: { shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} },
+    economy: { teams: {}, shops: {}, trades: {}, commissions: {}, contracts: {}, locks: {}, disputes: {} },
   };
   for (const l of seed.locations) s.locations[l.id] = { clock: 0, ...l, version: 1 };
   for (const n of seed.npcs) s.npcs[n.id] = { status: 'alive', ...n, version: 1 };

@@ -44,7 +44,7 @@ export interface Npc extends Versioned {
   public: boolean;
 }
 
-export type Holder = { type: 'location' | 'character' | 'npc' | 'shop' | 'escrow'; id: string };
+export type Holder = { type: 'location' | 'character' | 'npc' | 'shop' | 'escrow' | 'team'; id: string };
 
 export interface Item extends Versioned {
   id: string;
@@ -164,7 +164,7 @@ export interface WorldState {
 
 // ---------- Phase 4: economy ----------
 
-export type EconomyKind = 'shop' | 'trade' | 'commission' | 'contract' | 'lock' | 'dispute';
+export type EconomyKind = 'shop' | 'trade' | 'commission' | 'contract' | 'lock' | 'dispute' | 'team';
 
 /** What a party puts up: coins and specific item instances. */
 export interface Bundle { coins: number; itemIds: string[] }
@@ -228,7 +228,8 @@ export type ClauseDraft = Clause extends infer C ? (C extends Clause ? Omit<C, '
 
 export interface Contract extends Versioned {
   id: string;
-  parties: [string, string];
+  /** Two or more characters; every one must sign before the contract is active. */
+  parties: string[];
   title: string;
   clauses: Clause[];
   deposits: Record<string, number>;
@@ -251,7 +252,38 @@ export interface Dispute extends Versioned {
   outcome?: string;
 }
 
+/** A change to the team that needs members' votes. */
+export type TeamMotion =
+  | { kind: 'withdraw'; to: string; coins: number; itemIds: string[] }
+  | { kind: 'policy'; policy: Team['policy'] }
+  | { kind: 'kick'; target: string }
+  | { kind: 'disband' };
+
+export type TeamProposal = TeamMotion & {
+  id: string;
+  by: string;
+  approvals: string[];
+  rejections: string[];
+  /** void: passed but could no longer be carried out (e.g. the treasury no longer holds it). */
+  status: 'open' | 'passed' | 'rejected' | 'void';
+};
+
+/** A party (隊伍) with a shared treasury. Items in it are held by the team itself. */
+export interface Team extends Versioned {
+  id: string;
+  name: string;
+  leaderId: string;
+  members: string[];
+  invites: string[];
+  coins: number;
+  /** leader: the leader withdraws alone; majority: every withdrawal needs a vote. Other motions always need a vote. */
+  policy: 'leader' | 'majority';
+  proposals: TeamProposal[];
+  status: 'active' | 'disbanded';
+}
+
 export interface Economy {
+  teams: Record<string, Team>;
   shops: Record<string, Shop>;
   trades: Record<string, Trade>;
   commissions: Record<string, Commission>;
@@ -291,14 +323,21 @@ export type EconomyCommand =
   | { type: 'submitCommission'; characterId: string; commissionId: string; itemIds: string[] }
   | { type: 'reviewCommission'; characterId: string; commissionId: string; approve: boolean }
   | { type: 'cancelCommission'; characterId: string; commissionId: string }
-  | { type: 'proposeContract'; characterId: string; with: string; title: string; clauses: ClauseDraft[]; deposits: Record<string, number>; deadline: string }
+  | { type: 'proposeContract'; characterId: string; with: string[]; title: string; clauses: ClauseDraft[]; deposits: Record<string, number>; deadline: string }
   | { type: 'signContract'; characterId: string; contractId: string }
   | { type: 'fulfillClause'; characterId: string; contractId: string; clauseId: string; itemIds?: string[] }
   | { type: 'requestCancelContract'; characterId: string; contractId: string }
   | { type: 'raiseDispute'; characterId: string; kind: 'commission' | 'contract'; ref: string; reason: string }
   | { type: 'gmVerifyClause'; contractId: string; clauseId: string }
-  | { type: 'gmResolveDispute'; disputeId: string; outcome: 'pay' | 'refund' | 'fulfilled' | 'cancel' | { breachBy: string } }
-  | { type: 'settleDeadlines' };
+  | { type: 'gmResolveDispute'; disputeId: string; outcome: 'pay' | 'refund' | 'fulfilled' | 'cancel' | { breachBy: string[] } }
+  | { type: 'settleDeadlines' }
+  | { type: 'createTeam'; characterId: string; teamId: string; name: string; policy: Team['policy'] }
+  | { type: 'inviteToTeam'; characterId: string; teamId: string; targetId: string }
+  | { type: 'respondTeamInvite'; characterId: string; teamId: string; accept: boolean }
+  | { type: 'leaveTeam'; characterId: string; teamId: string }
+  | { type: 'depositToTeam'; characterId: string; teamId: string; coins: number; itemIds: string[] }
+  | { type: 'proposeTeam'; characterId: string; teamId: string; motion: TeamMotion }
+  | { type: 'voteTeam'; characterId: string; teamId: string; proposalId: string; approve: boolean };
 
 export type WorldCommand =
   | { type: 'move'; characterId: string; to: string }
@@ -353,6 +392,12 @@ export interface WorldConfig {
   };
   search: { attribute: AttributeCode; skill: string; minutes: number };
   rulings: { uniqueItemTheft: boolean };
+  economy: {
+    /** When every party to a contract breached, each gets back this share of their deposit; the rest is destroyed. */
+    allBreachRefundRatio: number;
+    contractMaxParties: number;
+    teamMaxMembers: number;
+  };
 }
 
 /** What a PvP attack would be, before anyone rolls. */

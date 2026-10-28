@@ -223,7 +223,7 @@ describe('economy persistence', () => {
   it('shops, contracts, locks and the ledger survive a restart, and the ledger cannot be edited', () => {
     shop();
     pay(U2, {
-      type: 'proposeContract', characterId: 'nightingale', with: 'crow', title: '護送', deadline: '2026-10-29T12:00:00Z', deposits: { nightingale: 10 },
+      type: 'proposeContract', characterId: 'nightingale', with: ['crow'], title: '護送', deadline: '2026-10-29T12:00:00Z', deposits: { nightingale: 10 },
       clauses: [{ kind: 'payCoins', from: 'nightingale', to: 'crow', amount: 5 }],
     }, 'k-1');
     store.combat.close();
@@ -241,6 +241,28 @@ describe('economy persistence', () => {
     // The deadline hook runs as the scheduler and lapses the unsigned contract.
     store.runDeadlines('greystone', scriptedRng([]), new Date('2026-10-30T12:00:00Z'));
     expect(store.load('greystone').characters.nightingale.coins).toBe(40);
+  });
+
+  it('a team, its treasury and its open votes survive a restart', () => {
+    pay(MAIN, { type: 'gmGrantCoins', characterId: 'crow', amount: 20, reason: 'x' }, 't-0');
+    send(U1, { type: 'take', characterId: 'crow', itemId: 'bell-heart' });
+    pay(U1, { type: 'createTeam', characterId: 'crow', teamId: 'crows', name: '鴉群', policy: 'majority' }, 't-1');
+    pay(U1, { type: 'inviteToTeam', characterId: 'crow', teamId: 'crows', targetId: 'nightingale' }, 't-2');
+    pay(U2, { type: 'respondTeamInvite', characterId: 'nightingale', teamId: 'crows', accept: true }, 't-3');
+    pay(U1, { type: 'depositToTeam', characterId: 'crow', teamId: 'crows', coins: 15, itemIds: ['bell-heart'] }, 't-4');
+    pay(U1, { type: 'proposeTeam', characterId: 'crow', teamId: 'crows', motion: { kind: 'withdraw', to: 'nightingale', coins: 5, itemIds: [] } }, 't-5');
+    store.combat.close();
+    store = open();
+    const t = store.load('greystone').economy.teams.crows;
+    expect(t).toMatchObject({ coins: 15, members: ['crow', 'nightingale'], policy: 'majority' });
+    expect(t.proposals[0].status).toBe('open');
+    expect(store.load('greystone').items['bell-heart'].holder).toEqual({ type: 'team', id: 'crows' });
+    const vote: WorldCommand = { type: 'voteTeam', characterId: 'nightingale', teamId: 'crows', proposalId: t.proposals[0].id, approve: true };
+    pay(U2, vote, 't-6');
+    pay(U2, vote, 't-6'); // a retried vote is not counted twice
+    const after = store.load('greystone');
+    expect(after.economy.teams.crows.coins).toBe(10);
+    expect(after.characters.nightingale.coins).toBe(5);
   });
 
   it('a player only reads ledger lines that touch their own characters', () => {

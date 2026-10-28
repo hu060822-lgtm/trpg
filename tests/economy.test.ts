@@ -3,7 +3,7 @@ import seed from '../config/world-seed.json';
 import { RULES_V03 } from '../src/rules/config';
 import { scriptedRng } from '../src/rules/dice';
 import type { AttributeCode } from '../src/rules/types';
-import { applyWorld, createWorld, joinWorld, type WorldResult, type WorldSeed } from '../src/world/engine';
+import { WORLD_V03, applyWorld, createWorld, joinWorld, type WorldResult, type WorldSeed } from '../src/world/engine';
 import type { LedgerEntry, WorldActor, WorldCommand, WorldState } from '../src/world/types';
 import { ledgerFor, viewFor } from '../src/world/view';
 
@@ -52,7 +52,7 @@ function assertConservation(r: Run) {
   const minted = r.ledger.filter((e) => e.from.type === 'mint').reduce((a, e) => a + (e.coins ?? 0), 0);
   const sunk = r.ledger.filter((e) => e.to.type === 'sink').reduce((a, e) => a + (e.coins ?? 0), 0);
   const held = Object.values(r.s.economy.locks).filter((l) => l.status === 'held').reduce((a, l) => a + l.coins, 0);
-  const balances = Object.values(r.s.characters).reduce((a, c) => a + c.coins, 0);
+  const balances = Object.values(r.s.characters).reduce((a, c) => a + c.coins, 0) + Object.values(r.s.economy.teams).reduce((a, t) => a + t.coins, 0);
   expect(balances + held).toBe(START.crow + START.nightingale + START.wren + minted - sunk);
   // Every escrowed item belongs to a lock that is still held, and every held lock's items are in escrow.
   for (const i of Object.values(r.s.items)) {
@@ -230,7 +230,7 @@ describe('contracts', () => {
   /** 灰鴉 pays 15 for three herbs; each side puts up a 10-coin deposit. */
   function signed(r: Run) {
     r.do(U1, {
-      type: 'proposeContract', characterId: 'crow', with: 'nightingale', title: '月光草供貨', deadline: DEADLINE,
+      type: 'proposeContract', characterId: 'crow', with: ['nightingale'], title: '月光草供貨', deadline: DEADLINE,
       deposits: { crow: 10, nightingale: 10 },
       clauses: [
         { kind: 'payCoins', from: 'crow', to: 'nightingale', amount: 15 },
@@ -269,17 +269,20 @@ describe('contracts', () => {
     assertConservation(r);
   });
 
-  it('if neither performed, it is breached by both and both deposits come back', () => {
+  it('if neither performed, it is breached by both and each gets back only part of the deposit', () => {
     const r = new Run(world());
     const id = signed(r);
     r.do(SYS, { type: 'settleDeadlines' }, LATER);
     expect(r.s.economy.contracts[id].breachedBy).toEqual(['crow', 'nightingale']);
-    expect([coins(r.s, 'crow'), coins(r.s, 'nightingale')]).toEqual([50, 30]);
+    // allBreachRefundRatio 0.5: 5 of each 10-coin deposit comes back, 5 is destroyed.
+    expect([coins(r.s, 'crow'), coins(r.s, 'nightingale')]).toEqual([45, 25]);
+    expect(r.ledger.filter((e) => e.to.type === 'sink').map((e) => e.coins)).toEqual([5, 5]);
+    assertConservation(r);
   });
 
   it('an unsigned proposal lapses at the deadline; an active one ends early only when both ask', () => {
     const r = new Run(world());
-    r.do(U1, { type: 'proposeContract', characterId: 'crow', with: 'nightingale', title: '口頭約定', deadline: DEADLINE, deposits: { crow: 5 }, clauses: [{ kind: 'gmVerified', from: 'crow', text: '護送到遺跡' }] });
+    r.do(U1, { type: 'proposeContract', characterId: 'crow', with: ['nightingale'], title: '口頭約定', deadline: DEADLINE, deposits: { crow: 5 }, clauses: [{ kind: 'gmVerified', from: 'crow', text: '護送到遺跡' }] });
     const lapsed = Object.keys(r.s.economy.contracts)[0];
     r.do(SYS, { type: 'settleDeadlines' }, LATER);
     expect(r.s.economy.contracts[lapsed].status).toBe('cancelled');
@@ -296,7 +299,7 @@ describe('contracts', () => {
 
   it('only a GM can tick a GM-verified clause', () => {
     const r = new Run(world());
-    r.do(U1, { type: 'proposeContract', characterId: 'crow', with: 'nightingale', title: '護送', deadline: DEADLINE, deposits: {}, clauses: [{ kind: 'gmVerified', from: 'nightingale', text: '護送灰鴉到遺跡' }] });
+    r.do(U1, { type: 'proposeContract', characterId: 'crow', with: ['nightingale'], title: '護送', deadline: DEADLINE, deposits: {}, clauses: [{ kind: 'gmVerified', from: 'nightingale', text: '護送灰鴉到遺跡' }] });
     const id = Object.keys(r.s.economy.contracts)[0];
     r.do(U2, { type: 'signContract', characterId: 'nightingale', contractId: id });
     expect(() => r.do(U2, { type: 'fulfillClause', characterId: 'nightingale', contractId: id, clauseId: `${id}-1` })).toThrow(/GM/);
@@ -315,11 +318,220 @@ describe('contracts', () => {
     expect(r.s.economy.contracts[id].status).toBe('disputed');
     const d = Object.keys(r.s.economy.disputes)[0];
     expect(() => r.do(U1, { type: 'gmResolveDispute', disputeId: d, outcome: 'cancel' })).toThrow();
-    r.do(ARB, { type: 'gmResolveDispute', disputeId: d, outcome: { breachBy: 'crow' } });
+    r.do(ARB, { type: 'gmResolveDispute', disputeId: d, outcome: { breachBy: ['crow'] } });
     expect(r.s.economy.contracts[id].status).toBe('breached');
     expect(r.s.economy.disputes[d].status).toBe('resolved');
     expect([coins(r.s, 'crow'), coins(r.s, 'nightingale')]).toEqual([40, 40]);
     assertConservation(r);
+  });
+});
+
+describe('contracts with more than two parties', () => {
+  /** 灰鴉 pays 9, 夜鶯 and 鷦鷯 each deliver one herb; everyone puts up 6. */
+  function three(r: Run) {
+    r.s.characters.wren.coins = 0;
+    r.s.items['moonherb-3'].holder = { type: 'character', id: 'wren' };
+    r.do(MAIN, { type: 'gmGrantCoins', characterId: 'wren', amount: 10, reason: '測試' });
+    r.do(U1, {
+      type: 'proposeContract', characterId: 'crow', with: ['nightingale', 'wren'], title: '三方採集', deadline: DEADLINE,
+      deposits: { crow: 6, nightingale: 6, wren: 6 },
+      clauses: [
+        { kind: 'payCoins', from: 'crow', to: 'nightingale', amount: 9 },
+        { kind: 'deliverItem', from: 'nightingale', to: 'crow', itemId: 'moonherb-1' },
+        { kind: 'deliverItem', from: 'wren', to: 'crow', itemId: 'moonherb-3' },
+      ],
+    });
+    return Object.keys(r.s.economy.contracts)[0];
+  }
+
+  it('is active only once every party has signed', () => {
+    const r = new Run(world());
+    const id = three(r);
+    r.do(U2, { type: 'signContract', characterId: 'nightingale', contractId: id });
+    expect(r.s.economy.contracts[id].status).toBe('proposed');
+    expect(() => r.do(U2, { type: 'fulfillClause', characterId: 'nightingale', contractId: id, clauseId: `${id}-2` })).toThrow(/不能履行/);
+    r.do(U3, { type: 'signContract', characterId: 'wren', contractId: id });
+    expect(r.s.economy.contracts[id].status).toBe('active');
+    assertConservation(r);
+  });
+
+  it('splits a breaching party\'s deposit among those who kept their word', () => {
+    const r = new Run(world());
+    const id = three(r);
+    r.do(U2, { type: 'signContract', characterId: 'nightingale', contractId: id });
+    r.do(U3, { type: 'signContract', characterId: 'wren', contractId: id });
+    r.do(U1, { type: 'fulfillClause', characterId: 'crow', contractId: id, clauseId: `${id}-1` });
+    r.do(U2, { type: 'fulfillClause', characterId: 'nightingale', contractId: id, clauseId: `${id}-2` });
+    expect(r.s.economy.contracts[id].status).toBe('active'); // 鷦鷯 still owes
+    r.do(SYS, { type: 'settleDeadlines' }, LATER);
+    expect(r.s.economy.contracts[id].breachedBy).toEqual(['wren']);
+    // crow: 50 - 9 = 41, + own 6 back + 3; nightingale: 30 + 9 = 39, + own 6 back + 3; wren loses 6.
+    expect([coins(r.s, 'crow'), coins(r.s, 'nightingale'), coins(r.s, 'wren')]).toEqual([44, 42, 4]);
+    assertConservation(r);
+  });
+
+  it('a lone holdout can block mutual cancellation; anyone can still walk away before it is active', () => {
+    const r = new Run(world());
+    const id = three(r);
+    r.do(U2, { type: 'signContract', characterId: 'nightingale', contractId: id });
+    r.do(U3, { type: 'signContract', characterId: 'wren', contractId: id });
+    r.do(U1, { type: 'requestCancelContract', characterId: 'crow', contractId: id });
+    r.do(U2, { type: 'requestCancelContract', characterId: 'nightingale', contractId: id });
+    expect(r.s.economy.contracts[id].status).toBe('active');
+    r.do(U3, { type: 'requestCancelContract', characterId: 'wren', contractId: id });
+    expect(r.s.economy.contracts[id].status).toBe('cancelled');
+
+    const r2 = new Run(world());
+    const id2 = three(r2);
+    r2.do(U3, { type: 'requestCancelContract', characterId: 'wren', contractId: id2 });
+    expect(r2.s.economy.contracts[id2].status).toBe('cancelled');
+    expect(coins(r2.s, 'crow')).toBe(50);
+    assertConservation(r2);
+  });
+
+  it('caps the number of parties and rejects duplicates', () => {
+    const r = new Run(world());
+    const base = { type: 'proposeContract' as const, characterId: 'crow', title: 'x', deadline: DEADLINE, deposits: {}, clauses: [{ kind: 'gmVerified' as const, from: 'crow', text: 'x' }] };
+    expect(() => r.do(U1, { ...base, with: [] })).toThrow(/兩位/);
+    expect(() => r.do(U1, { ...base, with: ['nightingale', 'nightingale'] })).toThrow(/兩次/);
+    expect(() => applyWorld(r.s, { actor: U1, command: { ...base, with: ['nightingale', 'wren'] } }, R, scriptedRng([]), T0,
+      { ...WORLD_V03, economy: { ...WORLD_V03.economy, contractMaxParties: 2 } })).toThrow(/最多 2/);
+  });
+
+  it('a GM can find several parties in breach at once', () => {
+    const r = new Run(world());
+    const id = three(r);
+    r.do(U2, { type: 'signContract', characterId: 'nightingale', contractId: id });
+    r.do(U3, { type: 'signContract', characterId: 'wren', contractId: id });
+    r.do(U1, { type: 'raiseDispute', characterId: 'crow', kind: 'contract', ref: id, reason: '兩人都沒交貨' });
+    const d = Object.keys(r.s.economy.disputes)[0];
+    r.do(ARB, { type: 'gmResolveDispute', disputeId: d, outcome: { breachBy: ['nightingale', 'wren'] } });
+    // Both forfeited deposits go to 灰鴉, the only party who kept the contract.
+    expect([coins(r.s, 'crow'), coins(r.s, 'nightingale'), coins(r.s, 'wren')]).toEqual([62, 24, 4]);
+    assertConservation(r);
+  });
+});
+
+describe('teams and their shared treasury', () => {
+  const T = 'crows';
+  /** 灰鴉 leads, 夜鶯 and 鷦鷯 join. */
+  function crew(r: Run, policy: 'leader' | 'majority' = 'leader') {
+    r.do(U1, { type: 'createTeam', characterId: 'crow', teamId: T, name: '鴉群', policy });
+    for (const [u, id] of [[U2, 'nightingale'], [U3, 'wren']] as const) {
+      r.do(U1, { type: 'inviteToTeam', characterId: 'crow', teamId: T, targetId: id });
+      r.do(u, { type: 'respondTeamInvite', characterId: id, teamId: T, accept: true });
+    }
+    return r.s.economy.teams[T];
+  }
+
+  it('members pay into one treasury and items deposited are held by the team', () => {
+    const r = new Run(world());
+    crew(r);
+    expect(r.s.economy.teams[T].members).toEqual(['crow', 'nightingale', 'wren']);
+    r.do(U2, { type: 'depositToTeam', characterId: 'nightingale', teamId: T, coins: 20, itemIds: ['moonherb-1'] });
+    r.do(U1, { type: 'depositToTeam', characterId: 'crow', teamId: T, coins: 10, itemIds: [] });
+    expect(r.s.economy.teams[T].coins).toBe(30);
+    expect(holder(r.s, 'moonherb-1')).toEqual({ type: 'team', id: T });
+    expect(() => r.do(U3, { type: 'depositToTeam', characterId: 'wren', teamId: T, coins: 1, itemIds: [] })).toThrow(/不夠/);
+    // Team coins count toward the total: nothing was created or lost.
+    const total = Object.values(r.s.characters).reduce((a, c) => a + c.coins, 0) + r.s.economy.teams[T].coins;
+    expect(total).toBe(80);
+  });
+
+  it('under the leader policy the leader withdraws alone; other members need a majority', () => {
+    const r = new Run(world());
+    crew(r);
+    r.do(U2, { type: 'depositToTeam', characterId: 'nightingale', teamId: T, coins: 30, itemIds: [] });
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'withdraw', to: 'wren', coins: 10, itemIds: [] } });
+    expect(coins(r.s, 'wren')).toBe(10);
+    r.do(U2, { type: 'proposeTeam', characterId: 'nightingale', teamId: T, motion: { kind: 'withdraw', to: 'nightingale', coins: 20, itemIds: [] } });
+    const p = r.s.economy.teams[T].proposals.at(-1)!;
+    expect(p.status).toBe('open'); // 1 of 3
+    expect(coins(r.s, 'nightingale')).toBe(0);
+    r.do(U3, { type: 'voteTeam', characterId: 'wren', teamId: T, proposalId: p.id, approve: true });
+    expect(r.s.economy.teams[T].proposals.at(-1)!.status).toBe('passed');
+    expect(coins(r.s, 'nightingale')).toBe(20);
+    expect(r.s.economy.teams[T].coins).toBe(0);
+  });
+
+  it('under majority rule even the leader must win a vote, and two no votes of three kill a motion', () => {
+    const r = new Run(world());
+    crew(r, 'majority');
+    r.do(U1, { type: 'depositToTeam', characterId: 'crow', teamId: T, coins: 30, itemIds: [] });
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'withdraw', to: 'crow', coins: 30, itemIds: [] } });
+    const pid = r.s.economy.teams[T].proposals[0].id;
+    expect(coins(r.s, 'crow')).toBe(20);
+    r.do(U2, { type: 'voteTeam', characterId: 'nightingale', teamId: T, proposalId: pid, approve: false });
+    r.do(U3, { type: 'voteTeam', characterId: 'wren', teamId: T, proposalId: pid, approve: false });
+    expect(r.s.economy.teams[T].proposals[0].status).toBe('rejected');
+    expect(() => r.do(U2, { type: 'voteTeam', characterId: 'nightingale', teamId: T, proposalId: pid, approve: true })).toThrow(/已經結束/);
+    expect(r.s.economy.teams[T].coins).toBe(30);
+  });
+
+  it('a motion that passes after the treasury was emptied is void, not paid twice', () => {
+    const r = new Run(world());
+    crew(r, 'majority');
+    r.do(U1, { type: 'depositToTeam', characterId: 'crow', teamId: T, coins: 10, itemIds: [] });
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'withdraw', to: 'crow', coins: 10, itemIds: [] } });
+    r.do(U2, { type: 'proposeTeam', characterId: 'nightingale', teamId: T, motion: { kind: 'withdraw', to: 'nightingale', coins: 10, itemIds: [] } });
+    const [a, b] = r.s.economy.teams[T].proposals.map((p) => p.id);
+    r.do(U3, { type: 'voteTeam', characterId: 'wren', teamId: T, proposalId: a, approve: true });
+    r.do(U3, { type: 'voteTeam', characterId: 'wren', teamId: T, proposalId: b, approve: true });
+    expect(r.s.economy.teams[T].proposals.map((p) => p.status)).toEqual(['passed', 'void']);
+    expect([coins(r.s, 'crow'), coins(r.s, 'nightingale'), r.s.economy.teams[T].coins]).toEqual([50, 30, 0]);
+  });
+
+  it('dead members stop counting toward a majority, and a dead leader hands over to the next living member', () => {
+    const r = new Run(world());
+    crew(r, 'majority');
+    r.do(U2, { type: 'depositToTeam', characterId: 'nightingale', teamId: T, coins: 10, itemIds: [] });
+    r.s.characters.crow.status = 'dead';
+    r.do(U2, { type: 'proposeTeam', characterId: 'nightingale', teamId: T, motion: { kind: 'withdraw', to: 'nightingale', coins: 10, itemIds: [] } });
+    expect(r.s.economy.teams[T].proposals[0].status).toBe('open'); // 1 of 2 living is not more than half
+    r.do(U3, { type: 'voteTeam', characterId: 'wren', teamId: T, proposalId: r.s.economy.teams[T].proposals[0].id, approve: true });
+    expect(coins(r.s, 'nightingale')).toBe(30);
+    expect(() => r.do(U3, { type: 'inviteToTeam', characterId: 'wren', teamId: T, targetId: 'crow' })).toThrow(/隊長/);
+    r.s.characters.nightingale.online = true;
+    expect(() => r.do(U2, { type: 'inviteToTeam', characterId: 'nightingale', teamId: T, targetId: 'crow' })).toThrow(/死亡/);
+  });
+
+  it('leaving keeps deposits in the treasury; the last member must empty it; disbanding needs an empty treasury', () => {
+    const r = new Run(world());
+    crew(r);
+    r.do(U2, { type: 'depositToTeam', characterId: 'nightingale', teamId: T, coins: 6, itemIds: [] });
+    r.do(U2, { type: 'leaveTeam', characterId: 'nightingale', teamId: T });
+    expect(r.s.economy.teams[T].coins).toBe(6);
+    expect(() => r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'disband' } })).toThrow(/分配完/);
+    r.do(U1, { type: 'leaveTeam', characterId: 'crow', teamId: T });
+    expect(r.s.economy.teams[T].leaderId).toBe('wren');
+    expect(() => r.do(U3, { type: 'leaveTeam', characterId: 'wren', teamId: T })).toThrow(/領完/);
+    r.do(U3, { type: 'proposeTeam', characterId: 'wren', teamId: T, motion: { kind: 'withdraw', to: 'wren', coins: 6, itemIds: [] } });
+    r.do(U3, { type: 'proposeTeam', characterId: 'wren', teamId: T, motion: { kind: 'disband' } });
+    expect(r.s.economy.teams[T].status).toBe('disbanded');
+  });
+
+  it('kicks need a vote and cannot target the leader; a character is in one team at a time', () => {
+    const r = new Run(world());
+    crew(r);
+    expect(() => r.do(U2, { type: 'proposeTeam', characterId: 'nightingale', teamId: T, motion: { kind: 'kick', target: 'crow' } })).toThrow(/隊長以外/);
+    r.do(U1, { type: 'proposeTeam', characterId: 'crow', teamId: T, motion: { kind: 'kick', target: 'wren' } });
+    r.do(U2, { type: 'voteTeam', characterId: 'nightingale', teamId: T, proposalId: r.s.economy.teams[T].proposals[0].id, approve: true });
+    expect(r.s.economy.teams[T].members).toEqual(['crow', 'nightingale']);
+    expect(() => r.do(U2, { type: 'createTeam', characterId: 'nightingale', teamId: 'x', name: 'x', policy: 'leader' })).toThrow(/已經在一支隊伍/);
+  });
+
+  it('outsiders see the roster but not the treasury, votes or team-held items', () => {
+    const r = new Run(world());
+    r.do(U1, { type: 'createTeam', characterId: 'crow', teamId: T, name: '鴉群', policy: 'leader' });
+    r.do(U1, { type: 'depositToTeam', characterId: 'crow', teamId: T, coins: 10, itemIds: ['lantern'] });
+    const out = viewFor(r.s, U2);
+    expect(out.economy.teams[T].members).toEqual(['crow']);
+    expect(out.economy.teams[T].coins).toBe(0);
+    expect(out.items.lantern).toBeUndefined();
+    expect(ledgerFor(r.s, U2, r.ledger)).toHaveLength(0);
+    const own = viewFor(r.s, U1);
+    expect(own.economy.teams[T].coins).toBe(10);
+    expect(own.items.lantern.holder).toEqual({ type: 'team', id: T });
   });
 });
 
