@@ -166,6 +166,21 @@ export class WorldStore {
     }));
   }
 
+  worldIds(): string[] {
+    return (this.db.prepare('SELECT id FROM worlds ORDER BY id').all() as { id: string }[]).map((r) => r.id);
+  }
+
+  /** Main-GM tool: grants or removes a GM role in a world. The grant table is the only source of GM power. */
+  setGm(worldId: string, userId: string, grant: WorldState['gms'][string] | null) {
+    this.combat.tx(() => {
+      const s = this.load(worldId);
+      const gms = { ...s.gms };
+      if (grant) gms[userId] = grant;
+      else delete gms[userId];
+      this.db.prepare('UPDATE worlds SET gms = ?, version = version + 1 WHERE id = ?').run(JSON.stringify(gms), worldId);
+    });
+  }
+
   /** What one viewer may see: redacted state and the history entries they are allowed to read. */
   viewFor(worldId: string, viewer: WorldActor) {
     const s = this.load(worldId);
