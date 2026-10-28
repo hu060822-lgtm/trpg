@@ -15,6 +15,7 @@
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^26.6.5",
+    "@types/pg": "8.23.1",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
@@ -26,6 +27,9 @@
     "node": ">=22.13"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "@electric-sql/pglite": "0.5.9",
+    "express": "^5.1.0",
+    "jose": "6.2.12",
+    "pg": "8.23.1"
   }
 }

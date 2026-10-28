@@ -1,26 +1,41 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { CombatStore } from '../persistence/combat-store';
-import { WorldStore } from '../persistence/world-store';
 import { RULES_V03 } from '../rules/config';
 import { randomRng } from '../rules/dice';
 import { createApp } from './app';
-import { Tokens } from './auth';
+import { ensureWorld, openGame, parseGrants } from './boot';
 import { Scheduler } from './scheduler';
 
-/** Starts the game server. Env: DATABASE_PATH (default ./data/fateweave.db), PORT (default 3000). */
-const path = process.env.DATABASE_PATH ?? './data/fateweave.db';
-const port = Number(process.env.PORT ?? 3000);
+/**
+ * Starts the game server. Env:
+ *   DATABASE_URL          postgres://… (Supabase), or a PGlite directory (default ./data/pglite) for local play
+ *   PORT                  default 3000
+ *   SUPABASE_URL          verifies sign-ins with the project's JWT signing keys
+ *   SUPABASE_JWT_SECRET   legacy shared-secret projects only
+ *   AUTH_DEV=1            accepts `dev:<name>` tokens; never set this in production
+ *   CORS_ORIGINS          comma-separated origins of the web client, e.g. https://<user>.github.io
+ *   INITIAL_GMS           on an empty database, creates the seed world with these GMs: `sb:<user id>=main`
+ */
+const env = process.env;
+const url = env.DATABASE_URL ?? './data/pglite';
+if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 
-mkdirSync(dirname(path), { recursive: true });
-const store = new WorldStore(new CombatStore(path, RULES_V03), RULES_V03);
-const tokens = new Tokens(store.combat.db);
-const scheduler = new Scheduler(store, randomRng);
-
-createApp({ store, tokens, rules: RULES_V03 }).listen(port, () => {
-  console.log(`FATEWEAVE server on :${port}, database ${path}`);
+const { store, auth } = await openGame(url, {
+  supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, dev: env.AUTH_DEV === '1',
 });
+const initialGms = parseGrants(env.INITIAL_GMS ?? (env.AUTH_DEV === '1' ? 'dev:gm=main' : ''));
+if (await ensureWorld(store, initialGms)) {
+  console.log(`created the seed world, GMs: ${Object.keys(initialGms).join(', ') || 'none (set INITIAL_GMS or run admin set-gm)'}`);
+}
+const scheduler = await Scheduler.open(store, randomRng);
+const report = async (now: Date) => {
+  for (const r of await scheduler.tick(now)) if (r.errors.length) console.error(`[scheduler] ${r.worldId}`, r.errors);
+};
 
-setInterval(() => {
-  for (const r of scheduler.tick(new Date())) if (r.errors.length) console.error(`[scheduler] ${r.worldId}`, r.errors);
-}, 60_000);
+createApp({
+  store, auth, rules: RULES_V03,
+  corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  beforeRequest: () => scheduler.catchUp(new Date()),
+}).listen(Number(env.PORT ?? 3000), () => console.log(`FATEWEAVE server on :${env.PORT ?? 3000}, database ${url.replace(/:[^:@/]+@/, ':***@')}`));
+
+await report(new Date());
+setInterval(() => { void report(new Date()); }, 60_000);

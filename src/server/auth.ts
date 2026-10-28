@@ -1,10 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from 'jose';
+import type { Database } from '../persistence/db';
 
 /**
- * API tokens. Only a SHA-256 of each token is stored, so a leaked database does not leak working tokens.
- * A user token acts as its user. A service token (the Discord bot) may act on behalf of any user by naming them
- * in `X-Act-As`, and may read the raw event feed it needs to route notifications.
+ * Who is calling. Three kinds of bearer token are accepted:
+ * - a Supabase Auth access token (the web game's sign-in); the user id is `sb:<Supabase user id>`;
+ * - an API token issued from the admin CLI (`fw_u_…` for a user, `fw_s_…` for a service such as a future bot).
+ *   Only a SHA-256 of each is stored, so a leaked database does not leak working tokens;
+ * - in development only (`AUTH_DEV=1`), `dev:<name>`, so the game can be tried locally without Supabase.
  */
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS api_tokens (
@@ -17,31 +20,71 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 `;
 
-export interface Principal { userId: string; kind: 'user' | 'service' }
+export interface Principal { userId: string; kind: 'user' | 'service'; name?: string }
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 
-export class Tokens {
-  constructor(private db: DatabaseSync) {
-    db.exec(SCHEMA);
+export interface AuthOptions {
+  /** Supabase project URL; its JWKS verifies access tokens signed with the project's asymmetric keys. */
+  supabaseUrl?: string;
+  /** Legacy HS256 JWT secret, for projects that still sign with a shared secret. */
+  supabaseJwtSecret?: string;
+  dev?: boolean;
+}
+
+export class Auth {
+  private jwks?: ReturnType<typeof createRemoteJWKSet>;
+  private secret?: Uint8Array;
+
+  private constructor(private db: Database, private opts: AuthOptions) {
+    if (opts.supabaseUrl) this.jwks = createRemoteJWKSet(new URL('/auth/v1/.well-known/jwks.json', opts.supabaseUrl));
+    if (opts.supabaseJwtSecret) this.secret = new TextEncoder().encode(opts.supabaseJwtSecret);
+  }
+
+  static async open(db: Database, opts: AuthOptions = {}) {
+    await db.migrate(SCHEMA);
+    return new Auth(db, opts);
   }
 
   /** Returns the token once; it cannot be recovered later. */
-  issue(userId: string, kind: Principal['kind'], label = '', now = new Date()): string {
+  async issue(userId: string, kind: Principal['kind'], label = '', now = new Date()): Promise<string> {
     const token = `fw_${kind === 'service' ? 's' : 'u'}_${randomBytes(24).toString('base64url')}`;
-    this.db.prepare('INSERT INTO api_tokens (token_hash, user_id, kind, label, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(hash(token), userId, kind, label, now.toISOString());
+    await this.db.run('INSERT INTO api_tokens (token_hash, user_id, kind, label, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [hash(token), userId, kind, label, now.toISOString()]);
     return token;
   }
 
-  revoke(token: string, now = new Date()) {
-    this.db.prepare('UPDATE api_tokens SET revoked_at = ? WHERE token_hash = ?').run(now.toISOString(), hash(token));
+  async revoke(token: string, now = new Date()) {
+    await this.db.run('UPDATE api_tokens SET revoked_at = $1 WHERE token_hash = $2', [now.toISOString(), hash(token)]);
   }
 
-  verify(token: string | undefined): Principal | undefined {
+  async verify(token: string | undefined): Promise<Principal | undefined> {
     if (!token) return undefined;
-    const row = this.db.prepare('SELECT user_id, kind FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL').get(hash(token)) as
-      { user_id: string; kind: Principal['kind'] } | undefined;
-    return row && { userId: row.user_id, kind: row.kind };
+    if (token.startsWith('fw_')) {
+      const row = await this.db.one<{ user_id: string; kind: Principal['kind'] }>(
+        'SELECT user_id, kind FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL', [hash(token)]);
+      return row && { userId: row.user_id, kind: row.kind };
+    }
+    if (token.startsWith('dev:')) {
+      const name = token.slice(4).trim();
+      return this.opts.dev && /^[\w一-鿿-]{1,32}$/u.test(name) ? { userId: `dev:${name}`, kind: 'user', name } : undefined;
+    }
+    return this.verifySupabase(token);
+  }
+
+  private async verifySupabase(token: string): Promise<Principal | undefined> {
+    let payload: JWTPayload | undefined;
+    try {
+      const { alg } = decodeProtectedHeader(token);
+      if (alg === 'HS256' && this.secret) payload = (await jwtVerify(token, this.secret, { audience: 'authenticated' })).payload;
+      else if (alg !== 'HS256' && this.jwks) payload = (await jwtVerify(token, this.jwks, { audience: 'authenticated' })).payload;
+    } catch {
+      return undefined;
+    }
+    if (!payload?.sub) return undefined;
+    const meta = (payload.user_metadata ?? {}) as Record<string, unknown>;
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const name = [meta.name, meta.full_name, meta.user_name].find((v) => typeof v === 'string') as string | undefined;
+    return { userId: `sb:${payload.sub}`, kind: 'user', name: name ?? email.split('@')[0] };
   }
 }

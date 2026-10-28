@@ -8,7 +8,7 @@ import { randomRng, type Rng } from '../rules/dice';
 import type { RulesConfig } from '../rules/types';
 import { WorldError, gmGrant } from '../world/engine';
 import type { WorldActor, WorldCommand } from '../world/types';
-import { Tokens, type Principal } from './auth';
+import { Auth, type Principal } from './auth';
 
 /**
  * The game server's HTTP API. Every response a player gets goes through the same redaction as the sandbox
@@ -17,10 +17,14 @@ import { Tokens, type Principal } from './auth';
  */
 export interface ServerDeps {
   store: WorldStore;
-  tokens: Tokens;
+  auth: Auth;
   rules: RulesConfig;
   rng?: Rng;
   now?: () => Date;
+  /** Browser origins allowed to call the API (the GitHub Pages site). */
+  corsOrigins?: string[];
+  /** Runs before each API request; the server uses it to catch up on jobs missed while it was asleep. */
+  beforeRequest?: () => Promise<void>;
 }
 
 /** The user a request acts as, after token checks and (for the bot) X-Act-As. */
@@ -40,29 +44,38 @@ const STATUS: [RegExp, number][] = [
 ];
 
 export function createApp(deps: ServerDeps) {
-  const { store, tokens, rules } = deps;
+  const { store, auth, rules } = deps;
   const rng = deps.rng ?? randomRng;
   const now = deps.now ?? (() => new Date());
   const app = express();
+  app.use((req, res, next) => {
+    const origin = req.get('origin');
+    if (origin && deps.corsOrigins?.includes(origin)) {
+      res.set({ 'access-control-allow-origin': origin, vary: 'Origin', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'GET, POST' });
+    }
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', (_req, res) => { res.json({ ok: true }); });
 
   // ---------- authentication ----------
-  app.use('/api', (req: Req, _res, next) => {
+  app.use('/api', async (req: Req, _res, next) => {
     const header = req.get('authorization') ?? '';
-    const principal = tokens.verify(header.startsWith('Bearer ') ? header.slice(7) : undefined);
-    if (!principal) return next(new HttpError(401, 'unauthenticated', '需要有效的 API token'));
+    const principal = await auth.verify(header.startsWith('Bearer ') ? header.slice(7) : undefined);
+    if (!principal) return next(new HttpError(401, 'unauthenticated', '請先登入'));
     const actAs = req.get('x-act-as');
     if (actAs && principal.kind !== 'service') return next(new HttpError(403, 'forbidden', '只有服務 token 可以代替其他使用者操作'));
     req.caller = { userId: actAs ?? principal.userId, principal };
+    await deps.beforeRequest?.();
     next();
   });
 
   const caller = (req: Req) => req.caller!;
-  const worldOf = (req: Request) => {
+  const worldOf = async (req: Request) => {
     const id = String(req.params.worldId);
-    if (!store.worldIds().includes(id)) throw new HttpError(404, 'not-found', `找不到世界 ${id}`);
+    if (!(await store.worldIds()).includes(id)) throw new HttpError(404, 'not-found', `找不到世界 ${id}`);
     return id;
   };
   /** A request may ask to act as GM; the engine then checks the grant table. `system` is never accepted. */
@@ -70,16 +83,36 @@ export function createApp(deps: ServerDeps) {
     if (as !== undefined && as !== 'player' && as !== 'gm') throw new HttpError(400, 'bad-role', 'as 只能是 player 或 gm');
     return { userId: caller(req).userId, role: as === 'gm' ? 'gm' : 'player' };
   };
-  const isGmAnywhere = (userId: string) => store.worldIds().some((w) => !!gmGrant(store.load(w), { userId, role: 'gm' }));
+  /** The GM grants this user holds, world by world. */
+  const grantsOf = async (userId: string) => {
+    const out = [];
+    for (const w of await store.worldIds()) {
+      const s = await store.load(w);
+      if (gmGrant(s, { userId, role: 'gm' })) out.push({ worldId: w, ...s.gms[userId] });
+    }
+    return out;
+  };
 
   // ---------- characters ----------
-  app.get('/api/me', (req: Req, res) => {
-    const { userId } = caller(req);
-    const gmOf = store.worldIds().filter((w) => gmGrant(store.load(w), { userId, role: 'gm' })).map((w) => ({ worldId: w, ...store.load(w).gms[userId] }));
-    res.json({ userId, characters: store.combat.charactersOf(userId), gmOf });
+  app.get('/api/me', async (req: Req, res) => {
+    const { userId, principal } = caller(req);
+    res.json({ userId, name: principal.name ?? null, characters: await store.combat.charactersOf(userId), gmOf: await grantsOf(userId) });
   });
 
-  app.post('/api/characters', (req: Req, res) => {
+  /** Worlds and the outposts a new character may enter from. */
+  app.get('/api/worlds', async (_req: Req, res) => {
+    const out = [];
+    for (const id of await store.worldIds()) {
+      const s = await store.load(id);
+      out.push({
+        id, name: s.name, day: s.day, characters: Object.keys(s.characters).length,
+        outposts: Object.values(s.locations).filter((l) => l.outpost).map((l) => ({ id: l.id, name: l.name })),
+      });
+    }
+    res.json(out);
+  });
+
+  app.post('/api/characters', async (req: Req, res) => {
     const draft = req.body?.draft as CharacterDraft | undefined;
     if (!draft || typeof draft !== 'object') throw new HttpError(400, 'bad-request', '需要 draft');
     let c;
@@ -88,47 +121,47 @@ export function createApp(deps: ServerDeps) {
     } catch (e) {
       throw new HttpError(400, 'invalid-character', (e as Error).message);
     }
-    store.combat.saveNewCharacter(caller(req).userId, c);
-    res.status(201).json(store.combat.getCharacter(c.id));
+    await store.combat.saveNewCharacter(caller(req).userId, c);
+    res.status(201).json(await store.combat.getCharacter(c.id));
   });
 
-  app.get('/api/characters/:id', (req: Req, res) => {
-    const c = store.combat.getCharacter(String(req.params.id));
+  app.get('/api/characters/:id', async (req: Req, res) => {
+    const c = await store.combat.getCharacter(String(req.params.id));
     const { userId } = caller(req);
-    if (c.ownerUserId !== userId && !isGmAnywhere(userId)) throw new HttpError(403, 'forbidden', '只能查看自己的角色');
-    res.json({ ...c, death: store.combat.deathRecord(c.id) ?? null });
+    if (c.ownerUserId !== userId && (await grantsOf(userId)).length === 0) throw new HttpError(403, 'forbidden', '只能查看自己的角色');
+    res.json({ ...c, death: (await store.combat.deathRecord(c.id)) ?? null });
   });
 
   // ---------- world ----------
-  app.post('/api/worlds/:worldId/join', (req: Req, res) => {
-    const worldId = worldOf(req);
+  app.post('/api/worlds/:worldId/join', async (req: Req, res) => {
+    const worldId = await worldOf(req);
     const { characterId, locationId } = req.body ?? {};
-    const c = store.combat.getCharacter(String(characterId));
+    const c = await store.combat.getCharacter(String(characterId));
     if (c.ownerUserId !== caller(req).userId) throw new HttpError(403, 'forbidden', '只能讓自己的角色加入世界');
-    const loc = store.load(worldId).locations[String(locationId)];
+    const loc = (await store.load(worldId)).locations[String(locationId)];
     if (!loc?.outpost) throw new HttpError(400, 'bad-location', '新角色只能從據點進入世界');
-    store.join(worldId, c.id, loc.id);
-    res.status(201).json(store.viewFor(worldId, { userId: c.ownerUserId, role: 'player' }).world.characters[c.id]);
+    await store.join(worldId, c.id, loc.id);
+    res.status(201).json((await store.viewFor(worldId, { userId: c.ownerUserId, role: 'player' })).world.characters[c.id]);
   });
 
   /** What this caller may see. `as=gm` gives the GM view only if the grant table says so. */
-  app.get('/api/worlds/:worldId/view', (req: Req, res) => {
-    const worldId = worldOf(req);
+  app.get('/api/worlds/:worldId/view', async (req: Req, res) => {
+    const worldId = await worldOf(req);
     const actor = actorFor(req, req.query.as);
-    const v = store.viewFor(worldId, actor);
+    const v = await store.viewFor(worldId, actor);
     const after = Number(req.query.after ?? 0);
     res.json({ ...v, history: v.history.filter((e) => e.seq > after) });
   });
 
-  app.post('/api/worlds/:worldId/commands', (req: Req, res) => {
-    const worldId = worldOf(req);
+  app.post('/api/worlds/:worldId/commands', async (req: Req, res) => {
+    const worldId = await worldOf(req);
     const { command, requestId, expected, as } = req.body ?? {};
     if (!command || typeof command.type !== 'string') throw new HttpError(400, 'bad-request', '需要 command');
     if (requestId !== undefined && (typeof requestId !== 'string' || requestId.length > 100)) throw new HttpError(400, 'bad-request', 'requestId 必須是 100 字以內的字串');
     const actor = actorFor(req, as);
-    const r = store.submit(worldId, { actor, command: command as WorldCommand, requestId, expected }, rng, now());
+    const r = await store.submit(worldId, { actor, command: command as WorldCommand, requestId, expected }, rng, now());
     // The caller gets their own view of the outcome, never the raw state.
-    const v = store.viewFor(worldId, actor);
+    const v = await store.viewFor(worldId, actor);
     const seqs = new Set(r.events.map((e) => e.seq));
     res.json({
       replayed: !!r.replayed,
@@ -139,27 +172,27 @@ export function createApp(deps: ServerDeps) {
   });
 
   // ---------- combat ----------
-  const combatFor = (req: Req) => {
-    const worldId = worldOf(req);
-    const combat = store.combat.loadCombat(String(req.params.combatId));
+  const combatFor = async (req: Req) => {
+    const worldId = await worldOf(req);
+    const combat = await store.combat.loadCombat(String(req.params.combatId));
     const { userId } = caller(req);
     const inIt = Object.values(combat.combatants).some((c) => c.controller === userId);
-    if (!inIt && !gmGrant(store.load(worldId), { userId, role: 'gm' })) throw new HttpError(403, 'forbidden', '你沒有參與這場戰鬥');
+    if (!inIt && !gmGrant(await store.load(worldId), { userId, role: 'gm' })) throw new HttpError(403, 'forbidden', '你沒有參與這場戰鬥');
     return { worldId, combat };
   };
 
-  app.get('/api/worlds/:worldId/combats/:combatId', (req: Req, res) => {
-    const { combat } = combatFor(req);
-    res.json({ ...combat, events: store.combat.events(combat.id) });
+  app.get('/api/worlds/:worldId/combats/:combatId', async (req: Req, res) => {
+    const { combat } = await combatFor(req);
+    res.json({ ...combat, events: await store.combat.events(combat.id) });
   });
 
-  app.post('/api/worlds/:worldId/combats/:combatId/actions', (req: Req, res) => {
-    const { worldId, combat } = combatFor(req);
+  app.post('/api/worlds/:worldId/combats/:combatId/actions', async (req: Req, res) => {
+    const { worldId, combat } = await combatFor(req);
     const { actionId, combatantId, round, action } = req.body ?? {};
     if (typeof actionId !== 'string' || typeof combatantId !== 'string' || typeof round !== 'number' || !action) {
       throw new HttpError(400, 'bad-request', '需要 actionId、combatantId、round 與 action');
     }
-    const r = store.submitCombat(worldId, combat.id, {
+    const r = await store.submitCombat(worldId, combat.id, {
       actionId, combatantId, round, action: action as CombatAction, actor: { userId: caller(req).userId, role: 'player' },
     }, rng, now());
     res.json({ state: r.state, events: r.events });
@@ -170,13 +203,13 @@ export function createApp(deps: ServerDeps) {
    * The bot's notification feed: raw history after `after`, with who owns each character and the GM grants,
    * so it can post public entries to the world channel, private ones by DM and GM entries to the GM channel.
    */
-  app.get('/api/worlds/:worldId/feed', (req: Req, res) => {
+  app.get('/api/worlds/:worldId/feed', async (req: Req, res) => {
     if (caller(req).principal.kind !== 'service' || req.get('x-act-as')) throw new HttpError(403, 'forbidden', '只有服務 token 能讀取事件推播');
-    const worldId = worldOf(req);
-    const s = store.load(worldId);
+    const worldId = await worldOf(req);
+    const s = await store.load(worldId);
     const after = Number(req.query.after ?? 0);
     res.json({
-      events: store.events(worldId).filter((e) => e.seq > after),
+      events: await store.events(worldId, after),
       owners: Object.fromEntries(Object.values(s.characters).map((c) => [c.id, c.ownerUserId])),
       gms: s.gms,
     });
