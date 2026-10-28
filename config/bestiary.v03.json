@@ -1,0 +1,10 @@
+{
+  "version": "0.3",
+  "status": "provisional",
+  "note": "GM 開戰用的怪物範本。數值是原型暫定值，沒有經過平衡模擬；灰狼沿用戰鬥試玩頁的數值。",
+  "monsters": [
+    { "id": "wolf", "name": "灰狼", "attributes": { "STR": 2, "AGI": 2, "VIT": 2, "PRE": 1, "PER": 2, "INT": 0, "WIL": 1, "CHA": 0, "INS": 1, "SPR": 0 }, "skills": { "melee": 2, "dodge": 1 }, "maxHp": 10, "weaponId": "claws", "armorId": "hide" },
+    { "id": "bandit", "name": "盜匪", "attributes": { "STR": 2, "AGI": 2, "VIT": 1, "PRE": 2, "PER": 1, "INT": 1, "WIL": 1, "CHA": 1, "INS": 1, "SPR": 0 }, "skills": { "melee": 2, "dodge": 1, "block": 1 }, "maxHp": 12, "weaponId": "dagger", "armorId": "leather" },
+    { "id": "ruin-guard", "name": "遺跡守衛", "attributes": { "STR": 3, "AGI": 1, "VIT": 3, "PRE": 1, "PER": 1, "INT": 0, "WIL": 2, "CHA": 0, "INS": 0, "SPR": 1 }, "skills": { "melee": 3, "block": 2 }, "maxHp": 16, "weaponId": "sword", "armorId": "chain" }
+  ]
+}

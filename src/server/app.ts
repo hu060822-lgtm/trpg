@@ -1,7 +1,9 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { CombatError } from '../combat/engine';
 import type { CombatAction } from '../combat/types';
+import bestiaryJson from '../../config/bestiary.v03.json';
 import { createCharacter, type CharacterDraft } from '../character/create';
+import type { CombatantSetup } from '../combat/types';
 import { StoreError } from '../persistence/combat-store';
 import type { WorldStore } from '../persistence/world-store';
 import { randomRng, type Rng } from '../rules/dice';
@@ -30,6 +32,10 @@ export interface ServerDeps {
 /** The user a request acts as, after token checks and (for the bot) X-Act-As. */
 interface Caller { userId: string; principal: Principal }
 type Req = Request & { caller?: Caller };
+
+interface Monster { id: string; name: string; attributes: CombatantSetup['attributes']; skills: Record<string, number>; maxHp: number; weaponId: string; armorId: string }
+const BESTIARY = bestiaryJson.monsters as Monster[];
+const STEMS = '甲乙丙丁戊己庚辛壬癸';
 
 class HttpError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -181,6 +187,61 @@ export function createApp(deps: ServerDeps) {
     return { worldId, combat };
   };
 
+  /** Running combats this caller fights in; a GM of the world sees every one. */
+  app.get('/api/worlds/:worldId/combats', async (req: Req, res) => {
+    const worldId = await worldOf(req);
+    const { userId } = caller(req);
+    const gm = !!gmGrant(await store.load(worldId), { userId, role: 'gm' });
+    const out = [];
+    for (const id of await store.combat.activeCombatIds([`pvp-${worldId}-`, `fight-${worldId}-`])) {
+      const c = await store.combat.loadCombat(id);
+      if (gm || Object.values(c.combatants).some((x) => x.controller === userId)) out.push(c);
+    }
+    res.json(out);
+  });
+
+  /**
+   * A GM starts a fight at a location: the characters there that they pick, against monsters from the bestiary.
+   * Deaths in these fights are final (rules: only PvP deaths wait for a GM ruling).
+   */
+  app.post('/api/worlds/:worldId/combats', async (req: Req, res) => {
+    const worldId = await worldOf(req);
+    const { locationId, characters, monsters } = req.body ?? {};
+    const s = await store.load(worldId);
+    const grant = gmGrant(s, { userId: caller(req).userId, role: 'gm' });
+    const loc = s.locations[String(locationId)];
+    if (!loc) throw new HttpError(404, 'not-found', '找不到這個地點');
+    if (!grant || !(grant.role === 'main' || (grant.role === 'scene' && grant.locations?.includes(loc.id)))) {
+      throw new HttpError(403, 'forbidden', '只有主 GM 或這個地點的場景 GM 能開戰');
+    }
+    if (!Array.isArray(characters) || characters.length === 0 || !Array.isArray(monsters) || monsters.length === 0 || monsters.length > STEMS.length) {
+      throw new HttpError(400, 'bad-request', '至少要有一位角色和一隻怪物');
+    }
+    const setups: CombatantSetup[] = [];
+    for (const c of characters as { id: string; weaponId?: string; armorId?: string; band?: number }[]) {
+      const wc = s.characters[c.id];
+      if (!wc || wc.locationId !== loc.id) throw new HttpError(400, 'not-here', `${wc?.name ?? c.id} 不在${loc.name}`);
+      setups.push(await store.combat.combatantFor(c.id, {
+        id: c.id, side: 'party', band: c.band ?? 0, weaponId: c.weaponId ?? 'dagger', armorId: c.armorId ?? 'leather',
+      }));
+    }
+    (monsters as { bestiaryId: string; band?: number }[]).forEach((m, i) => {
+      const t = BESTIARY.find((x) => x.id === m.bestiaryId);
+      if (!t) throw new HttpError(400, 'bad-request', `怪物圖鑑沒有 ${m.bestiaryId}`);
+      setups.push({
+        id: `m${i + 1}`, name: `${t.name}${monsters.length > 1 ? STEMS[i % STEMS.length] : ''}`, side: 'monsters', controller: 'gm',
+        attributes: t.attributes, skills: t.skills, maxHp: t.maxHp, band: m.band ?? 3, weaponId: t.weaponId, armorId: t.armorId,
+      });
+    });
+    const id = `fight-${worldId}-${Date.now().toString(36)}`;
+    const combat = await store.combat.createCombat(id, setups, rng, now());
+    await store.submit(worldId, {
+      actor: { userId: caller(req).userId, role: 'gm' },
+      command: { type: 'gmNarrate', locationId: loc.id, text: `戰鬥開始：${setups.map((x) => x.name).join('、')}` },
+    }, rng, now());
+    res.status(201).json(combat);
+  });
+
   app.get('/api/worlds/:worldId/combats/:combatId', async (req: Req, res) => {
     const { combat } = await combatFor(req);
     res.json({ ...combat, events: await store.combat.events(combat.id) });
@@ -192,8 +253,11 @@ export function createApp(deps: ServerDeps) {
     if (typeof actionId !== 'string' || typeof combatantId !== 'string' || typeof round !== 'number' || !action) {
       throw new HttpError(400, 'bad-request', '需要 actionId、combatantId、round 與 action');
     }
+    // Monsters are moved by a GM of the world; everyone else only moves their own combatant.
+    const isGm = !!gmGrant(await store.load(worldId), { userId: caller(req).userId, role: 'gm' });
+    const role = combat.combatants[combatantId]?.controller === 'gm' && isGm ? 'gm' : 'player';
     const r = await store.submitCombat(worldId, combat.id, {
-      actionId, combatantId, round, action: action as CombatAction, actor: { userId: caller(req).userId, role: 'player' },
+      actionId, combatantId, round, action: action as CombatAction, actor: { userId: caller(req).userId, role },
     }, rng, now());
     res.json({ state: r.state, events: r.events });
   });

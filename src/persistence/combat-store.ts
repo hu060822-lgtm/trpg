@@ -155,6 +155,12 @@ export class CombatStore {
     return { ...(JSON.parse(row.state) as CombatState), version: row.version };
   }
 
+  /** Ids of combats still running, optionally only those whose id starts with one of the prefixes. */
+  async activeCombatIds(prefixes: string[] = ['']): Promise<string[]> {
+    const rows = await this.db.query<{ id: string }>("SELECT id FROM combats WHERE status = 'active' ORDER BY id");
+    return rows.map((r) => r.id).filter((id) => prefixes.some((p) => id.startsWith(p)));
+  }
+
   async events(combatId: string): Promise<CombatEvent[]> {
     return (await this.db.query<{ event: string }>('SELECT event FROM combat_events WHERE combat_id = $1 ORDER BY seq', [combatId]))
       .map((r) => JSON.parse(r.event));

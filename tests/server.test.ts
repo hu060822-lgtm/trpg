@@ -187,6 +187,33 @@ describe('PvP combat through the API', () => {
   });
 });
 
+describe('GM-run fights', () => {
+  it('a GM starts a fight with bestiary monsters; players see only their own fights and cannot move the monsters', async () => {
+    const a = await enter(tok.p1, 'guardian', '灰鴉');
+    await enter(tok.p2, 'scout', '夜鶯');
+    const body = { locationId: 'plaza', characters: [{ id: a, weaponId: 'sword', armorId: 'chain' }], monsters: [{ bestiaryId: 'wolf' }, { bestiaryId: 'wolf' }] };
+    expect((await call(tok.p1, 'POST', '/api/worlds/greystone/combats', body)).status).toBe(403);
+    const started = await call(tok.gm, 'POST', '/api/worlds/greystone/combats', body);
+    expect(started.status).toBe(201);
+    expect(Object.values(started.body.combatants).map((c: any) => c.name)).toEqual(['灰鴉', '灰狼甲', '灰狼乙']);
+    expect((await call(tok.p1, 'GET', '/api/worlds/greystone/combats')).body.map((c: any) => c.id)).toEqual([started.body.id]);
+    expect((await call(tok.p2, 'GET', '/api/worlds/greystone/combats')).body).toEqual([]);
+    const moveWolf = await call(tok.p1, 'POST', `/api/worlds/greystone/combats/${started.body.id}/actions`, {
+      actionId: 'w', combatantId: 'm1', round: started.body.round, action: { type: 'defend' },
+    });
+    expect(moveWolf.status).toBe(403);
+    const log = await call(tok.p2, 'GET', '/api/worlds/greystone/view');
+    expect(log.body.history.map((e: any) => e.text)).toContain('戰鬥開始：灰鴉、灰狼甲、灰狼乙');
+  });
+
+  it('refuses a fight with someone who is not at the location', async () => {
+    const a = await enter(tok.p1, 'guardian', '灰鴉');
+    await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { command: { type: 'move', characterId: a, to: 'market' } });
+    const r = await call(tok.gm, 'POST', '/api/worlds/greystone/combats', { locationId: 'plaza', characters: [{ id: a }], monsters: [{ bestiaryId: 'wolf' }] });
+    expect(r.status).toBe(400);
+  });
+});
+
 describe('bot feed and scheduler', () => {
   it('only the service token reads the raw feed, which carries owners for routing', async () => {
     const id = await enter(tok.p1, 'guardian', '灰鴉');
