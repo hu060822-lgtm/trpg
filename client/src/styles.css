@@ -369,6 +369,42 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
   background: rgba(20, 16, 13, 0.88); color: var(--ivory); pointer-events: none; }
 .token-card, .map-toast { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4; margin: 0 auto; max-width: 560px; }
 .token-card { background: var(--wood-2); border: 1px solid var(--seam); border-radius: 12px; padding: 12px 16px; display: grid; gap: 8px; box-shadow: var(--edge), 0 12px 32px rgba(0, 0, 0, 0.45); }
+/* Scenery: under the tokens, above the picture. Only a GM can pick it up. */
+.object { position: absolute; left: 0; top: 0; pointer-events: none; transition: transform var(--motion-200) var(--ease-out); }
+.object > svg { position: absolute; left: 50%; top: 50%; overflow: visible; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); }
+.object.movable { pointer-events: auto; cursor: grab; }
+.object.dragging { transition: none; z-index: 1; opacity: 0.85; }
+.object.selected { outline: 2px solid var(--jade); outline-offset: 2px; border-radius: 4px; }
+.object:focus-visible { outline: 3px solid var(--jade); outline-offset: 2px; }
+.object.hidden { opacity: 0.45; outline: 1px dashed var(--muted); }
+.object.kind-water > svg, .object.kind-rubble > svg { filter: none; }
+.object .tag { position: absolute; left: 50%; top: 100%; transform: translate(-50%, -4px); font-size: var(--fs-meta); white-space: nowrap; padding: 0 6px; border-radius: 4px;
+  background: rgba(20, 16, 13, 0.88); color: var(--amber); pointer-events: none; }
+.object-label { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--story); font-weight: 600; color: var(--ivory);
+  text-shadow: 0 1px 2px #000, 0 0 8px rgba(0, 0, 0, 0.8); white-space: nowrap; overflow: hidden; letter-spacing: 0.08em; }
+.palette { max-width: 720px; max-height: min(60%, 420px); overflow-y: auto; }
+.palette-group { display: grid; gap: 4px; }
+.palette-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 6px; }
+.palette-item { display: grid; justify-items: center; gap: 2px; padding: 6px 4px; background: var(--felt); border-color: var(--felt-2); font-size: var(--fs-meta); }
+.palette-item svg { width: 34px; height: 34px; }
+.palette-text { width: 34px; height: 34px; display: grid; place-items: center; font-family: var(--story); font-size: 20px; }
+.gm-tools { display: flex; gap: 6px; align-items: center; padding: 2px 2px 2px 8px; border: 1px solid rgba(240, 181, 82, 0.35); border-radius: 10px; background: var(--amber-soft); }
+.gm-mark { font-size: var(--fs-meta); font-weight: 600; color: var(--amber); letter-spacing: 0.06em; }
+
+/* Written parts of a sheet: backstory, personality, gear. */
+.text-group { border: 1px solid var(--seam); border-radius: 12px; padding: 8px 12px 12px; margin: 0; display: grid; gap: 12px; }
+.text-group legend { padding: 0 8px; font-family: var(--story); }
+.text-field { display: grid; gap: 4px; }
+.text-field label { display: flex; justify-content: space-between; gap: 8px; color: var(--ivory); font-size: var(--fs-2); }
+.text-field label small.over { color: var(--garnet-text); }
+.text-field > small { font-size: var(--fs-meta); }
+.text-field textarea { width: 100%; resize: vertical; min-height: 72px; font: inherit; line-height: 1.6; }
+.text-field input { width: 100%; }
+.story-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.story-head h3 { color: var(--muted); font-family: var(--ui); font-size: var(--fs-2); font-weight: 500; }
+.story-list { margin: 8px 0 0; display: grid; gap: 10px; }
+.story-list dt { color: var(--muted); font-size: var(--fs-meta); }
+.story-list dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--story); line-height: 1.7; }
 .swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
 .swatch-btn { width: var(--hit); height: var(--hit); min-height: 0; padding: 0; border-radius: 50%; border: 3px solid var(--wood-2); background-clip: padding-box; }
 .swatch-btn[aria-pressed='true'] { border-color: var(--ivory); box-shadow: 0 0 0 2px var(--jade); }

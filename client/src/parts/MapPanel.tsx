@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Api, MapView, RoomView, Token } from '../api';
+import type { Api, MapObject, MapObjectKind, MapView, RoomView, Token } from '../api';
 import { useAction } from '../hooks';
 import { MapManager } from './MapManager';
+import { defaultsFor, ObjectArt, ObjectCard, ObjectPalette } from './MapObjects';
 import { Bars, Confirm, ErrorNote, IconButton } from './ui';
 
 /** Pixels per square at zoom 1. */
@@ -72,6 +73,9 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
   const [brush, setBrush] = useState<Set<number>>(new Set());
   const [managing, setManaging] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [selectedObj, setSelectedObj] = useState<string | null>(null);
+  const [objDrag, setObjDrag] = useState<{ id: string; x: number; y: number } | null>(null);
   const act = useAction();
   const stage = useRef<HTMLDivElement>(null);
   const fogCanvas = useRef<HTMLCanvasElement>(null);
@@ -140,6 +144,9 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
   const canMove = (t: Token) => gm || t.ownerUserId === view.me.userId;
   const tokens = data?.tokens ?? [];
   const sel = tokens.find((t) => t.id === selected) ?? null;
+  const objects = data?.objects ?? [];
+  const selObj = gm ? objects.find((o) => o.id === selectedObj) ?? null : null;
+  const pick = (token: string | null, object: string | null) => { setSelected(token); setSelectedObj(object); };
 
   // ---------- pointer handling ----------
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -147,6 +154,7 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
     | { kind: 'pan'; sx: number; sy: number; cam: View; moved: boolean }
     | { kind: 'pinch'; d: number; cam: View; mx: number; my: number }
     | { kind: 'token'; id: string; grab: Cell; moved: boolean }
+    | { kind: 'object'; id: string; grab: Cell; moved: boolean }
     | { kind: 'ruler' } | { kind: 'fog' } | null
   >(null);
 
@@ -181,13 +189,19 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
     if (tool === 'move' && tokenEl) {
       const t = tokens.find((x) => x.id === tokenEl.dataset.token);
       if (t) {
-        setSelected(t.id);
+        pick(t.id, null);
         if (canMove(t)) { gesture.current = { kind: 'token', id: t.id, grab: { x: c.x - t.x, y: c.y - t.y }, moved: false }; return; }
       }
     }
+    // Scenery sits under the tokens and only GMs can grab it; for players it is part of the board.
+    const objectEl = gm && !tokenEl ? (e.target as HTMLElement).closest<HTMLElement>('[data-object]') : null;
+    if (tool === 'move' && objectEl) {
+      const o = objects.find((x) => x.id === objectEl.dataset.object);
+      if (o) { pick(null, o.id); gesture.current = { kind: 'object', id: o.id, grab: { x: c.x - o.x, y: c.y - o.y }, moved: false }; return; }
+    }
     if (tool === 'ruler') { gesture.current = { kind: 'ruler' }; setRuler({ a: c, b: c }); return; }
     if ((tool === 'reveal' || tool === 'cover') && gm) { gesture.current = { kind: 'fog' }; setBrush(new Set()); paint(c); return; }
-    if (!tokenEl) setSelected(null);
+    if (!tokenEl) pick(null, null);
     gesture.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, cam, moved: false };
   };
 
@@ -208,6 +222,11 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
       const c = cellAt(e.clientX, e.clientY);
       const x = clamp(c.x - g.grab.x, 0, map.cols - t.size), y = clamp(c.y - g.grab.y, 0, map.rows - t.size);
       if (x !== t.x || y !== t.y || drag) { g.moved = true; setDrag({ id: t.id, x, y }); }
+    } else if (g.kind === 'object') {
+      const o = objects.find((x) => x.id === g.id)!;
+      const c = cellAt(e.clientX, e.clientY);
+      const x = clamp(c.x - g.grab.x, 0, map.cols - o.w), y = clamp(c.y - g.grab.y, 0, map.rows - o.h);
+      if (x !== o.x || y !== o.y || objDrag) { g.moved = true; setObjDrag({ id: o.id, x, y }); }
     } else if (g.kind === 'ruler') {
       const b = cellAt(e.clientX, e.clientY);
       setRuler((r) => (r ? { ...r, b } : r));
@@ -225,6 +244,11 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
       setData((d) => (d ? { ...d, tokens: d.tokens.map((t) => (t.id === id ? { ...t, x, y } : t)) } : d));
       setDrag(null);
       void act.run(async () => { await api.updateToken(roomId, id, { x, y }); }).then((ok) => { if (!ok) void load(); });
+    } else if (g.kind === 'object' && objDrag && g.moved) {
+      const { id, x, y } = objDrag;
+      setData((d) => (d ? { ...d, objects: d.objects.map((o) => (o.id === id ? { ...o, x, y } : o)) } : d));
+      setObjDrag(null);
+      void act.run(async () => { await api.updateObject(roomId, id, { x, y }); }).then((ok) => { if (!ok) void load(); });
     } else if (g.kind === 'fog' && brush.size) {
       const cells = [...brush], covered = tool === 'cover';
       setData((d) => {
@@ -250,6 +274,17 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
     void act.run(async () => { await api.updateToken(roomId, t.id, { x, y }); }).then((ok) => { if (!ok) void load(); });
   };
 
+  const nudgeObject = (e: React.KeyboardEvent, o: MapObject) => {
+    const step = ARROWS[e.key];
+    if (e.key === 'Escape') { setSelectedObj(null); return; }
+    if (!step || !map) return;
+    e.preventDefault();
+    const x = clamp(o.x + step.x, 0, map.cols - o.w), y = clamp(o.y + step.y, 0, map.rows - o.h);
+    if (x === o.x && y === o.y) return;
+    setData((d) => (d ? { ...d, objects: d.objects.map((v) => (v.id === o.id ? { ...v, x, y } : v)) } : d));
+    void act.run(async () => { await api.updateObject(roomId, o.id, { x, y }); }).then((ok) => { if (!ok) void load(); });
+  };
+
   const wheel = (e: React.WheelEvent) => {
     const r = stage.current!.getBoundingClientRect();
     zoomAt(e.clientX - r.left, e.clientY - r.top, cam.z * Math.exp(-e.deltaY * 0.0015));
@@ -264,6 +299,14 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
   const placeCharacter = (characterId: string) => void act.run(async () => {
     const t = await api.addToken(roomId, map!.id, { characterId, ...centre(), color: COLORS[tokens.length % COLORS.length] });
     setSelected(t.id);
+    await load();
+  });
+
+  const placeObject = (kind: MapObjectKind, from?: MapObject) => void act.run(async () => {
+    const c = centre();
+    const base = from ? { kind: from.kind, name: from.name, w: from.w, h: from.h, rotation: from.rotation, hidden: from.hidden, x: from.x + 1, y: from.y } : { ...defaultsFor(kind), ...c };
+    const o = await api.addObject(roomId, map!.id, base);
+    pick(null, o.id);
     await load();
   });
 
@@ -312,8 +355,14 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
         </div>
         <span className="spacer" />
         {placeable.map((c) => <button key={c.id} className="primary" disabled={act.busy} onClick={() => placeCharacter(c.id)}>放上{c.name}</button>)}
-        {gm && <button onClick={() => setAdding((v) => !v)} aria-expanded={adding}>新增代幣</button>}
-        {gm && <button onClick={() => setManaging((v) => !v)} aria-expanded={managing}>設定地圖</button>}
+        {gm && (
+          <div className="gm-tools" role="group" aria-label="GM 工具">
+            <span className="gm-mark" aria-hidden>GM</span>
+            <button onClick={() => { setAdding((v) => !v); setPlacing(false); }} aria-expanded={adding}>新增代幣</button>
+            <button onClick={() => { setPlacing((v) => !v); setAdding(false); setTool('move'); }} aria-expanded={placing}>布置物件</button>
+            <button onClick={() => setManaging((v) => !v)} aria-expanded={managing}>設定地圖</button>
+          </div>
+        )}
       </div>
 
       <div className="stage-wrap">
@@ -323,7 +372,7 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
         {tool === 'ruler' && ruler && <span className="ruler-read">{dist} 格・{+(dist * map.cellDistance).toFixed(2)} {map.unit}</span>}
       </div>
       <p className="tool-hint" aria-live="polite">{{
-        move: '拖曳代幣移動；拖曳空白處平移，滾輪或兩指縮放。選中代幣後也能用方向鍵移動。',
+        move: gm ? '拖曳代幣或物件移動；拖曳空白處平移，滾輪或兩指縮放。選中後也能用方向鍵移動。' : '拖曳代幣移動；拖曳空白處平移，滾輪或兩指縮放。選中代幣後也能用方向鍵移動。',
         ruler: '按住拖曳，量兩格之間的距離。',
         reveal: '在地圖上塗抹，揭開迷霧。',
         cover: '在地圖上塗抹，蓋回迷霧。',
@@ -333,12 +382,24 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
         <div className="board" style={{ width: W, height: H, transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
           {image ? <img src={image} alt="" draggable={false} /> : <div className="felt" />}
           {map.showGrid && <div className="grid" style={{ backgroundSize: `${CELL}px ${CELL}px` }} />}
+          {objects.map((o) => {
+            const p = objDrag?.id === o.id ? { ...o, ...objDrag } : o;
+            return (
+              <div key={o.id} data-object={o.id} {...(gm ? { role: 'button', tabIndex: 0, 'aria-label': `${o.name || o.kind}，第 ${o.x + 1} 欄第 ${o.y + 1} 列，方向鍵移動`, 'aria-pressed': o.id === selectedObj,
+                onFocus: () => pick(null, o.id), onKeyDown: (e: React.KeyboardEvent) => nudgeObject(e, o) } : { 'aria-hidden': true })}
+                className={`object kind-${o.kind}${o.id === selectedObj ? ' selected' : ''}${o.hidden ? ' hidden' : ''}${gm ? ' movable' : ''}${objDrag?.id === o.id ? ' dragging' : ''}`}
+                style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: o.w * CELL, height: o.h * CELL }}>
+                <ObjectArt o={o} cell={CELL} />
+                {gm && o.name && o.kind !== 'label' && <span className="tag">{o.name}</span>}
+              </div>
+            );
+          })}
           {tokens.map((t) => {
             const p = at(t);
             return (
               <div key={t.id} data-token={t.id} role="button" tabIndex={0}
                 aria-label={`${t.name}，第 ${t.x + 1} 欄第 ${t.y + 1} 列${canMove(t) ? '，方向鍵移動' : ''}`} aria-pressed={t.id === selected}
-                onFocus={() => setSelected(t.id)} onKeyDown={(e) => nudge(e, t)}
+                onFocus={() => pick(t.id, null)} onKeyDown={(e) => nudge(e, t)}
                 className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}`}
                 style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: t.size * CELL, height: t.size * CELL, '--c': t.color } as React.CSSProperties}>
                 <span className="disc" style={{ fontSize: Math.max(14, t.size * CELL * 0.38) }}>{initial(t.name)}</span>
@@ -363,6 +424,8 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
 
       <ErrorNote of={act} className="map-toast" />
       {sel && <TokenCard api={api} roomId={roomId} token={sel} gm={gm} canEdit={canMove(sel)} mine={mine.has(sel.characterId ?? '')} onClose={() => setSelected(null)} onChanged={load} />}
+      {selObj && <ObjectCard key={selObj.id} api={api} roomId={roomId} object={selObj} onClose={() => setSelectedObj(null)} onChanged={load} onCopy={() => placeObject(selObj.kind, selObj)} />}
+      {placing && gm && !selObj && <ObjectPalette busy={act.busy} onPick={(k) => placeObject(k)} onClose={() => setPlacing(false)} />}
       {adding && gm && <AddToken api={api} roomId={roomId} mapId={map.id} where={centre} onDone={async (id) => { setAdding(false); setSelected(id); await load(); }} />}
       {managing && gm && (
         <Drawer panel={drawer} onClose={() => setManaging(false)}>

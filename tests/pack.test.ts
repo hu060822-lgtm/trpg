@@ -112,6 +112,11 @@ describe('the 5E SRD pack and its character builder', () => {
     expect(srd.builder.map((s) => s.id)).toEqual(['class', 'background', 'species']);
     expect(srd.builder[0].options).toHaveLength(12);
     expect(srd.manifest.license).toBe('CC-BY-4.0');
+    expect(srd.texts.map((t) => t.id)).toContain('backstory');
+    expect(srd.texts.find((t) => t.id === 'alignment')).toMatchObject({ multiline: false, max: 40, group: '故事' });
+    // A pack that lists no text fields still gets somewhere to write a story and notes.
+    expect(pack.texts.map((t) => t.id)).toEqual(['backstory', 'appearance', 'gear', 'notes']);
+    expect(validateCharacter(pack, { ...hero, texts: { notes: 'x'.repeat(4001) } }, false)).toEqual(['筆記最多 4000 字（現在 4001 字）']);
   });
 
   it('a builder character is valid and its sheet adds up the class, background and species', () => {

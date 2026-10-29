@@ -186,5 +186,106 @@
       "formula": "@prof + @spell_mod",
       "showIf": "@cast > 0"
     }
+  ],
+  "texts": [
+    {
+      "id": "alignment",
+      "label": "陣營",
+      "group": "故事",
+      "multiline": false,
+      "max": 40,
+      "placeholder": "例如 守序善良、混亂中立",
+      "description": "角色大致的道德與處世立場，可以不填。"
+    },
+    {
+      "id": "backstory",
+      "label": "背景故事",
+      "group": "故事",
+      "placeholder": "從哪裡來、經歷過什麼、為什麼踏上冒險"
+    },
+    {
+      "id": "appearance",
+      "label": "外貌",
+      "group": "故事",
+      "multiline": false,
+      "max": 200,
+      "placeholder": "年齡、身高、髮色、明顯的特徵"
+    },
+    {
+      "id": "traits",
+      "label": "個性特質",
+      "group": "個性",
+      "max": 600,
+      "placeholder": "兩三個描述角色言行的特點",
+      "description": "別人第一眼會注意到的習慣或說話方式。"
+    },
+    {
+      "id": "ideals",
+      "label": "理想",
+      "group": "個性",
+      "max": 400,
+      "placeholder": "角色相信、願意為它奮鬥的事"
+    },
+    {
+      "id": "bonds",
+      "label": "羈絆",
+      "group": "個性",
+      "max": 400,
+      "placeholder": "重要的人、地方或承諾"
+    },
+    {
+      "id": "flaws",
+      "label": "缺點",
+      "group": "個性",
+      "max": 400,
+      "placeholder": "弱點、恐懼或壞習慣，會讓故事更有戲"
+    },
+    {
+      "id": "languages",
+      "label": "語言",
+      "group": "能力與裝備",
+      "multiline": false,
+      "max": 120,
+      "placeholder": "通用語，加上種族或背景給的語言"
+    },
+    {
+      "id": "proficiencies",
+      "label": "其他熟練",
+      "group": "能力與裝備",
+      "max": 600,
+      "placeholder": "武器、護甲、工具的熟練"
+    },
+    {
+      "id": "gear",
+      "label": "裝備",
+      "group": "能力與裝備",
+      "placeholder": "武器、護甲、背包裡的東西"
+    },
+    {
+      "id": "coins",
+      "label": "金錢",
+      "group": "能力與裝備",
+      "multiline": false,
+      "max": 80,
+      "placeholder": "例如 15 金幣、3 銀幣"
+    },
+    {
+      "id": "spells",
+      "label": "法術",
+      "group": "能力與裝備",
+      "placeholder": "會的戲法與法術、法術位"
+    },
+    {
+      "id": "allies",
+      "label": "盟友與組織",
+      "group": "筆記",
+      "max": 1000
+    },
+    {
+      "id": "notes",
+      "label": "筆記",
+      "group": "筆記",
+      "placeholder": "任務線索、NPC 名字、欠誰錢"
+    }
   ]
 }

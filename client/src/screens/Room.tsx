@@ -193,7 +193,8 @@ function Characters({ api, view, pack, reload, pull }: { api: Api; view: RoomVie
         </label>
       )}
       <SheetPanel pack={pack} character={current!} mode={mode} setMode={setMode} secret={secret} setSecret={setSecret}
-        busy={rolling.busy} roll={roll} onEdit={() => setEditing('edit')} />
+        busy={rolling.busy} roll={roll} onEdit={() => setEditing('edit')}
+        onSaveTexts={async (texts) => { await api.updateCharacter(view.room.id, current!.id, current!.version, { data: { ...current!.data, texts } }); await reload(); }} />
       <ErrorNote of={rolling} />
       <button className="link" onClick={() => setEditing('new')}>建立另一個角色</button>
     </div>

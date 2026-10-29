@@ -30,6 +30,8 @@ export interface PackDerived { id: string; label: string; formula: string; descr
 export interface PackValue { id: string; label: string; default: number; description?: string }
 /** A yes/no a builder choice turns on, e.g. proficiency in Strength saves. Read in formulas as `@flag.id` (1 or 0). */
 export interface PackFlag { id: string; label: string; description?: string }
+/** Words on the sheet the player writes: backstory, personality, gear, notes. `group` gathers fields under one heading. */
+export interface PackText { id: string; label: string; group: string; multiline: boolean; max: number; description?: string; placeholder?: string }
 /** A button on the sheet that rolls: an attack, a spell, a saving throw. Hidden while `showIf` is 0. */
 export interface PackAction { id: string; label: string; roll: string; damage?: string; description?: string; showIf?: string }
 /** A family of checks made once per attribute, such as saving throws: `{d20} + @mod.{attr} + @flag.save_{attr} * @prof`. */
@@ -99,6 +101,7 @@ export interface Pack {
   derived: PackDerived[];
   values: PackValue[];
   flags: PackFlag[];
+  texts: PackText[];
   actions: PackAction[];
   checks: PackChecks;
   creation: PackCreation;
@@ -215,6 +218,18 @@ export function buildPack(files: PackFiles): Pack {
   const flags = arr(sheet.flags, 'sheet', '.flags').map((raw, i): PackFlag => {
     const o = obj(raw), p = `.flags[${i}]`;
     return { id: id(o, 'sheet', p, flagIds), label: str(o, 'label', 'sheet', p, true, 30), ...opt(o, 'description', 'sheet', p) };
+  });
+  // Every sheet has somewhere to write a story and notes; a pack lists its own fields to replace these.
+  const textIds = new Set<string>();
+  const texts = (sheet.texts === undefined ? DEFAULT_TEXTS : arr(sheet.texts, 'sheet', '.texts')).map((raw, i): PackText => {
+    const o = obj(raw), p = `.texts[${i}]`;
+    const multiline = o.multiline === undefined ? true : !!o.multiline;
+    const max = num(o, 'max', 'sheet', p, multiline ? 4000 : 120);
+    if (!Number.isInteger(max) || max < 1 || max > 10000) bad('sheet', `${p}.max`, '要是 1 到 10000 的整數');
+    return {
+      id: id(o, 'sheet', p, textIds), label: str(o, 'label', 'sheet', p, true, 30), group: str(o, 'group', 'sheet', p, false, 30) || '筆記',
+      multiline, max, ...opt(o, 'description', 'sheet', p), ...opt(o, 'placeholder', 'sheet', p, 120),
+    };
   });
   const derived = arr(sheet.derived, 'sheet', '.derived').map((raw, i): PackDerived => {
     const o = obj(raw), p = `.derived[${i}]`;
@@ -357,7 +372,7 @@ export function buildPack(files: PackFiles): Pack {
     return { id: id(o, 'glossary', p, entryIds), title: str(o, 'title', 'glossary', p, true, 60), text: str(o, 'text', 'glossary', p, true, 4000), ...(tags ? { tags } : {}) };
   });
 
-  const pack: Pack = { manifest, attributes, modifier, skills, inputs, derived, values, flags, actions, checks, creation, builder, glossary };
+  const pack: Pack = { manifest, attributes, modifier, skills, inputs, derived, values, flags, texts, actions, checks, creation, builder, glossary };
   if (problems.length === 0) checkFormulas(pack, bad);
   if (problems.length) throw new PackError(problems);
   return pack;
@@ -459,6 +474,13 @@ function safeRefs(src: string) {
   try { return references(src); } catch { return []; }
 }
 
+const DEFAULT_TEXTS = [
+  { id: 'backstory', label: '背景故事', group: '故事', placeholder: '角色從哪裡來、為什麼踏上冒險' },
+  { id: 'appearance', label: '外貌', group: '故事', multiline: false, max: 200 },
+  { id: 'gear', label: '裝備與物品', group: '裝備與筆記' },
+  { id: 'notes', label: '筆記', group: '裝備與筆記' },
+];
+
 function fill(template: string, die: string, attr: string, skill = '') {
   return template.replaceAll('{d20}', `(${die})`).replaceAll('{attr}', attr).replaceAll('{skill}', skill);
 }
@@ -473,6 +495,8 @@ export interface CharacterData {
   ranks: Record<string, number>;
   inputs: Record<string, number>;
   method?: string;
+  /** What the player wrote in the pack's text fields, by field id. */
+  texts?: Record<string, string>;
   choices?: Record<string, string>;
   picks?: Record<string, string[] | Record<string, number>>;
 }
@@ -639,6 +663,11 @@ export function validateCharacter(pack: Pack, data: CharacterData, atCreation: b
   known(data.scores, new Set(pack.attributes.map((a) => a.id)), '屬性');
   known(data.ranks, new Set(pack.skills.map((s) => s.id)), '技能');
   known(data.inputs, new Set(pack.inputs.map((i) => i.id)), '欄位');
+  known(data.texts ?? {}, new Set(pack.texts.map((t) => t.id)), '文字欄位');
+  for (const t of pack.texts) {
+    const v = data.texts?.[t.id] ?? '';
+    if (v.length > t.max) out.push(`${t.label}最多 ${t.max} 字（現在 ${v.length} 字）`);
+  }
   const g = granted(pack, data);
   for (const a of pack.attributes) {
     const v = data.scores[a.id] ?? a.default;

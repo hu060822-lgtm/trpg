@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../persistence/db';
 import { TableError, type TableStore } from './store';
-import type { MapInfo, MapSummary, MapView, Token } from './types';
+import { MAP_OBJECT_KINDS, type MapInfo, type MapObject, type MapObjectKind, type MapSummary, type MapView, type Token } from './types';
 
 /**
  * Battle maps for a room: a square grid, an optional picture under it, tokens on it and fog over it. GMs build and
@@ -43,9 +43,23 @@ CREATE TABLE IF NOT EXISTS map_tokens (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS map_tokens_map ON map_tokens(map_id);
+CREATE TABLE IF NOT EXISTS map_objects (
+  id TEXT PRIMARY KEY,
+  map_id TEXT NOT NULL REFERENCES room_maps(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  x INTEGER NOT NULL,
+  y INTEGER NOT NULL,
+  w INTEGER NOT NULL,
+  h INTEGER NOT NULL,
+  rotation INTEGER NOT NULL DEFAULT 0,
+  hidden BOOLEAN NOT NULL DEFAULT false,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS map_objects_map ON map_objects(map_id);
 `;
 
-export const MAP_LIMITS = { side: 100, tokens: 200, imageBytes: 4 * 1024 * 1024 };
+export const MAP_LIMITS = { side: 100, tokens: 200, objects: 500, imageBytes: 4 * 1024 * 1024 };
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -54,6 +68,11 @@ interface MapRow {
   show_grid: boolean; fog_enabled: boolean; fog: string; image_version: number; version: number;
 }
 interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean }
+
+interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean }
+const objectOf = (r: ObjectRow): MapObject => ({
+  id: r.id, mapId: r.map_id, kind: r.kind as MapObjectKind, name: r.name, x: r.x, y: r.y, w: r.w, h: r.h, rotation: r.rotation, hidden: r.hidden,
+});
 
 const mapOf = (r: MapRow): MapInfo => ({
   id: r.id, name: r.name, cols: r.cols, rows: r.rows, cellDistance: Number(r.cell_distance), unit: r.unit,
@@ -65,6 +84,7 @@ const tokenOf = (r: TokenRow): Token => ({
 });
 
 export interface MapSettings { name?: string; cols?: number; rows?: number; cellDistance?: number; unit?: string; showGrid?: boolean; fogEnabled?: boolean }
+export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean }
 export interface TokenInput { name?: string; color?: string; x?: number; y?: number; size?: number; characterId?: string | null; hidden?: boolean }
 
 export class MapStore {
@@ -103,9 +123,19 @@ export class MapStore {
     const row = await this.row(roomId, mapId);
     if (me.role !== 'gm' && (await this.activeId(roomId)) !== mapId) throw new TableError(403, 'forbidden', 'GM 還沒打開這張地圖');
     const tokens = (await this.db.query<TokenRow>('SELECT * FROM map_tokens WHERE map_id = $1 ORDER BY created_at', [mapId])).map(tokenOf);
-    if (me.role === 'gm') return { map: mapOf(row), tokens };
-    const covered = (t: Token) => row.fog_enabled && row.fog[t.y * row.cols + t.x] === '1';
-    return { map: mapOf(row), tokens: tokens.filter((t) => t.ownerUserId === userId || (!t.hidden && !covered(t))) };
+    const objects = (await this.db.query<ObjectRow>('SELECT * FROM map_objects WHERE map_id = $1 ORDER BY created_at', [mapId])).map(objectOf);
+    if (me.role === 'gm') return { map: mapOf(row), tokens, objects };
+    const covered = (x: number, y: number) => row.fog_enabled && row.fog[y * row.cols + x] === '1';
+    // Scenery stays secret until some part of it is out of the fog, so players cannot read the layout from the page.
+    const fogged = (o: MapObject) => {
+      for (let y = o.y; y < Math.min(o.y + o.h, row.rows); y++) for (let x = o.x; x < Math.min(o.x + o.w, row.cols); x++) if (!covered(x, y)) return false;
+      return true;
+    };
+    return {
+      map: mapOf(row),
+      tokens: tokens.filter((t) => t.ownerUserId === userId || (!t.hidden && !covered(t.x, t.y))),
+      objects: objects.filter((o) => !o.hidden && !fogged(o)),
+    };
   }
 
   async update(roomId: string, userId: string, mapId: string, s: MapSettings): Promise<MapInfo> {
@@ -130,6 +160,8 @@ export class MapStore {
         s.showGrid !== undefined ? !!s.showGrid : row.show_grid, s.fogEnabled !== undefined ? !!s.fogEnabled : row.fog_enabled, fog,
       ]);
       await this.db.run('UPDATE map_tokens SET x = LEAST(x, $2 - 1), y = LEAST(y, $3 - 1) WHERE map_id = $1', [mapId, cols, rows]);
+      await this.db.run(`UPDATE map_objects SET w = LEAST(w, $2), h = LEAST(h, $3) WHERE map_id = $1`, [mapId, cols, rows]);
+      await this.db.run(`UPDATE map_objects SET x = LEAST(x, $2 - w), y = LEAST(y, $3 - h) WHERE map_id = $1`, [mapId, cols, rows]);
     });
     return (await this.view(roomId, userId, mapId)).map;
   }
@@ -253,6 +285,40 @@ export class MapStore {
     return token.map_id;
   }
 
+  // ---------- scenery ----------
+
+  /** Only GMs lay out scenery. Objects are clamped onto the grid. */
+  async addObject(roomId: string, userId: string, mapId: string, input: ObjectInput, now = new Date()): Promise<MapObject> {
+    await this.table.requireRole(roomId, userId, 'gm');
+    const row = await this.row(roomId, mapId);
+    const count = await this.db.one<{ n: number }>('SELECT COUNT(*)::int AS n FROM map_objects WHERE map_id = $1', [mapId]);
+    if (Number(count?.n) >= MAP_LIMITS.objects) throw new TableError(400, 'bad-request', `一張地圖最多 ${MAP_LIMITS.objects} 個物件`);
+    if (!MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
+    const o = placeObject(row, { id: randomUUID(), mapId, kind: input.kind as MapObjectKind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false }, input);
+    await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [o.id, mapId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, now.toISOString()]);
+    return o;
+  }
+
+  async updateObject(roomId: string, userId: string, objectId: string, input: ObjectInput): Promise<MapObject> {
+    await this.table.requireRole(roomId, userId, 'gm');
+    return this.db.tx(async () => {
+      const { object, map } = await this.objectWithMap(roomId, objectId, true);
+      if (input.kind !== undefined && !MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
+      const o = placeObject(map, objectOf(object), input);
+      await this.db.run('UPDATE map_objects SET kind = $2, name = $3, x = $4, y = $5, w = $6, h = $7, rotation = $8, hidden = $9 WHERE id = $1',
+        [objectId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden]);
+      return o;
+    });
+  }
+
+  async removeObject(roomId: string, userId: string, objectId: string): Promise<string> {
+    await this.table.requireRole(roomId, userId, 'gm');
+    const { object } = await this.objectWithMap(roomId, objectId, false);
+    await this.db.run('DELETE FROM map_objects WHERE id = $1', [objectId]);
+    return object.map_id;
+  }
+
   // ---------- internals ----------
 
   private async activeId(roomId: string): Promise<string | null> {
@@ -265,6 +331,14 @@ export class MapStore {
     return row;
   }
 
+  private async objectWithMap(roomId: string, objectId: string, lock: boolean) {
+    const object = await this.db.one<ObjectRow>(`SELECT o.* FROM map_objects o JOIN room_maps m ON m.id = o.map_id
+      WHERE o.id = $1 AND m.room_id = $2${lock ? ' FOR UPDATE OF o' : ''}`, [objectId, roomId]);
+    if (!object) throw new TableError(404, 'not-found', '找不到這個物件');
+    const map = await this.row(roomId, object.map_id);
+    return { object, map };
+  }
+
   private async tokenWithMap(roomId: string, tokenId: string, lock: boolean) {
     const token = await this.db.one<TokenRow>(`SELECT t.* FROM map_tokens t JOIN room_maps m ON m.id = t.map_id
       WHERE t.id = $1 AND m.room_id = $2${lock ? ' FOR UPDATE OF t' : ''}`, [tokenId, roomId]);
@@ -272,6 +346,26 @@ export class MapStore {
     const map = await this.row(roomId, token.map_id);
     return { token, map };
   }
+}
+
+/** Applies a change to an object and keeps it on the grid: size first (no larger than the map), then position. */
+function placeObject(map: MapRow, o: MapObject, input: ObjectInput): MapObject {
+  const span = (v: unknown, limit: number, what: string) => {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > MAP_LIMITS.side) throw new TableError(400, 'bad-request', `物件${what}要是 1 到 ${MAP_LIMITS.side} 格`);
+    return Math.min(n, limit);
+  };
+  const w = input.w !== undefined ? span(input.w, map.cols, '寬度') : Math.min(o.w, map.cols);
+  const h = input.h !== undefined ? span(input.h, map.rows, '高度') : Math.min(o.h, map.rows);
+  const rotation = input.rotation !== undefined ? Number(input.rotation) : o.rotation;
+  if (![0, 90, 180, 270].includes(rotation)) throw new TableError(400, 'bad-request', '旋轉角度只能是 0、90、180、270');
+  const name = input.name !== undefined ? (typeof input.name === 'string' ? input.name.trim() : '') : o.name;
+  if (name.length > 40) throw new TableError(400, 'bad-request', '物件名稱最多 40 字');
+  return {
+    ...o, kind: (input.kind as MapObjectKind | undefined) ?? o.kind, name, w, h, rotation,
+    x: cell(input.x ?? o.x, map.cols - w + 1), y: cell(input.y ?? o.y, map.rows - h + 1),
+    hidden: input.hidden !== undefined ? !!input.hidden : o.hidden,
+  };
 }
 
 function side(v: unknown, what: string): number {

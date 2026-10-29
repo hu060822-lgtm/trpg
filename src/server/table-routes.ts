@@ -133,6 +133,20 @@ export function tableRoutes({ table, maps, hub, rng, now }: { table: TableStore;
     changed(req, await maps.removeToken(room(req), who(req).userId, String(req.params.tid)));
     res.json({ ok: true });
   });
+  r.post('/rooms/:id/maps/:mid/objects', async (req: Req, res) => {
+    const o = await maps.addObject(room(req), who(req).userId, mapId(req), req.body ?? {}, now());
+    changed(req, o.mapId);
+    res.status(201).json(o);
+  });
+  r.patch('/rooms/:id/objects/:oid', async (req: Req, res) => {
+    const o = await maps.updateObject(room(req), who(req).userId, String(req.params.oid), req.body ?? {});
+    changed(req, o.mapId);
+    res.json(o);
+  });
+  r.delete('/rooms/:id/objects/:oid', async (req: Req, res) => {
+    changed(req, await maps.removeObject(room(req), who(req).userId, String(req.params.oid)));
+    res.json({ ok: true });
+  });
   return r;
 }
 

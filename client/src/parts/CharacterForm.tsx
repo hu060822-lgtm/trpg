@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { computeSheet, validateCharacter } from '../../../src/pack/pack';
 import type { CharacterData, Pack } from '../api';
 import { useAction, useDraft } from '../hooks';
+import { TextFields } from './TextFields';
 import { ErrorNote } from './ui';
 
 const defaults = (pack: Pack): CharacterData => ({
@@ -125,6 +126,8 @@ export function CharacterForm({ pack, initial, creating, draftKey, onSave, onCan
           </div>
         </fieldset>
       )}
+
+      <TextFields pack={pack} texts={data.texts ?? {}} onChange={(id, v) => setData((d) => ({ ...d, texts: { ...d.texts, [id]: v } }))} />
 
       {pack.derived.length > 0 && (
         <fieldset>

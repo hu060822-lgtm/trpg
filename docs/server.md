@@ -57,11 +57,11 @@ npm run admin                    # 管理指令：規則包、發 token
 | POST | `/api/rooms/:id/members/:userId` | 限 GM：設定身分（`{ role: "gm" | "player" }`） |
 | POST | `/api/rooms/:id/chat` | 說話（`{ text, requestId }`）；`/r 2d6+1` 擲骰，`/gr …` 暗骰 |
 | POST | `/api/rooms/:id/rolls` | 擲骰（`{ requestId, formula }`、`{ requestId, characterId, check: { skill }、{ attribute } 或 { attribute, extra }（例如豁免）, mode }`、或 `{ requestId, characterId, action }`） |
-| POST | `/api/rooms/:id/characters` | 建立角色（`{ name, data: { scores, ranks, inputs, method?, choices?, picks? } }`；`choices` 是每一步選的選項，`picks` 的 key 是 `步驟.細項`）。回傳的角色卡另外有 `features`（到目前等級為止的特性）和 `hiddenActions` |
+| POST | `/api/rooms/:id/characters` | 建立角色（`{ name, data: { scores, ranks, inputs, method?, choices?, picks? } }`；`choices` 是每一步選的選項，`picks` 的 key 是 `步驟.細項`；`texts` 是規則包文字欄位寫的內容）。回傳的角色卡另外有 `features`（到目前等級為止的特性）和 `hiddenActions` |
 | PATCH | `/api/rooms/:id/characters/:cid` | 修改角色（`{ version, name?, data? }`） |
 | GET | `/api/rooms/:id/maps` | 地圖列表和玩家目前看到的地圖（玩家只拿到打開的那張） |
 | POST | `/api/rooms/:id/maps` | 限 GM：新地圖（`{ name, cols, rows }`，最多 100×100 格）；房間的第一張地圖會自動打開 |
-| GET | `/api/rooms/:id/maps/:mid` | 地圖、迷霧和代幣。玩家拿不到隱藏代幣和站在迷霧裡的代幣（自己的除外） |
+| GET | `/api/rooms/:id/maps/:mid` | 地圖、迷霧、代幣和場景物件。玩家拿不到隱藏代幣和站在迷霧裡的代幣（自己的除外） |
 | PATCH | `/api/rooms/:id/maps/:mid` | 限 GM：名稱、格數、每格距離與單位、格線、迷霧開關。改格數時重疊部分的迷霧保留 |
 | DELETE | `/api/rooms/:id/maps/:mid` | 限 GM：刪除地圖與上面的代幣 |
 | POST | `/api/rooms/:id/maps/:mid/activate` | 限 GM：打開這張地圖給玩家看，並寫進紀錄 |
@@ -70,6 +70,8 @@ npm run admin                    # 管理指令：規則包、發 token
 | POST | `/api/rooms/:id/maps/:mid/tokens` | 放代幣。GM 可以放任何代幣（可隱藏）；玩家只能放自己的角色，每張地圖一次 |
 | PATCH | `/api/rooms/:id/tokens/:tid` | 移動或修改代幣。擁有者可以移動、改名、改顏色；只有 GM 能改大小和隱藏 |
 | DELETE | `/api/rooms/:id/tokens/:tid` | 擁有者或 GM 移除代幣 |
+| POST | `/api/rooms/:id/maps/:mid/objects` | 限 GM：放場景物件（`{ kind, x, y, w?, h?, rotation?, name?, hidden? }`）。`kind` 是 `wall`、`door`、`window`、`pillar`、`stairs`、`rubble`、`table`、`chair`、`bed`、`chest`、`barrel`、`crate`、`bookshelf`、`altar`、`statue`、`tree`、`bush`、`rock`、`water`、`fire`、`trap`、`label` 之一；一張地圖最多 500 個。玩家拿不到隱藏的物件，和整個都在迷霧裡的物件 |
+| PATCH / DELETE | `/api/rooms/:id/objects/:oid` | 限 GM：移動、改大小、旋轉（0／90／180／270）、改名、隱藏，或移除物件 |
 
 錯誤回應統一是 `{ error, message }`：`401` 沒有登入、`403` 沒有權限、`404` 找不到、`409` 已被別人改過、`400` 其他錯誤（訊息是給玩家看的中文）。
 

@@ -68,5 +68,27 @@ export interface Token {
   /** Seen by GMs only. */
   hidden: boolean;
 }
-export interface MapView { map: MapInfo; tokens: Token[] }
+/** Scenery the GM lays out on a map: walls, doors, furniture, traps. The client draws each kind. */
+export const MAP_OBJECT_KINDS = [
+  'wall', 'door', 'window', 'pillar', 'stairs', 'rubble',
+  'table', 'chair', 'bed', 'chest', 'barrel', 'crate', 'bookshelf', 'altar', 'statue',
+  'tree', 'bush', 'rock', 'water', 'fire',
+  'trap', 'label',
+] as const;
+export type MapObjectKind = (typeof MAP_OBJECT_KINDS)[number];
+/** `w` × `h` squares from (`x`, `y`); `rotation` (0, 90, 180, 270) only turns the picture. */
+export interface MapObject {
+  id: string;
+  mapId: string;
+  kind: MapObjectKind;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  hidden: boolean;
+}
+
+export interface MapView { map: MapInfo; tokens: Token[]; objects: MapObject[] }
 export interface MapSummary { id: string; name: string; cols: number; rows: number; imageVersion: number }

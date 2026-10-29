@@ -221,6 +221,14 @@ describe('the 5E pack at the table', () => {
     expect(mine.features).toContainEqual(expect.objectContaining({ name: '二度活力', from: '戰士' }));
     const save = await call(tok.p1, 'POST', `/api/rooms/${room.id}/rolls`, { requestId: rid(), characterId: hero.body.id, check: { attribute: 'con', extra: 'save' } });
     expect(save.body).toMatchObject({ body: { label: '索林：體質豁免', total: 10 + 2 + 2 } });
+    const story = { ...data, texts: { backstory: '  在山下的礦坑長大。  ', bonds: '要找回家族的戰錘', diary: '秘密', notes: '   ' } };
+    const up = await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/characters/${hero.body.id}`, { version: 1, data: story });
+    expect(up).toMatchObject({ status: 400, body: { message: expect.stringContaining('沒有「diary」這個文字欄位') } });
+    delete (story.texts as Record<string, string>).diary;
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/characters/${hero.body.id}`, { version: 1, data: story })).body.data.texts)
+      .toEqual({ backstory: '在山下的礦坑長大。', bonds: '要找回家族的戰錘' });
+    const long = { ...data, texts: { alignment: '守'.repeat(41) } };
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/characters/${hero.body.id}`, { version: 2, data: long })).body.message).toContain('陣營最多 40 字');
   });
 });
 
@@ -350,6 +358,29 @@ describe('maps', () => {
     expect((await call(tok.p2, 'GET', url)).body.tokens.map((t: any) => t.name)).toEqual(['石像']);
     expect((await call(tok.p2, 'POST', `${url}/fog`, { cells: 'all', covered: false })).status).toBe(403);
     expect((await call(tok.gm, 'GET', url)).body.tokens).toHaveLength(2);
+  });
+
+  it('only GMs lay out scenery; players get objects that are visible and partly out of the fog', async () => {
+    const { room, url } = await mapTable();
+    const wall = await call(tok.gm, 'POST', `${url}/objects`, { kind: 'wall', x: 2, y: 2, w: 4, h: 1 });
+    expect(wall.status).toBe(201);
+    expect(wall.body).toMatchObject({ kind: 'wall', x: 2, y: 2, w: 4, h: 1, rotation: 0, hidden: false });
+    await call(tok.gm, 'POST', `${url}/objects`, { kind: 'trap', x: 7, y: 6, hidden: true, name: '落穴' });
+    expect((await call(tok.p1, 'POST', `${url}/objects`, { kind: 'chest', x: 1, y: 1 })).status).toBe(403);
+    expect((await call(tok.gm, 'POST', `${url}/objects`, { kind: 'spaceship' })).status).toBe(400);
+    expect((await call(tok.p1, 'GET', url)).body.objects.map((o: any) => o.kind)).toEqual(['wall']);
+    // Fog over the whole wall hides it; uncovering one of its squares shows all of it.
+    await call(tok.gm, 'PATCH', url, { fogEnabled: true });
+    expect((await call(tok.p1, 'GET', url)).body.objects).toEqual([]);
+    await call(tok.gm, 'POST', `${url}/fog`, { cells: [2 * 10 + 5], covered: false });
+    expect((await call(tok.p1, 'GET', url)).body.objects).toHaveLength(1);
+    // Turned and stretched past the edge, it stays on the grid.
+    const moved = await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/objects/${wall.body.id}`, { x: 9, w: 1, h: 6, rotation: 90 });
+    expect(moved.body).toMatchObject({ x: 9, y: 2, w: 1, h: 6, rotation: 90 });
+    expect((await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/objects/${wall.body.id}`, { rotation: 45 })).status).toBe(400);
+    expect((await call(tok.p1, 'DELETE', `/api/rooms/${room.id}/objects/${wall.body.id}`)).status).toBe(403);
+    expect((await call(tok.gm, 'DELETE', `/api/rooms/${room.id}/objects/${wall.body.id}`)).status).toBe(200);
+    expect((await call(tok.gm, 'GET', url)).body.objects.map((o: any) => o.name)).toEqual(['落穴']);
   });
 
   it('keeps fog where a resized grid overlaps and clamps tokens back onto it', async () => {

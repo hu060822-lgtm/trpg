@@ -1,7 +1,7 @@
 import type { CharacterData, CheckMode, CheckTarget, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
-import type { Character, CharacterView, LogEntry, MapInfo, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
+import type { Character, CharacterView, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
 
-export type { CharacterData, CharacterView, CheckMode, CheckTarget, LogEntry, MapInfo, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
+export type { CharacterData, CharacterView, CheckMode, CheckTarget, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
 
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -23,6 +23,7 @@ export class ApiError extends Error {
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
 export type MapSettings = Partial<Pick<MapInfo, 'name' | 'cols' | 'rows' | 'cellDistance' | 'unit' | 'showGrid' | 'fogEnabled'>>;
+export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden'>>;
 export type TokenInput = Partial<Pick<Token, 'name' | 'color' | 'x' | 'y' | 'size' | 'characterId' | 'hidden'>>;
 
 export class Api {
@@ -86,4 +87,7 @@ export class Api {
   addToken(id: string, mid: string, t: TokenInput) { return this.call<Token>('POST', `/api/rooms/${id}/maps/${mid}/tokens`, t); }
   updateToken(id: string, tid: string, t: TokenInput) { return this.call<Token>('PATCH', `/api/rooms/${id}/tokens/${tid}`, t); }
   removeToken(id: string, tid: string) { return this.call('DELETE', `/api/rooms/${id}/tokens/${tid}`); }
+  addObject(id: string, mid: string, o: ObjectInput) { return this.call<MapObject>('POST', `/api/rooms/${id}/maps/${mid}/objects`, o); }
+  updateObject(id: string, oid: string, o: ObjectInput) { return this.call<MapObject>('PATCH', `/api/rooms/${id}/objects/${oid}`, o); }
+  removeObject(id: string, oid: string) { return this.call('DELETE', `/api/rooms/${id}/objects/${oid}`); }
 }

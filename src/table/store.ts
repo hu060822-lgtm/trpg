@@ -410,8 +410,12 @@ function cleanData(d: unknown): CharacterData {
     if (Array.isArray(v)) return [[k, v.filter((x): x is string => typeof x === 'string' && id(x)).slice(0, 40)]];
     return v && typeof v === 'object' ? [[k, part(v)]] : [];
   }));
+  // Text is kept as written, minus surrounding blank space; empty fields are dropped. Lengths are checked against the pack.
+  const texts = Object.fromEntries(Object.entries(o.texts && typeof o.texts === 'object' ? o.texts : {})
+    .filter(([k, v]) => id(k) && typeof v === 'string' && v.trim()).map(([k, v]) => [k, (v as string).trim().slice(0, 10001)]));
   return {
     scores: part(o.scores), ranks: part(o.ranks), inputs: part(o.inputs),
+    ...(Object.keys(texts).length ? { texts } : {}),
     ...(typeof o.method === 'string' && id(o.method) ? { method: o.method } : {}),
     ...(Object.keys(choices).length ? { choices } : {}),
     ...(Object.keys(picks).length ? { picks } : {}),

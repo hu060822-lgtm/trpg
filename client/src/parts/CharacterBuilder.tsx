@@ -4,12 +4,13 @@ import { computeSheet, methodsOf, pointsSpent, validateCharacter, type PackChoic
 import type { CharacterData, Pack } from '../api';
 import { useAction, useDraft } from '../hooks';
 import { fmt } from './CharacterForm';
+import { TextFields } from './TextFields';
 import { ErrorNote, IconButton } from './ui';
 
 type Page =
   | { id: 'start'; label: string }
   | { id: string; label: string; step: PackStep }
-  | { id: 'scores' | 'skills' | 'more' | 'review'; label: string };
+  | { id: 'scores' | 'skills' | 'more' | 'story' | 'review'; label: string };
 
 interface Draft { name: string; data: CharacterData; page: number }
 
@@ -71,6 +72,7 @@ export function CharacterBuilder({ pack, draftKey, onSave, onClose }: {
     { id: 'scores', label: '屬性' },
     ...(pack.creation.skills.maxRank > 0 ? [{ id: 'skills' as const, label: '技能' }] : []),
     ...(pack.inputs.length ? [{ id: 'more' as const, label: '裝備與等級' }] : []),
+    ...(pack.texts?.length ? [{ id: 'story' as const, label: '故事與個性' }] : []),
     { id: 'review', label: '確認' },
   ];
   const at = Math.min(draft.page, pages.length - 1);
@@ -144,6 +146,12 @@ export function CharacterBuilder({ pack, draftKey, onSave, onClose }: {
           {page.id === 'scores' && <ScoresPage pack={pack} methods={methods} data={data} setData={setData} sheet={sheet} />}
           {page.id === 'skills' && <SkillsPage pack={pack} data={data} setData={setData} sheet={sheet} />}
           {page.id === 'more' && <MorePage pack={pack} data={data} setData={setData} />}
+          {page.id === 'story' && (
+            <div className="stack">
+              <p className="muted small">每一欄都可以留白，之後在角色卡上隨時補寫。只有你和 GM 看得到。</p>
+              <TextFields pack={pack} texts={data.texts ?? {}} onChange={(id, v) => setData((d) => ({ ...d, texts: { ...d.texts, [id]: v } }))} />
+            </div>
+          )}
           {page.id === 'review' && (
             <>
               <p className="muted">檢查一下角色卡。之後升級、換裝備，都可以在角色卡按「編輯角色」調整。</p>

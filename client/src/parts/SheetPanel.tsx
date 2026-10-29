@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { checkBonus, computeSheet, labeller, type CheckTarget } from '../../../src/pack/pack';
 import type { CharacterView, CheckMode, Pack, RollTarget } from '../api';
 import { fmt } from './CharacterForm';
+import { StorySection } from './TextFields';
 
 /** `1d20 + @score.body` → `1d20 + 體魄`: formulas in the words of the sheet. */
 const words = (pack: Pack, src: string, values?: Map<string, number>) => {
@@ -16,7 +17,7 @@ const signed = (n: number) => (n >= 0 ? `+${fmt(n)}` : fmt(n));
  * A character sheet that rolls: tap an attribute or a skill for a check, or an action button for an attack with
  * its damage. Every number the server worked out shows the sum behind it.
  */
-export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, busy, roll, onEdit }: {
+export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, busy, roll, onEdit, onSaveTexts }: {
   pack: Pack;
   character: CharacterView;
   mode: CheckMode;
@@ -26,6 +27,8 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
   busy: boolean;
   roll: (t: RollTarget) => void;
   onEdit: () => void;
+  /** Saves the sheet's written fields (story, notes) without opening the whole form. */
+  onSaveTexts: (texts: Record<string, string>) => Promise<unknown>;
 }) {
   const { data, sheet, id } = character;
   const showMod = pack.modifier !== '@score';
@@ -141,6 +144,8 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
           </div>
         </section>
       )}
+
+      <StorySection pack={pack} texts={data.texts ?? {}} canEdit onSave={onSaveTexts} />
     </div>
   );
 }
