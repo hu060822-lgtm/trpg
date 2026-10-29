@@ -11,6 +11,7 @@ import { Scheduler } from './scheduler';
  *   PORT                  default 3000
  *   SUPABASE_URL          verifies sign-ins with the project's JWT signing keys
  *   SUPABASE_JWT_SECRET   legacy shared-secret projects only
+ *   SUPABASE_ANON_KEY     public key; lets legacy projects work without the secret (asks Supabase Auth instead)
  *   AUTH_DEV=1            accepts `dev:<name>` tokens; never set this in production
  *   CORS_ORIGINS          comma-separated origins of the web client, e.g. https://<user>.github.io
  *   INITIAL_GMS           GMs of the first world, `sb:<user id>=main`; created on an empty database, added later if missing
@@ -20,7 +21,7 @@ const url = env.DATABASE_URL ?? './data/pglite';
 if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 
 const { store, auth } = await openGame(url, {
-  supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, dev: env.AUTH_DEV === '1',
+  supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, supabaseAnonKey: env.SUPABASE_ANON_KEY, dev: env.AUTH_DEV === '1',
 });
 const initialGms = parseGrants(env.INITIAL_GMS ?? (env.AUTH_DEV === '1' ? 'dev:gm=main' : ''));
 const seeded = await ensureWorld(store, initialGms);

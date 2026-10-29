@@ -11,11 +11,15 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22.13.0"
-      # Supabase → Connect → Session pooler connection string (the direct one is IPv6 only and Render cannot reach it).
+      # Supabase Session pooler connection string (the direct one is IPv6 only and Render cannot reach it).
       - key: DATABASE_URL
         sync: false
       # Supabase project URL, for verifying sign-ins.
       - key: SUPABASE_URL
+        sync: false
+      # Supabase anon or publishable key (public). Older projects sign with a shared secret; with this key the server
+      # asks Supabase Auth to check those sign-ins, so the secret is not needed.
+      - key: SUPABASE_ANON_KEY
         sync: false
       # The GitHub Pages origin, e.g. https://hu060822-lgtm.github.io
       - key: CORS_ORIGINS

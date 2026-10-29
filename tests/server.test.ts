@@ -1,5 +1,5 @@
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { exampleBuild } from '../src/character/create';
@@ -86,6 +86,28 @@ describe('authentication', () => {
     expect((await call(await supabaseToken('x', {}, 'another-secret-another-secret-123'), 'GET', '/api/me')).status).toBe(401);
     expect((await call(await supabaseToken('x', { aud: 'anon' }), 'GET', '/api/me')).status).toBe(401);
     expect((await call(await supabaseToken('x', { exp: Math.floor(Date.now() / 1000) - 60 }), 'GET', '/api/me')).status).toBe(401);
+  });
+
+  it('without the shared secret, asks Supabase Auth who an HS256 token belongs to, and remembers the answer', async () => {
+    const asked: string[] = [];
+    const fake = createServer((req, res) => {
+      asked.push(`${req.url} ${req.headers.apikey} ${req.headers.authorization}`);
+      const good = req.headers.authorization === 'Bearer ' + goodToken;
+      res.writeHead(good ? 200 : 401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(good ? { id: 'remote-uuid', email: 'luz@example.com', user_metadata: {} } : { msg: 'bad jwt' }));
+    }).listen(0);
+    await new Promise((r) => fake.once('listening', r));
+    const goodToken = await supabaseToken('remote-uuid');
+    const other = await freshDatabaseUrl();
+    const remote = await openGame(other.url, { supabaseUrl: `http://127.0.0.1:${(fake.address() as AddressInfo).port}`, supabaseAnonKey: 'anon-key' });
+    expect(await remote.auth.verify(goodToken)).toMatchObject({ userId: 'sb:remote-uuid', name: 'luz' });
+    expect(await remote.auth.verify(goodToken)).toMatchObject({ userId: 'sb:remote-uuid' });
+    expect(await remote.auth.verify(await supabaseToken('x', {}, 'another-secret-another-secret-123'))).toBeUndefined();
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toBe(`/auth/v1/user anon-key Bearer ${goodToken}`);
+    fake.close();
+    await remote.db.close();
+    await other.cleanup();
   });
 
   it('development tokens work only when the server is started in development mode', async () => {

@@ -16,7 +16,8 @@ npm run admin                    # 管理指令說明（建立世界、設定 GM
 | `DATABASE_URL` | `postgres://…`（Supabase）；沒設定時用本機的 PGlite 目錄 `./data/pglite` |
 | `PORT` | 預設 3000 |
 | `SUPABASE_URL` | 用 Supabase 專案的金鑰驗證登入 |
-| `SUPABASE_JWT_SECRET` | 只有還在用舊式共用密鑰的 Supabase 專案才需要 |
+| `SUPABASE_JWT_SECRET` | 舊式共用密鑰。可以不填，改填 `SUPABASE_ANON_KEY` |
+| `SUPABASE_ANON_KEY` | Supabase 的公開金鑰。舊專案用共用密鑰簽登入，沒有密鑰時伺服器會拿這把金鑰去問 Supabase 這是誰，答案保留一分鐘 |
 | `AUTH_DEV=1` | 接受 `dev:<名字>` 登入，只能在本機用，正式環境絕對不要設 |
 | `CORS_ORIGINS` | 網頁版的網址來源，逗號分隔，例如 `https://hu060822-lgtm.github.io` |
 | `INITIAL_GMS` | 第一個世界的 GM，例如 `sb:<使用者ID>=main`。資料庫是空的時候會建立種子世界；之後每次啟動，名單上還沒有權限的人會補上權限，已有的權限不會被改 |

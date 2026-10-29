@@ -29,12 +29,18 @@ export interface AuthOptions {
   supabaseUrl?: string;
   /** Legacy HS256 JWT secret, for projects that still sign with a shared secret. */
   supabaseJwtSecret?: string;
+  /**
+   * Public anon or publishable key. Without the shared secret, HS256 tokens are checked by asking Supabase Auth
+   * who they belong to; answers are kept for a minute so polling clients don't call it on every request.
+   */
+  supabaseAnonKey?: string;
   dev?: boolean;
 }
 
 export class Auth {
   private jwks?: ReturnType<typeof createRemoteJWKSet>;
   private secret?: Uint8Array;
+  private remote = new Map<string, { principal: Principal | undefined; until: number }>();
 
   private constructor(private db: Database, private opts: AuthOptions) {
     if (opts.supabaseUrl) this.jwks = createRemoteJWKSet(new URL('/auth/v1/.well-known/jwks.json', opts.supabaseUrl));
@@ -78,13 +84,34 @@ export class Auth {
       const { alg } = decodeProtectedHeader(token);
       if (alg === 'HS256' && this.secret) payload = (await jwtVerify(token, this.secret, { audience: 'authenticated' })).payload;
       else if (alg !== 'HS256' && this.jwks) payload = (await jwtVerify(token, this.jwks, { audience: 'authenticated' })).payload;
+      else if (alg === 'HS256' && this.opts.supabaseUrl && this.opts.supabaseAnonKey) return await this.askSupabase(token);
     } catch {
       return undefined;
     }
-    if (!payload?.sub) return undefined;
-    const meta = (payload.user_metadata ?? {}) as Record<string, unknown>;
-    const email = typeof payload.email === 'string' ? payload.email : '';
-    const name = [meta.name, meta.full_name, meta.user_name].find((v) => typeof v === 'string') as string | undefined;
-    return { userId: `sb:${payload.sub}`, kind: 'user', name: name ?? email.split('@')[0] };
+    return payload && toPrincipal(payload);
   }
+
+  private async askSupabase(token: string): Promise<Principal | undefined> {
+    const key = hash(token);
+    const now = Date.now();
+    const hit = this.remote.get(key);
+    if (hit && hit.until > now) return hit.principal;
+    const res = await fetch(new URL('/auth/v1/user', this.opts.supabaseUrl), {
+      headers: { apikey: this.opts.supabaseAnonKey!, authorization: `Bearer ${token}` },
+    });
+    if (res.status >= 500) throw new Error(`Supabase Auth answered ${res.status}`);
+    const user = res.ok ? await res.json() as { id?: string; email?: string; user_metadata?: unknown } : undefined;
+    const principal = user?.id ? toPrincipal({ sub: user.id, email: user.email, user_metadata: user.user_metadata }) : undefined;
+    if (this.remote.size > 1000) this.remote.clear();
+    this.remote.set(key, { principal, until: now + 60_000 });
+    return principal;
+  }
+}
+
+function toPrincipal(payload: JWTPayload): Principal | undefined {
+  if (!payload.sub) return undefined;
+  const meta = (payload.user_metadata ?? {}) as Record<string, unknown>;
+  const email = typeof payload.email === 'string' ? payload.email : '';
+  const name = [meta.name, meta.full_name, meta.user_name].find((v) => typeof v === 'string') as string | undefined;
+  return { userId: `sb:${payload.sub}`, kind: 'user', name: name ?? email.split('@')[0] };
 }
