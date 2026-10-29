@@ -1,0 +1,190 @@
+{
+  "inputs": [
+    {
+      "id": "level",
+      "label": "等級",
+      "min": 1,
+      "max": 20,
+      "default": 1,
+      "description": "角色等級。升級時在角色卡按「編輯」調整。"
+    },
+    {
+      "id": "armor_base",
+      "label": "護甲 AC",
+      "min": 0,
+      "max": 20,
+      "default": 0,
+      "description": "身上護甲的基礎 AC（皮甲 11、鏈甲衫 13、鏈甲 16、板甲 18）。沒穿護甲填 0。"
+    },
+    {
+      "id": "armor_dex_cap",
+      "label": "護甲敏捷上限",
+      "min": 0,
+      "max": 10,
+      "default": 10,
+      "description": "輕甲不限（10）、中甲最多加 2、重甲不加敏捷（0）。"
+    },
+    {
+      "id": "shield",
+      "label": "盾牌",
+      "min": 0,
+      "max": 5,
+      "default": 0,
+      "description": "拿著盾牌填 2。"
+    },
+    {
+      "id": "melee_die",
+      "label": "近戰武器傷害骰",
+      "min": 1,
+      "max": 12,
+      "default": 8,
+      "description": "武器傷害骰的面數：匕首 4、短劍 6、長劍 8、巨斧 12。"
+    },
+    {
+      "id": "ranged_die",
+      "label": "遠程武器傷害骰",
+      "min": 1,
+      "max": 12,
+      "default": 6,
+      "description": "短弓 6、長弓 8、輕弩 8、重弩 10。"
+    }
+  ],
+  "values": [
+    {
+      "id": "hit_die",
+      "label": "生命骰",
+      "default": 8,
+      "description": "職業的生命骰面數。"
+    },
+    {
+      "id": "speed",
+      "label": "速度（呎）",
+      "default": 30
+    },
+    {
+      "id": "darkvision",
+      "label": "黑暗視覺（呎）",
+      "default": 0
+    },
+    {
+      "id": "hp_per_level",
+      "label": "每級額外生命值",
+      "default": 0
+    },
+    {
+      "id": "cast",
+      "label": "施法屬性",
+      "default": 0,
+      "description": "0 不施法、1 智力、2 感知、3 魅力。"
+    },
+    {
+      "id": "unarmored",
+      "label": "無甲防禦",
+      "default": 0,
+      "description": "0 沒有、1 加體質（野蠻人）、2 加感知（武僧）。"
+    },
+    {
+      "id": "init_prof",
+      "label": "先攻加熟練",
+      "default": 0,
+      "description": "機敏專長讓先攻加上熟練加值。"
+    }
+  ],
+  "flags": [
+    {
+      "id": "save_str",
+      "label": "力量豁免熟練"
+    },
+    {
+      "id": "save_dex",
+      "label": "敏捷豁免熟練"
+    },
+    {
+      "id": "save_con",
+      "label": "體質豁免熟練"
+    },
+    {
+      "id": "save_int",
+      "label": "智力豁免熟練"
+    },
+    {
+      "id": "save_wis",
+      "label": "感知豁免熟練"
+    },
+    {
+      "id": "save_cha",
+      "label": "魅力豁免熟練"
+    }
+  ],
+  "derived": [
+    {
+      "id": "prof",
+      "label": "熟練加值",
+      "formula": "floor((@level - 1) / 4) + 2",
+      "description": "1–4 級 +2，每 4 級再加 1。熟練的技能、豁免與武器都加上這個數字。"
+    },
+    {
+      "id": "hp",
+      "label": "生命值上限",
+      "formula": "@hit_die + @mod.con + (@level - 1) * (floor(@hit_die / 2) + 1 + @mod.con) + @level * @hp_per_level",
+      "description": "1 級取生命骰最大值加體質調整值，之後每級取平均值（生命骰一半加 1）加體質調整值。"
+    },
+    {
+      "id": "ac",
+      "label": "護甲等級",
+      "formula": "if(@armor_base > 0, @armor_base + min(@mod.dex, @armor_dex_cap), 10 + @mod.dex + if(@unarmored == 1, @mod.con, 0) + if(@unarmored == 2, @mod.wis, 0)) + @shield",
+      "description": "敵人的攻擊擲骰要達到這個數字才命中。"
+    },
+    {
+      "id": "initiative",
+      "label": "先攻",
+      "formula": "@mod.dex + @init_prof * @prof"
+    },
+    {
+      "id": "walk",
+      "label": "速度（呎）",
+      "formula": "@speed"
+    },
+    {
+      "id": "passive_perception",
+      "label": "被動察覺",
+      "formula": "10 + @mod.wis + @rank.perception * @prof",
+      "description": "GM 不讓你擲骰時，用這個數字判斷你有沒有注意到埋伏或陷阱。"
+    },
+    {
+      "id": "see_dark",
+      "label": "黑暗視覺（呎）",
+      "formula": "@darkvision",
+      "showIf": "@darkvision > 0"
+    },
+    {
+      "id": "melee_hit",
+      "label": "近戰命中",
+      "formula": "@mod.str + @prof"
+    },
+    {
+      "id": "ranged_hit",
+      "label": "遠程命中",
+      "formula": "@mod.dex + @prof"
+    },
+    {
+      "id": "spell_mod",
+      "label": "施法調整值",
+      "formula": "if(@cast == 1, @mod.int, if(@cast == 2, @mod.wis, if(@cast == 3, @mod.cha, 0)))",
+      "showIf": "@cast > 0"
+    },
+    {
+      "id": "spell_dc",
+      "label": "法術豁免 DC",
+      "formula": "8 + @prof + @spell_mod",
+      "showIf": "@cast > 0",
+      "description": "目標要用豁免擲骰達到這個數字才能抵抗你的法術。"
+    },
+    {
+      "id": "spell_attack",
+      "label": "法術攻擊加值",
+      "formula": "@prof + @spell_mod",
+      "showIf": "@cast > 0"
+    }
+  ]
+}

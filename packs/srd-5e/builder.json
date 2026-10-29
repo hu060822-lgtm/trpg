@@ -1,0 +1,1608 @@
+{
+  "steps": [
+    {
+      "id": "class",
+      "label": "職業",
+      "description": "職業決定你在冒險中擅長什麼：生命骰、豁免熟練、可以選的技能和職業特性。第一次玩推薦戰士或野蠻人。",
+      "options": [
+        {
+          "id": "barbarian",
+          "name": "野蠻人",
+          "description": "靠怒火戰鬥的猛者。生命骰 d12，主要屬性力量。適合想站在最前線、簡單直接的玩家。",
+          "grants": {
+            "values": {
+              "hit_die": 12,
+              "cast": 0,
+              "unarmored": 1
+            },
+            "flags": {
+              "save_str": 1,
+              "save_con": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "狂暴",
+                "text": "附贈動作進入狂暴：力量檢定與豁免有優勢、力量近戰傷害加值、抵抗鈍擊／穿刺／揮砍傷害。不能穿重甲或施法。每次長休可用的次數隨等級增加。"
+              },
+              {
+                "level": 1,
+                "name": "無甲防禦",
+                "text": "沒穿護甲時 AC = 10 + 敏捷調整值 + 體質調整值，可以拿盾牌。"
+              },
+              {
+                "level": 1,
+                "name": "武器專精",
+                "text": "可以使用兩種你熟練的簡易或軍用近戰武器的專精效果。"
+              },
+              {
+                "level": 2,
+                "name": "危險感知",
+                "text": "對看得見的效果做敏捷豁免時有優勢（失能時無效）。"
+              },
+              {
+                "level": 2,
+                "name": "魯莽攻擊",
+                "text": "回合第一次攻擊時可以選擇魯莽：本回合力量攻擊有優勢，但直到你下回合開始，敵人攻擊你也有優勢。"
+              },
+              {
+                "level": 3,
+                "name": "野蠻人子職",
+                "text": "選擇一個野蠻人子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 3,
+                "name": "原初知識",
+                "text": "多熟練一項野蠻人技能；狂暴時部分力量技能檢定也能享有優勢。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "額外攻擊",
+                "text": "攻擊動作可以攻擊兩次。"
+              },
+              {
+                "level": 5,
+                "name": "快速移動",
+                "text": "沒穿重甲時速度 +10 呎。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "animal_handling",
+                "athletics",
+                "intimidation",
+                "nature",
+                "perception",
+                "survival"
+              ]
+            }
+          ],
+          "tags": [
+            "近戰",
+            "新手友善"
+          ]
+        },
+        {
+          "id": "bard",
+          "name": "吟遊詩人",
+          "description": "用音樂與話語施展魔法的多面手。生命骰 d8，主要屬性魅力。能鼓舞隊友，也能施法、交涉。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 3
+            },
+            "flags": {
+              "save_dex": 1,
+              "save_cha": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "吟遊激勵",
+                "text": "附贈動作給 60 呎內一位隊友一顆激勵骰（d6，之後升級），對方在 1 小時內可以加到一次 d20 擲骰上。次數等於魅力調整值，長休回復。"
+              },
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以魅力施展吟遊詩人法術，可以使用樂器當法器。"
+              },
+              {
+                "level": 2,
+                "name": "專精",
+                "text": "選兩個熟練的技能，熟練加值加倍（在編輯頁把那兩項技能的等級改為 2）。"
+              },
+              {
+                "level": 2,
+                "name": "萬事通",
+                "text": "沒有熟練的屬性檢定加上一半熟練加值（向下取整）。"
+              },
+              {
+                "level": 3,
+                "name": "吟遊詩人子職",
+                "text": "選擇一個吟遊詩人子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "激勵之泉",
+                "text": "激勵骰變成 d8，短休也能回復吟遊激勵。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 3 項技能",
+              "kind": "skills",
+              "count": 3
+            }
+          ],
+          "tags": [
+            "施法",
+            "社交"
+          ]
+        },
+        {
+          "id": "cleric",
+          "name": "牧師",
+          "description": "神祇的代行者，擅長治療與守護。生命骰 d8，主要屬性感知。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 2
+            },
+            "flags": {
+              "save_wis": 1,
+              "save_cha": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以感知施展牧師法術，可以使用聖徽當法器。"
+              },
+              {
+                "level": 2,
+                "name": "引導神力",
+                "text": "引導神的力量：「神聖火花」治療或傷害，或「驅散不死生物」。短休或長休回復次數。"
+              },
+              {
+                "level": 3,
+                "name": "牧師子職",
+                "text": "選擇一個牧師子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "灼燒不死生物",
+                "text": "驅散不死生物時，可以對失敗的不死生物造成光耀傷害。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "history",
+                "insight",
+                "medicine",
+                "persuasion",
+                "religion"
+              ]
+            },
+            {
+              "id": "order",
+              "label": "神聖職責",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "protector",
+                  "name": "守護者",
+                  "text": "熟練軍用武器並受過重甲訓練。"
+                },
+                {
+                  "id": "thaumaturge",
+                  "name": "奇術師",
+                  "text": "多學一個牧師戲法；宗教與奧秘的智力檢定加上感知調整值（至少 +1）。"
+                }
+              ]
+            }
+          ],
+          "tags": [
+            "施法",
+            "治療"
+          ]
+        },
+        {
+          "id": "druid",
+          "name": "德魯伊",
+          "description": "自然之力的守護者，能變身成野獸。生命骰 d8，主要屬性感知。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 2
+            },
+            "flags": {
+              "save_int": 1,
+              "save_wis": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以感知施展德魯伊法術，可以使用德魯伊法器。"
+              },
+              {
+                "level": 1,
+                "name": "德魯伊語",
+                "text": "懂得德魯伊的秘密語言，並總是準備著「動物交談」。"
+              },
+              {
+                "level": 2,
+                "name": "荒野變身",
+                "text": "附贈動作變成你見過的野獸，維持一段時間；次數隨等級增加，短休回復一次、長休全部回復。"
+              },
+              {
+                "level": 2,
+                "name": "荒野夥伴",
+                "text": "消耗一次荒野變身或一個法術位，召喚一隻精類動物夥伴。"
+              },
+              {
+                "level": 3,
+                "name": "德魯伊子職",
+                "text": "選擇一個德魯伊子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "荒野復甦",
+                "text": "荒野變身次數用完時可以用法術位換回一次，反之亦可（每長休一次）。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "arcana",
+                "animal_handling",
+                "insight",
+                "medicine",
+                "nature",
+                "perception",
+                "religion",
+                "survival"
+              ]
+            },
+            {
+              "id": "order",
+              "label": "原初職責",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "magician",
+                  "name": "魔法師",
+                  "text": "多學一個德魯伊戲法；奧秘與自然的智力檢定加上感知調整值（至少 +1）。"
+                },
+                {
+                  "id": "warden",
+                  "name": "守衛者",
+                  "text": "熟練軍用武器並受過中甲訓練。"
+                }
+              ]
+            }
+          ],
+          "tags": [
+            "施法",
+            "變身"
+          ]
+        },
+        {
+          "id": "fighter",
+          "name": "戰士",
+          "description": "精通武器與護甲的戰鬥專家。生命骰 d10，主要屬性力量或敏捷。規則最直觀，最適合第一次玩。",
+          "grants": {
+            "values": {
+              "hit_die": 10,
+              "cast": 0
+            },
+            "flags": {
+              "save_str": 1,
+              "save_con": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "二度活力",
+                "text": "附贈動作回復 1d10 + 戰士等級的生命值；次數隨等級增加，短休回復一次、長休全部回復。"
+              },
+              {
+                "level": 1,
+                "name": "武器專精",
+                "text": "可以使用三種你熟練的簡易或軍用武器的專精效果。"
+              },
+              {
+                "level": 2,
+                "name": "動作如潮",
+                "text": "回合中多做一個動作（不能用來施魔法）。短休或長休回復。"
+              },
+              {
+                "level": 2,
+                "name": "戰術頭腦",
+                "text": "屬性檢定失敗時，可以花一次二度活力擲 1d10 加上去；如果仍然失敗，這次不會消耗。"
+              },
+              {
+                "level": 3,
+                "name": "戰士子職",
+                "text": "選擇一個戰士子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "額外攻擊",
+                "text": "攻擊動作可以攻擊兩次。"
+              },
+              {
+                "level": 5,
+                "name": "戰術調度",
+                "text": "用二度活力時，可以移動最多一半速度且不引發借機攻擊。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "acrobatics",
+                "animal_handling",
+                "athletics",
+                "history",
+                "insight",
+                "intimidation",
+                "persuasion",
+                "perception",
+                "survival"
+              ]
+            },
+            {
+              "id": "style",
+              "label": "戰鬥風格",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "archery",
+                  "name": "箭術",
+                  "text": "遠程武器攻擊擲骰 +2（請在擲骰時自行加上，或用 /r 1d20 + 遠程命中 + 2）。"
+                },
+                {
+                  "id": "defense",
+                  "name": "防禦",
+                  "text": "穿著輕甲、中甲或重甲時 AC +1（可以在編輯頁把護甲 AC 加 1）。"
+                },
+                {
+                  "id": "great_weapon",
+                  "name": "巨武器戰鬥",
+                  "text": "用雙手的近戰武器傷害時，傷害骰擲出 1 或 2 都當作 3。"
+                },
+                {
+                  "id": "two_weapon",
+                  "name": "雙武器戰鬥",
+                  "text": "用副手武器攻擊時，傷害可以加上屬性調整值。"
+                }
+              ]
+            }
+          ],
+          "tags": [
+            "近戰",
+            "遠程",
+            "新手友善"
+          ]
+        },
+        {
+          "id": "monk",
+          "name": "武僧",
+          "description": "鍛鍊身體與內息的武術家。生命骰 d8，主要屬性敏捷與感知。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 0,
+              "unarmored": 2
+            },
+            "flags": {
+              "save_str": 1,
+              "save_dex": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "武藝",
+                "text": "徒手打擊與武僧武器可以改用敏捷，並使用武藝骰（d6，之後升級）；攻擊動作後可以附贈一次徒手打擊。"
+              },
+              {
+                "level": 1,
+                "name": "無甲防禦",
+                "text": "沒穿護甲也沒拿盾牌時 AC = 10 + 敏捷調整值 + 感知調整值。"
+              },
+              {
+                "level": 2,
+                "name": "武僧專注",
+                "text": "擁有等同武僧等級的專注點，可以用來疾風連擊、耐心防禦或疾步如風。短休回復。"
+              },
+              {
+                "level": 2,
+                "name": "無甲移動",
+                "text": "沒穿護甲也沒拿盾牌時速度增加（2 級 +10 呎）。"
+              },
+              {
+                "level": 2,
+                "name": "異常代謝",
+                "text": "擲先攻時可以回復所有專注點並回復生命值（每長休一次）。"
+              },
+              {
+                "level": 3,
+                "name": "偏轉攻擊",
+                "text": "被攻擊命中時用反應減少傷害，傷害降到 0 時可以花專注點反擊。"
+              },
+              {
+                "level": 3,
+                "name": "武僧子職",
+                "text": "選擇一個武僧子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 4,
+                "name": "輕身墜落",
+                "text": "掉落時用反應減少墜落傷害。"
+              },
+              {
+                "level": 5,
+                "name": "額外攻擊",
+                "text": "攻擊動作可以攻擊兩次。"
+              },
+              {
+                "level": 5,
+                "name": "震懾拳",
+                "text": "命中時花 1 專注點，目標要過體質豁免，否則震懾到你下回合開始。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "acrobatics",
+                "athletics",
+                "history",
+                "insight",
+                "religion",
+                "stealth"
+              ]
+            }
+          ],
+          "tags": [
+            "近戰",
+            "機動"
+          ]
+        },
+        {
+          "id": "paladin",
+          "name": "聖騎士",
+          "description": "以誓言為力量的聖戰士，攻守兼備。生命骰 d10，主要屬性力量與魅力。",
+          "grants": {
+            "values": {
+              "hit_die": 10,
+              "cast": 3
+            },
+            "flags": {
+              "save_wis": 1,
+              "save_cha": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "聖療",
+                "text": "擁有等級 × 5 點的治療池，用附贈動作觸碰生物回復生命值，也能花 5 點解除中毒。長休回復。"
+              },
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以魅力施展聖騎士法術，可以使用聖徽當法器。"
+              },
+              {
+                "level": 1,
+                "name": "武器專精",
+                "text": "可以使用兩種你熟練的武器的專精效果。"
+              },
+              {
+                "level": 2,
+                "name": "戰鬥風格",
+                "text": "選一種戰鬥風格專長。"
+              },
+              {
+                "level": 2,
+                "name": "聖騎士斬擊",
+                "text": "總是準備著「神聖斬擊」，每長休可以免費施展一次。"
+              },
+              {
+                "level": 3,
+                "name": "引導神力",
+                "text": "取得引導神力，並學會「神聖感知」。"
+              },
+              {
+                "level": 3,
+                "name": "聖騎士子職",
+                "text": "選擇一個聖騎士子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "額外攻擊",
+                "text": "攻擊動作可以攻擊兩次。"
+              },
+              {
+                "level": 5,
+                "name": "忠誠坐騎",
+                "text": "總是準備著「尋找坐騎」，每長休可以免費施展一次。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "athletics",
+                "insight",
+                "intimidation",
+                "medicine",
+                "persuasion",
+                "religion"
+              ]
+            }
+          ],
+          "tags": [
+            "近戰",
+            "治療"
+          ]
+        },
+        {
+          "id": "ranger",
+          "name": "遊俠",
+          "description": "荒野中的獵人與追蹤者。生命骰 d10，主要屬性敏捷與感知。",
+          "grants": {
+            "values": {
+              "hit_die": 10,
+              "cast": 2
+            },
+            "flags": {
+              "save_str": 1,
+              "save_dex": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以感知施展遊俠法術。"
+              },
+              {
+                "level": 1,
+                "name": "宿敵",
+                "text": "總是準備著「獵人印記」，每長休可以免費施展數次（隨等級增加）。"
+              },
+              {
+                "level": 1,
+                "name": "武器專精",
+                "text": "可以使用兩種你熟練的武器的專精效果。"
+              },
+              {
+                "level": 2,
+                "name": "敏捷探索者",
+                "text": "選一項熟練技能取得專精（在編輯頁把等級改為 2），並多學兩種語言。"
+              },
+              {
+                "level": 2,
+                "name": "戰鬥風格",
+                "text": "選一種戰鬥風格專長。"
+              },
+              {
+                "level": 3,
+                "name": "遊俠子職",
+                "text": "選擇一個遊俠子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "額外攻擊",
+                "text": "攻擊動作可以攻擊兩次。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 3 項技能",
+              "kind": "skills",
+              "count": 3,
+              "from": [
+                "animal_handling",
+                "athletics",
+                "insight",
+                "investigation",
+                "nature",
+                "perception",
+                "stealth",
+                "survival"
+              ]
+            }
+          ],
+          "tags": [
+            "遠程",
+            "荒野"
+          ]
+        },
+        {
+          "id": "rogue",
+          "name": "遊蕩者",
+          "description": "靠技巧與時機取勝的專家。生命骰 d8，主要屬性敏捷。技能最多，偷襲傷害很高。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 0
+            },
+            "flags": {
+              "save_dex": 1,
+              "save_int": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "偷襲",
+                "text": "每回合一次，用靈巧或遠程武器攻擊有優勢、或目標 5 呎內有你的盟友時，額外造成 1d6 傷害（每兩級多 1d6）。"
+              },
+              {
+                "level": 1,
+                "name": "盜賊黑話",
+                "text": "懂得盜賊的暗語與記號，並多學一種語言。"
+              },
+              {
+                "level": 1,
+                "name": "武器專精",
+                "text": "可以使用兩種你熟練的武器的專精效果。"
+              },
+              {
+                "level": 2,
+                "name": "靈巧動作",
+                "text": "附贈動作就能疾走、撤離或躲藏。"
+              },
+              {
+                "level": 3,
+                "name": "遊蕩者子職",
+                "text": "選擇一個遊蕩者子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 3,
+                "name": "穩定瞄準",
+                "text": "本回合沒移動時，附贈動作讓下一次攻擊有優勢。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "狡詐打擊",
+                "text": "偷襲時可以少擲幾顆偷襲骰，換取絆倒、下毒或撤離等效果。"
+              },
+              {
+                "level": 5,
+                "name": "直覺閃避",
+                "text": "被看得見的攻擊者命中時，用反應讓這次傷害減半。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 4 項技能",
+              "kind": "skills",
+              "count": 4,
+              "from": [
+                "acrobatics",
+                "athletics",
+                "deception",
+                "insight",
+                "intimidation",
+                "investigation",
+                "perception",
+                "persuasion",
+                "sleight_of_hand",
+                "stealth"
+              ]
+            },
+            {
+              "id": "expertise",
+              "label": "專精（選 2 項熟練技能）",
+              "kind": "expertise",
+              "count": 2
+            }
+          ],
+          "tags": [
+            "技能",
+            "隱匿"
+          ]
+        },
+        {
+          "id": "sorcerer",
+          "name": "術士",
+          "description": "魔法流淌在血脈中的天生施法者。生命骰 d6，主要屬性魅力。",
+          "grants": {
+            "values": {
+              "hit_die": 6,
+              "cast": 3
+            },
+            "flags": {
+              "save_con": 1,
+              "save_cha": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以魅力施展術士法術。"
+              },
+              {
+                "level": 1,
+                "name": "天生術法",
+                "text": "附贈動作喚醒魔力 1 分鐘：術士法術的豁免 DC +1，法術攻擊有優勢。每長休兩次。"
+              },
+              {
+                "level": 2,
+                "name": "魔力泉源",
+                "text": "擁有等同術士等級的術法點，可以和法術位互換。"
+              },
+              {
+                "level": 2,
+                "name": "超魔",
+                "text": "學會兩種超魔，花術法點改變法術，例如延長距離或讓法術更難抵抗。"
+              },
+              {
+                "level": 3,
+                "name": "術士子職",
+                "text": "選擇一個術士子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "術法回復",
+                "text": "短休時回復一半術士等級（向下取整）的術法點，每長休一次。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "arcana",
+                "deception",
+                "insight",
+                "intimidation",
+                "persuasion",
+                "religion"
+              ]
+            }
+          ],
+          "tags": [
+            "施法"
+          ]
+        },
+        {
+          "id": "warlock",
+          "name": "邪術師",
+          "description": "與異界存在立約換取力量的施法者。生命骰 d8，主要屬性魅力。法術位少但短休就回復。",
+          "grants": {
+            "values": {
+              "hit_die": 8,
+              "cast": 3
+            },
+            "flags": {
+              "save_wis": 1,
+              "save_cha": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "魔能祈喚",
+                "text": "學一種魔能祈喚（例如「魔契威能」），之後等級提升會學更多。"
+              },
+              {
+                "level": 1,
+                "name": "契約魔法",
+                "text": "以魅力施展邪術師法術；法術位一律是最高環，短休或長休回復。"
+              },
+              {
+                "level": 2,
+                "name": "魔法機巧",
+                "text": "花 1 分鐘回復一半（向上取整）的契約法術位，每長休一次。"
+              },
+              {
+                "level": 3,
+                "name": "邪術師子職",
+                "text": "選擇一個邪術師子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "arcana",
+                "deception",
+                "history",
+                "intimidation",
+                "investigation",
+                "nature",
+                "religion"
+              ]
+            }
+          ],
+          "tags": [
+            "施法"
+          ]
+        },
+        {
+          "id": "wizard",
+          "name": "法師",
+          "description": "鑽研法術書的學者，法術種類最多。生命骰 d6，主要屬性智力。",
+          "grants": {
+            "values": {
+              "hit_die": 6,
+              "cast": 1
+            },
+            "flags": {
+              "save_int": 1,
+              "save_wis": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "施法",
+                "text": "以智力施展法師法術，法術記在法術書裡，每天從書中準備。"
+              },
+              {
+                "level": 1,
+                "name": "儀式專家",
+                "text": "可以直接從法術書施展有儀式標籤的法術，不必事先準備。"
+              },
+              {
+                "level": 1,
+                "name": "奧術回復",
+                "text": "短休時回復合計不超過法師等級一半（向上取整）的法術位，每長休一次。"
+              },
+              {
+                "level": 2,
+                "name": "學者",
+                "text": "選一項奧秘、歷史、調查、醫藥、自然或宗教中熟練的技能取得專精（在編輯頁把等級改為 2）。"
+              },
+              {
+                "level": 3,
+                "name": "法師子職",
+                "text": "選擇一個法師子職，取得對應的特性。SRD 5.2 每個職業收錄一個子職，詳見原文。"
+              },
+              {
+                "level": 4,
+                "name": "屬性值提升",
+                "text": "選一項專長；最常見的是「屬性值提升」：一項屬性 +2，或兩項各 +1（上限 20）。在角色卡按「編輯」直接調整。"
+              },
+              {
+                "level": 5,
+                "name": "記憶法術",
+                "text": "短休時可以把一個準備好的法術換成法術書裡的另一個。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skills",
+              "label": "選 2 項技能",
+              "kind": "skills",
+              "count": 2,
+              "from": [
+                "arcana",
+                "history",
+                "insight",
+                "investigation",
+                "medicine",
+                "nature",
+                "religion"
+              ]
+            }
+          ],
+          "tags": [
+            "施法"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "background",
+      "label": "背景",
+      "description": "背景是你冒險前的人生，給你兩項技能、屬性加值和一個起源專長。",
+      "options": [
+        {
+          "id": "acolyte",
+          "name": "侍僧",
+          "description": "在神殿中長大、侍奉神祇的人。",
+          "grants": {
+            "ranks": {
+              "insight": 1,
+              "religion": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "起源專長：魔法學徒（牧師）",
+                "text": "學兩個牧師戲法與一個一環牧師法術，一環法術每長休可以免費施展一次。"
+              },
+              {
+                "level": 1,
+                "name": "工具熟練",
+                "text": "書法用具。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "asi",
+              "label": "屬性加值",
+              "kind": "bonus",
+              "from": [
+                "int",
+                "wis",
+                "cha"
+              ],
+              "patterns": [
+                [
+                  2,
+                  1
+                ],
+                [
+                  1,
+                  1,
+                  1
+                ]
+              ],
+              "description": "在這三項屬性中，一項 +2、另一項 +1，或三項各 +1。"
+            }
+          ]
+        },
+        {
+          "id": "criminal",
+          "name": "罪犯",
+          "description": "靠偷竊或走私在街頭討生活的人。",
+          "grants": {
+            "ranks": {
+              "sleight_of_hand": 1,
+              "stealth": 1
+            },
+            "values": {
+              "init_prof": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "起源專長：機敏",
+                "text": "先攻加上熟練加值（角色卡已自動計算），並可以在擲先攻後與一位願意的盟友交換先攻順序。"
+              },
+              {
+                "level": 1,
+                "name": "工具熟練",
+                "text": "盜賊工具。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "asi",
+              "label": "屬性加值",
+              "kind": "bonus",
+              "from": [
+                "dex",
+                "con",
+                "int"
+              ],
+              "patterns": [
+                [
+                  2,
+                  1
+                ],
+                [
+                  1,
+                  1,
+                  1
+                ]
+              ],
+              "description": "在這三項屬性中，一項 +2、另一項 +1，或三項各 +1。"
+            }
+          ]
+        },
+        {
+          "id": "sage",
+          "name": "賢者",
+          "description": "在圖書館與學院度過歲月的學者。",
+          "grants": {
+            "ranks": {
+              "arcana": 1,
+              "history": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "起源專長：魔法學徒（法師）",
+                "text": "學兩個法師戲法與一個一環法師法術，一環法術每長休可以免費施展一次。"
+              },
+              {
+                "level": 1,
+                "name": "工具熟練",
+                "text": "書法用具。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "asi",
+              "label": "屬性加值",
+              "kind": "bonus",
+              "from": [
+                "con",
+                "int",
+                "wis"
+              ],
+              "patterns": [
+                [
+                  2,
+                  1
+                ],
+                [
+                  1,
+                  1,
+                  1
+                ]
+              ],
+              "description": "在這三項屬性中，一項 +2、另一項 +1，或三項各 +1。"
+            }
+          ]
+        },
+        {
+          "id": "soldier",
+          "name": "士兵",
+          "description": "受過軍事訓練、上過戰場的人。",
+          "grants": {
+            "ranks": {
+              "athletics": 1,
+              "intimidation": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "起源專長：野蠻打擊",
+                "text": "每回合一次，武器命中時可以把傷害骰擲兩次，取較高的結果。"
+              },
+              {
+                "level": 1,
+                "name": "工具熟練",
+                "text": "一種遊戲組（骰子、紙牌等）。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "asi",
+              "label": "屬性加值",
+              "kind": "bonus",
+              "from": [
+                "str",
+                "dex",
+                "con"
+              ],
+              "patterns": [
+                [
+                  2,
+                  1
+                ],
+                [
+                  1,
+                  1,
+                  1
+                ]
+              ],
+              "description": "在這三項屬性中，一項 +2、另一項 +1，或三項各 +1。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "species",
+      "label": "種族",
+      "description": "種族給你速度、感官和天生的特殊能力。",
+      "options": [
+        {
+          "id": "dragonborn",
+          "name": "龍裔",
+          "description": "有龍族血統的人形生物，能吐出元素吐息。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 60
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "吐息武器",
+                "text": "攻擊動作中可以用一次攻擊換成 15 呎錐形或 30 呎線形吐息，範圍內生物要過敏捷豁免，失敗受 1d10 傷害（之後升級），成功減半。次數等於熟練加值，長休回復。"
+              },
+              {
+                "level": 1,
+                "name": "傷害抗性",
+                "text": "抵抗你龍族祖先的傷害類型。"
+              },
+              {
+                "level": 5,
+                "name": "龍翼飛行",
+                "text": "附贈動作長出翅膀飛行 10 分鐘，每長休一次。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "ancestry",
+              "label": "龍族祖先",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "black",
+                  "name": "黑龍",
+                  "text": "強酸"
+                },
+                {
+                  "id": "blue",
+                  "name": "藍龍",
+                  "text": "閃電"
+                },
+                {
+                  "id": "brass",
+                  "name": "黃銅龍",
+                  "text": "火焰"
+                },
+                {
+                  "id": "bronze",
+                  "name": "青銅龍",
+                  "text": "閃電"
+                },
+                {
+                  "id": "copper",
+                  "name": "紅銅龍",
+                  "text": "強酸"
+                },
+                {
+                  "id": "gold",
+                  "name": "金龍",
+                  "text": "火焰"
+                },
+                {
+                  "id": "green",
+                  "name": "綠龍",
+                  "text": "毒素"
+                },
+                {
+                  "id": "red",
+                  "name": "紅龍",
+                  "text": "火焰"
+                },
+                {
+                  "id": "silver",
+                  "name": "銀龍",
+                  "text": "寒冷"
+                },
+                {
+                  "id": "white",
+                  "name": "白龍",
+                  "text": "寒冷"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "dwarf",
+          "name": "矮人",
+          "description": "強韌的山地居民，擅長石工與鍛造。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 120,
+              "hp_per_level": 1
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "矮人韌性",
+                "text": "抵抗毒素傷害，對抗中毒的豁免有優勢。"
+              },
+              {
+                "level": 1,
+                "name": "矮人強健",
+                "text": "每一級生命值上限 +1（已自動計算）。"
+              },
+              {
+                "level": 1,
+                "name": "石頭感知",
+                "text": "附贈動作取得 60 呎震顫感知 10 分鐘（需站在石頭上），次數等於熟練加值。"
+              }
+            ]
+          }
+        },
+        {
+          "id": "elf",
+          "name": "精靈",
+          "description": "長壽而優雅的種族，與魔法和自然親近。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 60
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "精類血統",
+                "text": "對抗魅惑的豁免有優勢。"
+              },
+              {
+                "level": 1,
+                "name": "出神",
+                "text": "長休只要 4 小時的冥想，期間保有意識。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "keen",
+              "label": "敏銳感官",
+              "kind": "skills",
+              "count": 1,
+              "from": [
+                "insight",
+                "perception",
+                "survival"
+              ]
+            },
+            {
+              "id": "lineage",
+              "label": "精靈血脈",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "drow",
+                  "name": "卓爾",
+                  "text": "黑暗視覺增為 120 呎，學會「舞光術」戲法，3 級與 5 級學會更多法術。"
+                },
+                {
+                  "id": "high",
+                  "name": "高等精靈",
+                  "text": "學會「魔法伎倆」戲法（長休可更換為其他法師戲法），3 級與 5 級學會更多法術。"
+                },
+                {
+                  "id": "wood",
+                  "name": "木精靈",
+                  "text": "速度 +5 呎（請在 GM 同意後自行記下），學會「德魯伊伎倆」戲法，3 級與 5 級學會更多法術。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "gnome",
+          "name": "侏儒",
+          "description": "好奇、聰明的小個子，天生擅長魔法與發明。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 60
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "侏儒狡黠",
+                "text": "智力、感知、魅力豁免有優勢。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "lineage",
+              "label": "侏儒血脈",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "forest",
+                  "name": "森林侏儒",
+                  "text": "學會「幻術伎倆」戲法，總是準備著「動物交談」。"
+                },
+                {
+                  "id": "rock",
+                  "name": "岩石侏儒",
+                  "text": "學會「修復術」與「魔法伎倆」戲法，可以做出小型機械裝置。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "goliath",
+          "name": "歌利亞",
+          "description": "身材高大、有巨人血統的人形生物。",
+          "grants": {
+            "values": {
+              "speed": 35
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "強壯體格",
+                "text": "擒抱與推撞時體型視為大一級，負重也加倍。"
+              },
+              {
+                "level": 5,
+                "name": "巨型化",
+                "text": "附贈動作變成大型 10 分鐘，力量檢定有優勢、速度 +10 呎，每長休一次。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "ancestry",
+              "label": "巨人祖先",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "cloud",
+                  "name": "雲巨人",
+                  "text": "附贈動作傳送 30 呎。"
+                },
+                {
+                  "id": "fire",
+                  "name": "火巨人",
+                  "text": "命中時額外造成 1d10 火焰傷害。"
+                },
+                {
+                  "id": "frost",
+                  "name": "霜巨人",
+                  "text": "命中時額外造成 1d6 寒冷傷害並使目標減速。"
+                },
+                {
+                  "id": "hill",
+                  "name": "丘巨人",
+                  "text": "命中大型以下的目標時把它擊倒。"
+                },
+                {
+                  "id": "stone",
+                  "name": "石巨人",
+                  "text": "受到傷害時用反應減少 1d12 + 體質調整值。"
+                },
+                {
+                  "id": "storm",
+                  "name": "風暴巨人",
+                  "text": "受到傷害時用反應對攻擊者造成 1d8 雷鳴傷害。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "halfling",
+          "name": "半身人",
+          "description": "嬌小、開朗又出奇幸運的旅人。",
+          "grants": {
+            "values": {
+              "speed": 30
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "勇敢",
+                "text": "對抗恐懼的豁免有優勢。"
+              },
+              {
+                "level": 1,
+                "name": "半身人靈巧",
+                "text": "可以穿過比你大一級以上的生物所在的空間。"
+              },
+              {
+                "level": 1,
+                "name": "幸運",
+                "text": "d20 擲出 1 時可以重擲，必須使用新的結果。"
+              },
+              {
+                "level": 1,
+                "name": "天生隱匿",
+                "text": "被比你大的生物擋住時也能躲藏。"
+              }
+            ]
+          }
+        },
+        {
+          "id": "human",
+          "name": "人類",
+          "description": "適應力最強、遍布各地的種族。",
+          "grants": {
+            "values": {
+              "speed": 30
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "足智多謀",
+                "text": "每次長休後獲得英雄激勵。"
+              },
+              {
+                "level": 1,
+                "name": "多才多藝",
+                "text": "額外取得一項起源專長（例如機敏、熟練、野蠻打擊）。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "skillful",
+              "label": "技藝嫻熟（任選 1 項技能）",
+              "kind": "skills",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "orc",
+          "name": "獸人",
+          "description": "強健的戰士種族，意志堅韌。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 120
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "腎上腺素",
+                "text": "附贈動作疾走，並獲得等同熟練加值的臨時生命值；次數等於熟練加值，短休或長休回復。"
+              },
+              {
+                "level": 1,
+                "name": "堅韌不屈",
+                "text": "生命值降到 0 但沒有立刻死亡時，改為剩 1 點，每長休一次。"
+              }
+            ]
+          }
+        },
+        {
+          "id": "tiefling",
+          "name": "提夫林",
+          "description": "有異界血統的人形生物，天生帶著魔法。",
+          "grants": {
+            "values": {
+              "speed": 30,
+              "darkvision": 60
+            },
+            "features": [
+              {
+                "level": 1,
+                "name": "異界存在",
+                "text": "學會「奇術」戲法。"
+              }
+            ]
+          },
+          "choices": [
+            {
+              "id": "legacy",
+              "label": "魔族傳承",
+              "kind": "pick",
+              "count": 1,
+              "options": [
+                {
+                  "id": "abyssal",
+                  "name": "深淵",
+                  "text": "抵抗毒素傷害，學會「毒氣噴霧」戲法，3 級與 5 級學會更多法術。"
+                },
+                {
+                  "id": "chthonic",
+                  "name": "冥界",
+                  "text": "抵抗黯蝕傷害，學會「寒顫之觸」戲法，3 級與 5 級學會更多法術。"
+                },
+                {
+                  "id": "infernal",
+                  "name": "煉獄",
+                  "text": "抵抗火焰傷害，學會「火焰箭」戲法，3 級與 5 級學會更多法術。"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

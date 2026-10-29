@@ -1,9 +1,15 @@
-import { labeller } from '../../../src/pack/pack';
+import { useMemo } from 'react';
+import { checkBonus, computeSheet, labeller, type CheckTarget } from '../../../src/pack/pack';
 import type { CharacterView, CheckMode, Pack, RollTarget } from '../api';
 import { fmt } from './CharacterForm';
 
 /** `1d20 + @score.body` → `1d20 + 體魄`: formulas in the words of the sheet. */
-const words = (pack: Pack, src: string) => { const label = labeller(pack); return src.replace(/@([\w.]+)/g, (m, p: string) => label(p) ?? m); };
+const words = (pack: Pack, src: string, values?: Map<string, number>) => {
+  const label = labeller(pack);
+  // `roll(1, @melee_die)` reads better as the die it is on this sheet: 1d8.
+  const dice = values ? src.replace(/roll\((\d+),\s*@([\w.]+)\)/g, (m, n: string, p: string) => (values.has(p) ? `${n}d${values.get(p)}` : m)) : src;
+  return dice.replace(/@([\w.]+)/g, (m, p: string) => label(p) ?? m);
+};
 const signed = (n: number) => (n >= 0 ? `+${fmt(n)}` : fmt(n));
 
 /**
@@ -23,6 +29,12 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
 }) {
   const { data, sheet, id } = character;
   const showMod = pack.modifier !== '@score';
+  // The server's sheet is the record; the browser works the same sheet out again only to print check bonuses.
+  const local = useMemo(() => { try { return computeSheet(pack, data); } catch { return null; } }, [pack, data]);
+  const bonus = (t: CheckTarget) => { try { return local ? signed(checkBonus(pack, local, t)) : ''; } catch { return ''; } };
+  const score = (a: Pack['attributes'][number]) => sheet[`score.${a.id}`]?.value ?? data.scores[a.id] ?? a.default;
+  const hidden = new Set(character.hiddenActions ?? []);
+  const features = character.features ?? [];
   return (
     <div className="sheet">
       <div className="sheet-head">
@@ -44,20 +56,39 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
           <button key={a.id} className="attr" disabled={busy} title={`${a.name}檢定${a.description ? `：${a.description}` : ''}`}
             onClick={() => roll({ characterId: id, check: { attribute: a.id }, mode })}>
             <span>{a.name}</span>
-            <b>{showMod ? signed(sheet[`mod.${a.id}`]?.value ?? 0) : data.scores[a.id] ?? a.default}</b>
-            {showMod && <small>{data.scores[a.id] ?? a.default}</small>}
+            <b>{showMod ? signed(sheet[`mod.${a.id}`]?.value ?? 0) : score(a)}</b>
+            {showMod && <small title={sheet[`score.${a.id}`]?.text}>{score(a)}</small>}
           </button>
         ))}
       </div>
+
+      {(pack.checks.extra ?? []).map((x) => (
+        <section key={x.id} className="block">
+          <h3>{x.label}</h3>
+          <div className="saves">
+            {pack.attributes.map((a) => {
+              // A save formula such as `… + @flag.save_{attr} * @prof` names the flag that marks proficiency.
+              const flag = /@flag\.(\w*)\{attr\}/.exec(x.formula)?.[1];
+              const proficient = flag !== undefined && (local?.values.get(`flag.${flag}${a.id}`) ?? 0) > 0;
+              return (
+                <button key={a.id} disabled={busy} className={proficient ? 'on' : undefined} title={`${a.name}${x.label}${proficient ? '（熟練）' : ''}`}
+                  onClick={() => roll({ characterId: id, check: { attribute: a.id, extra: x.id }, mode })}>
+                  <span>{a.abbr ?? a.name}</span><b>{bonus({ attribute: a.id, extra: x.id })}</b>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
 
       {pack.actions.length > 0 && (
         <section className="block">
           <h3>動作</h3>
           <div className="actions">
-            {pack.actions.map((a) => (
+            {pack.actions.filter((a) => !hidden.has(a.id)).map((a) => (
               <button key={a.id} disabled={busy} title={a.description} onClick={() => roll({ characterId: id, action: a.id })}>
                 <b>{a.label}</b>
-                <small>{words(pack, a.roll)}{a.damage ? `｜傷害 ${words(pack, a.damage)}` : ''}</small>
+                <small>{words(pack, a.roll)}{a.damage ? `｜傷害 ${words(pack, a.damage, local?.values)}` : ''}</small>
               </button>
             ))}
           </div>
@@ -68,7 +99,7 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
         <section className="block">
           <h3>數值</h3>
           <dl className="derived">
-            {pack.derived.map((d) => (
+            {pack.derived.filter((d) => !sheet[d.id]?.hidden).map((d) => (
               <div key={d.id} title={d.description}><dt>{d.label}</dt><dd><b>{fmt(sheet[d.id]?.value)}</b><small>{sheet[d.id]?.text}</small></dd></div>
             ))}
             {pack.inputs.map((i) => (
@@ -86,14 +117,28 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
               const rank = data.ranks[s.id] ?? 0;
               return (
                 <li key={s.id}>
-                  <button disabled={busy} title={s.description} onClick={() => roll({ characterId: id, check: { skill: s.id }, mode })}>
+                  <button disabled={busy} title={s.description} data-rank={rank || undefined} onClick={() => roll({ characterId: id, check: { skill: s.id }, mode })}>
                     <span>{s.name} <small className="muted">{pack.attributes.find((a) => a.id === s.attribute)?.abbr}</small></span>
-                    <span className={rank ? 'rank' : 'rank none'}>{rank}</span>
+                    <span className={rank ? 'rank' : 'rank none'} title={rank ? `等級 ${rank}` : '未受訓練'}>{bonus({ skill: s.id }) || rank}</span>
                   </button>
                 </li>
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {features.length > 0 && (
+        <section className="block">
+          <h3>特性</h3>
+          <div className="features">
+            {features.map((f, i) => (
+              <details key={`${f.from}-${f.name}-${i}`}>
+                <summary><span>{f.name}</span><small className="muted">{f.from}{f.level > 1 ? `・${f.level} 級` : ''}</small></summary>
+                <p>{f.text}</p>
+              </details>
+            ))}
+          </div>
         </section>
       )}
     </div>

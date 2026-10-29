@@ -184,6 +184,44 @@ describe('rule packs', () => {
     expect(bad.body.problems).toContainEqual(expect.objectContaining({ file: 'sheet.json', path: '.derived[0].formula', message: expect.stringContaining('@vigor') }));
     expect((await upload(tok.p1, strToU8('not a zip'))).body.problems[0].message).toContain('不是有效的 zip');
   });
+  it('imports an add-on that extends a stored pack, as a new pack built on it', async () => {
+    const addon = zipSync({
+      'manifest.json': strToU8(JSON.stringify({ id: 'srd-plus', name: '5E 追加', version: '0.1', license: 'CC-BY-4.0', extends: 'srd-5e@1.0.0' })),
+      'builder.json': strToU8(JSON.stringify({ steps: [{ id: 'background', label: '背景', options: [{ id: 'farmer', name: '農夫', grants: { ranks: { nature: 1 } } }] }] })),
+    });
+    expect(await upload(tok.p1, addon)).toEqual({ status: 201, body: { key: 'srd-plus@0.1', name: '5E 追加' } });
+    const merged = (await call(tok.p1, 'GET', '/api/packs/srd-plus@0.1')).body;
+    expect(merged.manifest.basedOn).toBe('srd-5e@1.0.0');
+    expect(merged.builder.find((s: any) => s.id === 'background').options.map((o: any) => o.id)).toContain('farmer');
+    expect(merged.skills).toHaveLength(18);
+    const orphan = zipSync({ 'manifest.json': strToU8(JSON.stringify({ id: 'lost', name: '孤兒', version: '0.1', license: 'CC0-1.0', extends: 'nope@1.0.0' })) });
+    expect((await upload(tok.p1, orphan)).status).toBe(404);
+  });
+});
+
+describe('the 5E pack at the table', () => {
+  it('a builder character gets its sheet, features and saving throws worked out on the server', async () => {
+    const room = (await call(tok.gm, 'POST', '/api/rooms', { name: '地城', pack: 'srd-5e@1.0.0' })).body;
+    await call(tok.p1, 'POST', '/api/rooms/join', { code: room.code });
+    const data = {
+      method: 'standard', scores: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 }, ranks: {}, inputs: { level: 1 },
+      choices: { class: 'fighter', background: 'soldier', species: 'dwarf' },
+      picks: { 'class.skills': ['perception', 'survival'], 'class.style': ['defense'], 'background.asi': { str: 2, con: 1 } },
+    };
+    const missing = await call(tok.p1, 'POST', `/api/rooms/${room.id}/characters`, { name: '索林', data: { ...data, choices: { class: 'fighter' } } });
+    expect(missing).toMatchObject({ status: 400, body: { message: expect.stringContaining('還沒選背景') } });
+    const hero = await call(tok.p1, 'POST', `/api/rooms/${room.id}/characters`, { name: '索林', data });
+    expect(hero.status).toBe(201);
+    const mine = (await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body.characters[0];
+    expect(mine.data.picks['background.asi']).toEqual({ str: 2, con: 1 });
+    expect(mine.sheet['score.str']).toEqual({ value: 17, text: '15 + 2' });
+    expect(mine.sheet.hp.value).toBe(13);
+    expect(mine.sheet.spell_dc.hidden).toBe(true);
+    expect(mine.hiddenActions).toEqual(['spell']);
+    expect(mine.features).toContainEqual(expect.objectContaining({ name: '二度活力', from: '戰士' }));
+    const save = await call(tok.p1, 'POST', `/api/rooms/${room.id}/rolls`, { requestId: rid(), characterId: hero.body.id, check: { attribute: 'con', extra: 'save' } });
+    expect(save.body).toMatchObject({ body: { label: '索林：體質豁免', total: 10 + 2 + 2 } });
+  });
 });
 
 describe('rooms', () => {

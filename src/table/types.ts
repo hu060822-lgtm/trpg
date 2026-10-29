@@ -1,4 +1,4 @@
-import type { CharacterData, CheckMode, SheetValue } from '../pack/pack';
+import type { CharacterData, CheckMode, CheckTarget, PackFeature, SheetValue } from '../pack/pack';
 
 /** The rooms API's shapes, shared by the server and the web client (so this file imports nothing from Node). */
 export type Role = 'gm' | 'player';
@@ -6,7 +6,13 @@ export interface PackSummary { key: string; id: string; version: string; name: s
 export interface Room { id: string; name: string; packKey: string; code: string; createdBy: string; createdAt: string; activeMapId: string | null }
 export interface Member { userId: string; name: string; role: Role }
 export interface Character { id: string; ownerUserId: string; name: string; data: CharacterData; version: number }
-export interface CharacterView extends Character { sheet: Record<string, SheetValue> }
+export interface CharacterView extends Character {
+  sheet: Record<string, SheetValue>;
+  /** Class features, species traits and picks, up to the character's level. */
+  features: (PackFeature & { from: string })[];
+  /** Actions this character cannot use (their `showIf` is 0), e.g. spell attacks for a fighter. */
+  hiddenActions: string[];
+}
 
 export interface RollBody {
   label: string;
@@ -28,7 +34,7 @@ export type LogEntry =
 /** What a roll request asks for: a free formula, a check on a character, or one of the character's actions. */
 export type RollRequest =
   | { formula: string; label?: string; characterId?: string; secret?: boolean }
-  | { characterId: string; check: { attribute: string } | { skill: string }; mode?: CheckMode; secret?: boolean }
+  | { characterId: string; check: CheckTarget; mode?: CheckMode; secret?: boolean }
   | { characterId: string; action: string; secret?: boolean };
 
 /** A battle map: a grid of `cols` × `rows` squares, optionally over an uploaded picture. */

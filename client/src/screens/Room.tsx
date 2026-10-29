@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_URL, hasSheet, type Api, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
+import { API_URL, hasSheet, type Api, type CharacterData, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
 import { useAction, useDraft, useMedia, usePoll, useRoomEvents } from '../hooks';
+import { CharacterBuilder } from '../parts/CharacterBuilder';
 import { CharacterForm } from '../parts/CharacterForm';
 import { LogView } from '../parts/LogView';
 import { MapPanel } from '../parts/MapPanel';
@@ -146,13 +147,30 @@ function Characters({ api, view, pack, reload, pull }: { api: Api; view: RoomVie
   const current = mine.find((c) => c.id === selected) ?? mine.find((c) => c.ownerUserId === view.me.userId) ?? mine[0];
   const roll = (t: RollTarget) => void rolling.run(async () => { await api.roll(view.room.id, t, secret); await pull(); });
 
+  const created = async (name: string, data: CharacterData) => {
+    const c = await api.createCharacter(view.room.id, name, data);
+    await reload(); setSelected(c.id); setEditing(null); await pull();
+  };
+  // Packs with a builder (class, species…) get the step-by-step builder; simple packs keep the one-page form.
+  if (pack.builder.length > 0 && editing === 'new') {
+    return <CharacterBuilder pack={pack} draftKey={`fateweave:builder:${view.room.id}`} onSave={created} onClose={() => setEditing(null)} />;
+  }
+  if (pack.builder.length > 0 && !current && editing !== 'edit') {
+    return (
+      <div className="empty">
+        <h2>建立你的角色</h2>
+        <p className="muted small">照{pack.manifest.name}一步一步選職業、背景、種族和屬性，角色卡會即時算好。做到一半離開也會幫你留著。</p>
+        <button className="primary" onClick={() => setEditing('new')}>開始建立角色</button>
+      </div>
+    );
+  }
   if (editing === 'new' || (!current && editing !== 'edit')) {
     return (
       <div className="stack">
         <h2>建立角色</h2>
         {!current && <p className="muted small">照{pack.manifest.name}的規則分配點數。數字會即時算出來；做到一半離開也會幫你留著。</p>}
         <CharacterForm pack={pack} creating draftKey={`fateweave:new-character:${view.room.id}`} onCancel={current ? () => setEditing(null) : undefined}
-          onSave={async (name, data) => { const c = await api.createCharacter(view.room.id, name, data); await reload(); setSelected(c.id); setEditing(null); await pull(); }} />
+          onSave={created} />
       </div>
     );
   }

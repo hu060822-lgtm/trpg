@@ -1,0 +1,112 @@
+{
+  "list": [
+    {
+      "id": "acrobatics",
+      "name": "特技",
+      "attribute": "dex",
+      "description": "翻滾、保持平衡、從擒抱中靈巧掙脫。"
+    },
+    {
+      "id": "animal_handling",
+      "name": "馴獸",
+      "attribute": "wis",
+      "description": "安撫動物、騎乘時控制坐騎、察覺動物的意圖。"
+    },
+    {
+      "id": "arcana",
+      "name": "奧秘",
+      "attribute": "int",
+      "description": "回想法術、魔法物品、異界與魔法傳統的知識。"
+    },
+    {
+      "id": "athletics",
+      "name": "運動",
+      "attribute": "str",
+      "description": "攀爬、跳躍、游泳、擒抱與推撞。"
+    },
+    {
+      "id": "deception",
+      "name": "欺瞞",
+      "attribute": "cha",
+      "description": "說謊、偽裝身分、讓人相信假話。"
+    },
+    {
+      "id": "history",
+      "name": "歷史",
+      "attribute": "int",
+      "description": "回想歷史事件、古代王國、戰爭與傳說人物。"
+    },
+    {
+      "id": "insight",
+      "name": "洞悉",
+      "attribute": "wis",
+      "description": "看穿對方的真意、察覺說謊或隱藏的情緒。"
+    },
+    {
+      "id": "intimidation",
+      "name": "威嚇",
+      "attribute": "cha",
+      "description": "用威脅、敵意或武力暗示讓人就範。"
+    },
+    {
+      "id": "investigation",
+      "name": "調查",
+      "attribute": "int",
+      "description": "搜尋線索、推敲細節、找出機關的原理。"
+    },
+    {
+      "id": "medicine",
+      "name": "醫藥",
+      "attribute": "wis",
+      "description": "穩定垂死的同伴、診斷疾病。"
+    },
+    {
+      "id": "nature",
+      "name": "自然",
+      "attribute": "int",
+      "description": "回想地形、動植物、天氣與自然循環的知識。"
+    },
+    {
+      "id": "perception",
+      "name": "察覺",
+      "attribute": "wis",
+      "description": "用感官注意到周遭的動靜、埋伏或隱藏物品。"
+    },
+    {
+      "id": "performance",
+      "name": "表演",
+      "attribute": "cha",
+      "description": "演奏、唱歌、說故事，讓觀眾投入。"
+    },
+    {
+      "id": "persuasion",
+      "name": "說服",
+      "attribute": "cha",
+      "description": "用誠意、禮節或好話影響他人。"
+    },
+    {
+      "id": "religion",
+      "name": "宗教",
+      "attribute": "int",
+      "description": "回想神祇、儀式、宗教組織與聖物的知識。"
+    },
+    {
+      "id": "sleight_of_hand",
+      "name": "巧手",
+      "attribute": "dex",
+      "description": "扒竊、藏東西、變戲法。"
+    },
+    {
+      "id": "stealth",
+      "name": "隱匿",
+      "attribute": "dex",
+      "description": "不被發現地移動或躲藏。"
+    },
+    {
+      "id": "survival",
+      "name": "求生",
+      "attribute": "wis",
+      "description": "追蹤足跡、找路、狩獵、預測天氣。"
+    }
+  ]
+}

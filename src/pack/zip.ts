@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { unzipSync } from 'fflate';
-import { buildPack, PackError, type Pack, type PackFile } from './pack';
+import { buildPack, PackError, type Pack, type PackFile, type PackFiles } from './pack';
 
 export const ZIP_LIMITS = { bytes: 5 * 1024 * 1024, unpacked: 20 * 1024 * 1024, files: 500 };
 
@@ -10,6 +10,11 @@ export const ZIP_LIMITS = { bytes: 5 * 1024 * 1024, unpacked: 20 * 1024 * 1024, 
  * allowed and ignored for now. Anything that could run, and any path that climbs out of the zip, is refused.
  */
 export function readPackZip(zip: Uint8Array): Pack {
+  return buildPack(readPackZipFiles(zip));
+}
+
+/** The parsed JSON files of a pack zip, before they are checked; an add-on is merged with its base pack first. */
+export function readPackZipFiles(zip: Uint8Array): PackFiles {
   if (zip.byteLength > ZIP_LIMITS.bytes) throw problem('', `檔案太大（上限 ${ZIP_LIMITS.bytes / 1024 / 1024} MB）`);
   let total = 0, count = 0;
   let entries: Record<string, Uint8Array>;
@@ -46,14 +51,18 @@ export function readPackZip(zip: Uint8Array): Pack {
       throw problem(rel, 'JSON 格式錯誤');
     }
   }
-  return buildPack(files);
+  return files;
 }
 
 /** Loads a pack kept as a folder of JSON files, such as the built-in packs under packs/. */
 export function readPackDir(dir: string): Pack {
-  const files: Partial<Record<PackFile, unknown>> = {};
+  return buildPack(readPackDirFiles(dir));
+}
+
+export function readPackDirFiles(dir: string): PackFiles {
+  const files: PackFiles = {};
   for (const f of readdirSync(dir)) if (f.endsWith('.json')) files[f.slice(0, -5) as PackFile] = JSON.parse(readFileSync(join(dir, f), 'utf8'));
-  return buildPack(files);
+  return files;
 }
 
 function problem(file: string, message: string) {

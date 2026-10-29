@@ -36,20 +36,21 @@ export function CharacterForm({ pack, initial, creating, draftKey, onSave, onCan
   const start = (): { name: string; data: CharacterData } => {
     const d = defaults(pack);
     return initial
-      ? { name: initial.name, data: { scores: { ...d.scores, ...initial.data.scores }, ranks: { ...d.ranks, ...initial.data.ranks }, inputs: { ...d.inputs, ...initial.data.inputs } } }
+      ? { name: initial.name, data: { ...initial.data, scores: { ...d.scores, ...initial.data.scores }, ranks: { ...d.ranks, ...initial.data.ranks }, inputs: { ...d.inputs, ...initial.data.inputs } } }
       : { name: '', data: d };
   };
   const [draft, setDraft, dropDraft] = useDraft(draftKey ?? null, start);
   // A saved draft from an older version of the pack may miss attributes or skills; fill them in from the defaults.
   const base = defaults(pack);
   const name = draft.name;
-  const data: CharacterData = { scores: { ...base.scores, ...draft.data.scores }, ranks: { ...base.ranks, ...draft.data.ranks }, inputs: { ...base.inputs, ...draft.data.inputs } };
+  // Builder choices made when the character was created (class, species…) ride along untouched.
+  const data: CharacterData = { ...draft.data, scores: { ...base.scores, ...draft.data.scores }, ranks: { ...base.ranks, ...draft.data.ranks }, inputs: { ...base.inputs, ...draft.data.inputs } };
   const setName = (v: string) => setDraft((d) => ({ ...d, name: v }));
   const setData = (f: (d: CharacterData) => CharacterData) => setDraft((d) => ({ ...d, data: f(d.data) }));
   const [tried, setTried] = useState(false);
   const [nameLeft, setNameLeft] = useState(false);
   const save = useAction();
-  const set = (part: keyof CharacterData, id: string, v: number) => setData((d) => ({ ...d, [part]: { ...d[part], [id]: v } }));
+  const set = (part: 'scores' | 'ranks' | 'inputs', id: string, v: number) => setData((d) => ({ ...d, [part]: { ...d[part], [id]: v } }));
 
   const { budget, costs } = pack.creation.attributes;
   const attrSpent = pack.attributes.reduce((s, a) => s + (costs ? costs[String(data.scores[a.id])] ?? 0 : data.scores[a.id]), 0);
@@ -86,7 +87,7 @@ export function CharacterForm({ pack, initial, creating, draftKey, onSave, onCan
         <div className="form-grid">
           {pack.attributes.map((a) => (
             <div key={a.id} className="field" title={a.description}>
-              <span>{a.name}{sheet[`mod.${a.id}`] && pack.modifier !== '@score' && <small className="muted">（調整值 {fmt(sheet[`mod.${a.id}`].value)}）</small>}</span>
+              <span>{a.name}{sheet[`mod.${a.id}`] && pack.modifier !== '@score' && <small className="muted">（{sheet[`score.${a.id}`] ? `加值後 ${sheet[`score.${a.id}`].value}，` : ''}調整值 {fmt(sheet[`mod.${a.id}`].value)}）</small>}</span>
               <Stepper label={a.name} value={data.scores[a.id]} min={a.min} max={a.max}
                 onChange={(v) => { if (canBuy(v)) set('scores', a.id, v); }} />
             </div>
@@ -129,7 +130,7 @@ export function CharacterForm({ pack, initial, creating, draftKey, onSave, onCan
         <fieldset>
           <legend>自動計算</legend>
           <dl className="derived">
-            {pack.derived.map((d) => (
+            {pack.derived.filter((d) => !sheet[d.id]?.hidden).map((d) => (
               <div key={d.id}><dt>{d.label}</dt><dd><b>{fmt(sheet[d.id]?.value)}</b><small>{sheet[d.id]?.text}</small></dd></div>
             ))}
           </dl>

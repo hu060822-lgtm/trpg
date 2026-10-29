@@ -2,7 +2,8 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../persistence/drivers';
-import { readPackDir } from '../pack/zip';
+import { buildPack } from '../pack/pack';
+import { readPackDirFiles } from '../pack/zip';
 import { MapStore } from '../table/maps';
 import { TableStore } from '../table/store';
 import { Auth, type AuthOptions } from './auth';
@@ -15,7 +16,9 @@ export async function openGame(url: string, auth: AuthOptions = {}) {
   const table = await TableStore.open(db);
   if (existsSync(PACKS_DIR)) {
     for (const dir of readdirSync(PACKS_DIR, { withFileTypes: true })) {
-      if (dir.isDirectory()) await table.savePack(readPackDir(join(PACKS_DIR, dir.name)), 'system', true);
+      if (!dir.isDirectory()) continue;
+      const files = readPackDirFiles(join(PACKS_DIR, dir.name));
+      await table.savePack(buildPack(files), 'system', true, new Date(), files);
     }
   }
   return { db, table, maps: await MapStore.open(db, table), auth: await Auth.open(db, auth) };

@@ -1,6 +1,6 @@
 import express, { type Request } from 'express';
-import { PackError } from '../pack/pack';
-import { readPackZip } from '../pack/zip';
+import { buildPack, mergePackFiles, PackError } from '../pack/pack';
+import { readPackZipFiles } from '../pack/zip';
 import type { Rng } from '../rules/dice';
 import { MAP_LIMITS, type MapStore } from '../table/maps';
 import { TableError, type RollRequest, type TableStore } from '../table/store';
@@ -23,8 +23,12 @@ export function tableRoutes({ table, maps, hub, rng, now }: { table: TableStore;
   r.get('/packs/:key', async (req, res) => { res.json(await table.pack(String(req.params.key))); });
   r.post('/packs', express.raw({ type: () => true, limit: '5mb' }), async (req: Req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw new TableError(400, 'bad-request', '請上傳規則包 zip 檔');
-    const pack = readPackZip(new Uint8Array(req.body));
-    const key = await table.savePack(pack, who(req).userId, false, now());
+    let files = readPackZipFiles(new Uint8Array(req.body));
+    // An add-on names the pack it extends; it becomes a new pack made of both, so rooms pick it like any other.
+    const base = (files.manifest as { extends?: unknown } | undefined)?.extends;
+    if (typeof base === 'string') files = mergePackFiles(await table.packFiles(base), files, base);
+    const pack = buildPack(files);
+    const key = await table.savePack(pack, who(req).userId, false, now(), files);
     res.status(201).json({ key, name: pack.manifest.name });
   });
 

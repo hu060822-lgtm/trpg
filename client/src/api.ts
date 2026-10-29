@@ -1,18 +1,16 @@
-import type { CharacterData, CheckMode, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
-import type { Character, LogEntry, MapInfo, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
+import type { CharacterData, CheckMode, CheckTarget, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
+import type { Character, CharacterView, LogEntry, MapInfo, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
 
-export type { CharacterData, CheckMode, LogEntry, MapInfo, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
+export type { CharacterData, CharacterView, CheckMode, CheckTarget, LogEntry, MapInfo, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
 
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
 
 export type RoomListItem = Room & { role: Role; packName: string };
-/** Your own characters (and every character, for a GM) come with the sheet the server worked out. */
-export type CharacterView = Character & { sheet: Record<string, SheetValue> };
 export type CharacterRef = Pick<Character, 'id' | 'ownerUserId' | 'name'>;
 export interface RoomView { room: Room; me: Member; members: Member[]; characters: (CharacterView | CharacterRef)[]; pack: PackSummary }
 export type RollTarget =
   | { formula: string; label?: string; characterId?: string }
-  | { characterId: string; check: { attribute: string } | { skill: string }; mode?: CheckMode }
+  | { characterId: string; check: CheckTarget; mode?: CheckMode }
   | { characterId: string; action: string };
 
 export const hasSheet = (c: CharacterView | CharacterRef): c is CharacterView => 'sheet' in c;

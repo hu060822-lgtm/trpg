@@ -36,7 +36,7 @@ npm run admin                    # 管理指令：規則包、發 token
 - 建立房間的人是 GM。GM 可以把其他成員設成 GM，房間至少留一位 GM。
 - 其他人用 6 碼加入代碼進房，進來是玩家。
 - 只有成員看得到房間。玩家看得到自己角色的完整角色卡，別人的角色只看得到名字；GM 全部看得到。
-- 角色卡的數字全部在伺服器上照規則包算，玩家只送自己選的屬性、技能等級和輸入欄位。建立角色時會檢查創角點數。修改角色要帶版本號，被別人改過就回 409。
+- 角色卡的數字全部在伺服器上照規則包算，玩家只送自己選的屬性、技能等級、輸入欄位和建立器的選擇。建立角色時會檢查創角點數、屬性決定方式和建立器的每個選擇。修改角色要帶版本號，被別人改過就回 409。
 - 骰子只在伺服器擲。只有角色的擁有者或 GM 能替那個角色擲骰。`/gr` 的結果只有 GM 和擲骰的人看得到。
 - 聊天和擲骰都要帶 `requestId`，網路不穩重送時不會說兩次或擲兩次。
 
@@ -48,7 +48,7 @@ npm run admin                    # 管理指令：規則包、發 token
 | GET | `/api/me` | 我的使用者 ID 和名字 |
 | GET | `/api/packs` | 規則包列表 |
 | GET | `/api/packs/:key` | 規則包內容（`key` 是 `id@version`） |
-| POST | `/api/packs` | 上傳規則包 zip（request body 就是 zip 檔），有問題時回 400 並附 `problems` |
+| POST | `/api/packs` | 上傳規則包 zip（request body 就是 zip 檔），有問題時回 400 並附 `problems`。追加包（`manifest.extends`）會跟原本的規則包合併成新的規則包；原本的不存在時回 404 |
 | GET | `/api/rooms` | 我加入的房間 |
 | POST | `/api/rooms` | 開房間（`{ name, pack }`） |
 | POST | `/api/rooms/join` | 用代碼加入（`{ code }`） |
@@ -56,8 +56,8 @@ npm run admin                    # 管理指令：規則包、發 token
 | GET | `/api/rooms/:id/log?after=<seq>` | 這個序號之後的紀錄 |
 | POST | `/api/rooms/:id/members/:userId` | 限 GM：設定身分（`{ role: "gm" | "player" }`） |
 | POST | `/api/rooms/:id/chat` | 說話（`{ text, requestId }`）；`/r 2d6+1` 擲骰，`/gr …` 暗骰 |
-| POST | `/api/rooms/:id/rolls` | 擲骰（`{ requestId, formula }`、`{ requestId, characterId, check: { skill } 或 { attribute }, mode }`、或 `{ requestId, characterId, action }`） |
-| POST | `/api/rooms/:id/characters` | 建立角色（`{ name, data: { scores, ranks, inputs } }`） |
+| POST | `/api/rooms/:id/rolls` | 擲骰（`{ requestId, formula }`、`{ requestId, characterId, check: { skill }、{ attribute } 或 { attribute, extra }（例如豁免）, mode }`、或 `{ requestId, characterId, action }`） |
+| POST | `/api/rooms/:id/characters` | 建立角色（`{ name, data: { scores, ranks, inputs, method?, choices?, picks? } }`；`choices` 是每一步選的選項，`picks` 的 key 是 `步驟.細項`）。回傳的角色卡另外有 `features`（到目前等級為止的特性）和 `hiddenActions` |
 | PATCH | `/api/rooms/:id/characters/:cid` | 修改角色（`{ version, name?, data? }`） |
 | GET | `/api/rooms/:id/maps` | 地圖列表和玩家目前看到的地圖（玩家只拿到打開的那張） |
 | POST | `/api/rooms/:id/maps` | 限 GM：新地圖（`{ name, cols, rows }`，最多 100×100 格）；房間的第一張地圖會自動打開 |

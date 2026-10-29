@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { evaluate, ExprError, type Evaluation } from '../pack/expr';
 import {
   checkFormula, computeSheet, labeller, natural, rollOnSheet, validateCharacter,
-  type CharacterData, type CheckMode, type Pack, type SheetValue,
+  type CharacterData, type CheckMode, type Pack, type PackFiles, type SheetValue,
 } from '../pack/pack';
 import type { Database } from '../persistence/db';
 import type { Rng } from '../rules/dice';
@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS room_requests (
   PRIMARY KEY (room_id, request_id)
 );
 ALTER TABLE rooms ADD COLUMN IF NOT EXISTS active_map_id TEXT;
+ALTER TABLE packs ADD COLUMN IF NOT EXISTS files TEXT;
 CREATE OR REPLACE TRIGGER room_log_append_only BEFORE UPDATE OR DELETE ON room_log
 FOR EACH ROW EXECUTE FUNCTION fw_forbid('the room log is append-only');
 `;
@@ -98,20 +99,30 @@ export class TableStore {
   // ---------- packs ----------
 
   /** Built-in packs are refreshed on every start; uploaded ones are immutable, so a room never changes under its players. */
-  async savePack(pack: Pack, userId: string, builtin: boolean, now = new Date()): Promise<string> {
+  /** Saves a checked pack. `files` are the JSON files it was built from, kept so add-ons can be laid over it later. */
+  async savePack(pack: Pack, userId: string, builtin: boolean, now = new Date(), files?: PackFiles): Promise<string> {
     const key = `${pack.manifest.id}@${pack.manifest.version}`;
     const content = JSON.stringify(pack);
+    const raw = files ? JSON.stringify(files) : null;
     if (builtin) {
-      await this.db.run(`INSERT INTO packs (key, id, version, name, content, builtin, uploaded_by, created_at) VALUES ($1, $2, $3, $4, $5, true, $6, $7)
-        ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, name = EXCLUDED.name, builtin = true`,
-      [key, pack.manifest.id, pack.manifest.version, pack.manifest.name, content, userId, now.toISOString()]);
+      await this.db.run(`INSERT INTO packs (key, id, version, name, content, builtin, uploaded_by, created_at, files) VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8)
+        ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, name = EXCLUDED.name, builtin = true, files = EXCLUDED.files`,
+      [key, pack.manifest.id, pack.manifest.version, pack.manifest.name, content, userId, now.toISOString(), raw]);
     } else {
-      const added = await this.db.run(`INSERT INTO packs (key, id, version, name, content, builtin, uploaded_by, created_at) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
-        ON CONFLICT DO NOTHING`, [key, pack.manifest.id, pack.manifest.version, pack.manifest.name, content, userId, now.toISOString()]);
+      const added = await this.db.run(`INSERT INTO packs (key, id, version, name, content, builtin, uploaded_by, created_at, files) VALUES ($1, $2, $3, $4, $5, false, $6, $7, $8)
+        ON CONFLICT DO NOTHING`, [key, pack.manifest.id, pack.manifest.version, pack.manifest.name, content, userId, now.toISOString(), raw]);
       if (!added) throw new TableError(409, 'pack-exists', `規則包 ${pack.manifest.id} ${pack.manifest.version} 已經存在；修改內容後請把 manifest.json 的 version 加一`);
     }
     this.packs.set(key, pack);
     return key;
+  }
+
+  /** The source files of a pack, for laying an add-on over it. */
+  async packFiles(key: string): Promise<PackFiles> {
+    const row = await this.db.one<{ files: string | null }>('SELECT files FROM packs WHERE key = $1', [key]);
+    if (!row) throw new TableError(404, 'not-found', `找不到要擴充的規則包 ${key}；請先匯入它，或檢查 manifest.json 的 extends`);
+    if (!row.files) throw new TableError(400, 'bad-request', `規則包 ${key} 是舊版匯入的，沒有保存原始檔案，請重新匯入它的新版本再擴充`);
+    return JSON.parse(row.files) as PackFiles;
   }
 
   async listPacks(): Promise<PackSummary[]> {
@@ -194,7 +205,7 @@ export class TableStore {
     const members = (await this.db.query<{ user_id: string; name: string; role: Role }>('SELECT user_id, name, role FROM room_members WHERE room_id = $1 ORDER BY joined_at', [roomId]))
       .map((m): Member => ({ userId: m.user_id, name: m.name, role: m.role }));
     const characters = (await this.characters(roomId)).map((c): CharacterView | Pick<Character, 'id' | 'ownerUserId' | 'name'> =>
-      me.role === 'gm' || c.ownerUserId === userId ? { ...c, sheet: computeSheet(pack, c.data).shown } : { id: c.id, ownerUserId: c.ownerUserId, name: c.name });
+      me.role === 'gm' || c.ownerUserId === userId ? sheetOf(pack, c) : { id: c.id, ownerUserId: c.ownerUserId, name: c.name });
     return { room: roomOf(row!), me, members, characters, pack: await this.packSummary(row!.pack_key) };
   }
 
@@ -254,7 +265,8 @@ export class TableStore {
         const name = 'skill' in req.check ? pack.skills.find((s) => s.id === (req.check as { skill: string }).skill)!.name
           : pack.attributes.find((a) => a.id === (req.check as { attribute: string }).attribute)!.name;
         const mode = req.mode === 'advantage' ? '（優勢）' : req.mode === 'disadvantage' ? '（劣勢）' : '';
-        body = { label: `${who}${name}檢定${mode}`, text: r.text, total: r.total, natural: natural(pack, r) };
+        const extra = 'extra' in req.check && req.check.extra ? pack.checks.extra?.find((x) => x.id === (req.check as { extra: string }).extra)?.label : undefined;
+        body = { label: `${who}${name}${extra ?? '檢定'}${mode}`, text: r.text, total: r.total, natural: natural(pack, r) };
       } else {
         const r = run(text(req.formula, 200, '公式'));
         body = { label: `${who}${req.label ? text(req.label, 40, '說明') : '擲骰'}`, text: r.text, total: r.total };
@@ -367,6 +379,11 @@ export class TableStore {
 interface RoomRow { id: string; name: string; pack_key: string; code: string; created_by: string; created_at: string; active_map_id: string | null }
 interface CharacterRow { id: string; owner_user_id: string; name: string; data: string; version: number }
 
+function sheetOf(pack: Pack, c: Character): CharacterView {
+  const s = computeSheet(pack, c.data);
+  return { ...c, sheet: s.shown, features: s.features, hiddenActions: s.hiddenActions };
+}
+
 const roomOf = (r: RoomRow): Room => ({ id: r.id, name: r.name, packKey: r.pack_key, code: r.code, createdBy: r.created_by, createdAt: r.created_at, activeMapId: r.active_map_id ?? null });
 
 function roomCode() {
@@ -385,5 +402,18 @@ function cleanData(d: unknown): CharacterData {
   const part = (v: unknown) => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {})
     .filter(([k, n]) => /^[a-z][a-z0-9_]{0,31}$/.test(k) && typeof n === 'number' && Number.isFinite(n)));
   const o = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
-  return { scores: part(o.scores), ranks: part(o.ranks), inputs: part(o.inputs) };
+  const id = (k: string) => /^[a-z][a-z0-9_]{0,31}$/.test(k);
+  const choices = Object.fromEntries(Object.entries(o.choices && typeof o.choices === 'object' ? o.choices : {})
+    .filter(([k, v]) => id(k) && typeof v === 'string' && id(v)));
+  const picks = Object.fromEntries(Object.entries(o.picks && typeof o.picks === 'object' ? o.picks : {}).flatMap(([k, v]) => {
+    if (!/^[a-z][a-z0-9_]{0,31}\.[a-z][a-z0-9_]{0,31}$/.test(k)) return [];
+    if (Array.isArray(v)) return [[k, v.filter((x): x is string => typeof x === 'string' && id(x)).slice(0, 40)]];
+    return v && typeof v === 'object' ? [[k, part(v)]] : [];
+  }));
+  return {
+    scores: part(o.scores), ranks: part(o.ranks), inputs: part(o.inputs),
+    ...(typeof o.method === 'string' && id(o.method) ? { method: o.method } : {}),
+    ...(Object.keys(choices).length ? { choices } : {}),
+    ...(Object.keys(picks).length ? { picks } : {}),
+  };
 }
