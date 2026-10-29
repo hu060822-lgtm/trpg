@@ -39,6 +39,11 @@ export function tableRoutes({ table, maps, encounters, hub, rng, now }: { table:
   });
   r.post('/rooms/join', async (req: Req, res) => { res.json(await table.join(who(req).userId, nameOf(req), req.body?.code, now())); });
   r.get('/rooms/:id', async (req: Req, res) => { res.json(await table.view(String(req.params.id), who(req).userId)); });
+  r.delete('/rooms/:id', async (req: Req, res) => {
+    await table.deleteRoom(room(req), who(req).userId, req.body?.confirm);
+    hub.publish(room(req), { type: 'room' });
+    res.json({ ok: true });
+  });
   r.get('/rooms/:id/log', async (req: Req, res) => {
     res.json(await table.log(String(req.params.id), who(req).userId, Number(req.query.after ?? 0) || 0));
   });
@@ -140,6 +145,20 @@ export function tableRoutes({ table, maps, encounters, hub, rng, now }: { table:
     const t = await maps.updateToken(room(req), who(req).userId, String(req.params.tid), body);
     changed(req, t.mapId);
     res.json(t);
+  });
+  r.put('/rooms/:id/tokens/:tid/image', express.raw({ type: () => true, limit: MAP_LIMITS.tokenImageBytes }), async (req: Req, res) => {
+    const t = await maps.setTokenImage(room(req), who(req).userId, String(req.params.tid), String(req.get('content-type') ?? '').split(';')[0], Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+    changed(req, t.mapId);
+    res.json(t);
+  });
+  r.delete('/rooms/:id/tokens/:tid/image', async (req: Req, res) => {
+    const t = await maps.setTokenImage(room(req), who(req).userId, String(req.params.tid), '', null);
+    changed(req, t.mapId);
+    res.json(t);
+  });
+  r.get('/rooms/:id/tokens/:tid/image', async (req: Req, res) => {
+    const img = await maps.tokenImage(room(req), who(req).userId, String(req.params.tid));
+    res.set({ 'content-type': img.type, 'cache-control': 'private, max-age=86400' }).send(img.bytes);
   });
   r.delete('/rooms/:id/tokens/:tid', async (req: Req, res) => {
     changed(req, await maps.removeToken(room(req), who(req).userId, String(req.params.tid)));

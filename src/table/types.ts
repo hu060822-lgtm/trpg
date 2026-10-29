@@ -69,6 +69,8 @@ export interface Token {
   hidden: boolean;
   /** Height above the ground, in the map's unit (flying, on a ledge). */
   elevation: number;
+  /** 0 when the token has no picture; goes up each time a new one is set. */
+  imageVersion: number;
 }
 /** Scenery the GM lays out on a map: walls, doors, furniture, traps. The client draws each kind. */
 export const MAP_OBJECT_KINDS = [

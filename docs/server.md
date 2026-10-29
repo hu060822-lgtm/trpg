@@ -22,7 +22,7 @@ npm run admin                    # 管理指令：規則包、發 token
 
 - 正式環境用 Supabase 的 PostgreSQL；本機與測試用 PGlite，兩邊跑同一套 SQL。
 - 伺服器啟動時自動建表，並載入 `packs/` 裡的內建規則包。
-- 房間紀錄只增不改，由資料庫觸發器保證。
+- 房間紀錄和戰鬥紀錄只增不改，由資料庫觸發器保證。唯一的例外是 GM 刪除整個房間：那個交易會先設 `fateweave.purge`，觸發器才放行刪除。
 - 測試預設用 PGlite。設定 `TEST_DATABASE_URL=postgres://…` 時改在真的 PostgreSQL 上跑。
 
 ## 帳號
@@ -71,6 +71,9 @@ npm run admin                    # 管理指令：規則包、發 token
 | PATCH | `/api/rooms/:id/tokens/:tid` | 移動或修改代幣。擁有者可以移動、改名、改顏色；只有 GM 能改大小和隱藏 |
 | DELETE | `/api/rooms/:id/tokens/:tid` | 擁有者或 GM 移除代幣 |
 | POST | `/api/rooms/:id/maps/:mid/objects` | 限 GM：放場景物件（`{ kind, x, y, w?, h?, rotation?, name?, hidden? }`）。`kind` 是 `wall`、`door`、`window`、`pillar`、`stairs`、`rubble`、`table`、`chair`、`bed`、`chest`、`barrel`、`crate`、`bookshelf`、`altar`、`statue`、`tree`、`bush`、`rock`、`water`、`fire`、`trap`、`label` 之一；一張地圖最多 500 個。玩家拿不到隱藏的物件，和整個都在迷霧裡的物件 |
+| DELETE | `/api/rooms/:id` | 限 GM：刪除整個房間（`{ confirm: 房間名稱 }`，名稱要完全一樣）。成員、角色卡、紀錄、地圖、代幣圖片、戰鬥全部刪除，救不回來 |
+| PUT / DELETE | `/api/rooms/:id/tokens/:tid/image` | 代幣圖片：代幣的主人或 GM 上傳（PNG、JPEG、WebP、GIF，512 KB 以內；網頁版會先裁成 256×256）或拿掉。代幣的 `imageVersion` 每換一次加一，0 是沒有圖片 |
+| GET | `/api/rooms/:id/tokens/:tid/image` | 看得到這個代幣的人才拿得到圖片（隱藏或在迷霧裡的代幣，玩家拿不到） |
 | PATCH / DELETE | `/api/rooms/:id/objects/:oid` | 限 GM：移動、改大小、旋轉（0／90／180／270）、改名、隱藏，或移除物件 |
 | GET | `/api/rooms/:id/encounter` | 目前的戰鬥（玩家看不到隱藏的生物和敵人的確切生命）、戰鬥紀錄和帶到下一場的生命值 |
 | POST | `/api/rooms/:id/encounter` | 限 GM：開始戰鬥（`{ entries?, template?: { id, x, y }, mode?, autoNpc?, showFoeHp? }`）。一個房間同時只有一場 |

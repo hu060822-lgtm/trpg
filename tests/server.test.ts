@@ -412,6 +412,39 @@ describe('maps', () => {
     expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}`)).body.room.activeMapId).toBeNull();
   });
 
+  it('gives a token a picture that only those who see the token can fetch', async () => {
+    const { room, url, hero } = await mapTable();
+    const mine = (await call(tok.p1, 'POST', `${url}/tokens`, { characterId: hero.id, x: 1, y: 1 })).body;
+    const secret = (await call(tok.gm, 'POST', `${url}/tokens`, { name: '刺客', x: 3, y: 3, hidden: true })).body;
+    expect(mine.imageVersion).toBe(0);
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const put = (who: string, id: string, body: typeof png | string, type = 'image/png') => fetch(base + `/api/rooms/${room.id}/tokens/${id}/image`, { method: 'PUT', headers: { authorization: `Bearer ${who}`, 'content-type': type }, body });
+    const up = await put(tok.p1, mine.id, png);
+    expect((await up.json() as any).imageVersion).toBe(1);
+    expect((await put(tok.p1, secret.id, png)).status).toBe(403);
+    expect((await put(tok.p1, mine.id, '<svg onload=alert(1)>', 'image/svg+xml')).status).toBe(400);
+    expect((await put(tok.gm, secret.id, png)).status).toBe(200);
+    const got = await fetch(base + `/api/rooms/${room.id}/tokens/${mine.id}/image`, { headers: { authorization: `Bearer ${tok.gm}` } });
+    expect(Buffer.from(await got.arrayBuffer())).toEqual(png);
+    // A player cannot read a hidden token's picture, which would give the token away.
+    expect((await fetch(base + `/api/rooms/${room.id}/tokens/${secret.id}/image`, { headers: { authorization: `Bearer ${tok.p1}` } })).status).toBe(404);
+    const view = (await call(tok.p1, 'GET', url)).body;
+    expect(view.tokens.find((t: any) => t.id === mine.id).imageVersion).toBe(1);
+    expect((await call(tok.p1, 'DELETE', `/api/rooms/${room.id}/tokens/${mine.id}/image`)).body.imageVersion).toBe(0);
+  });
+
+  it('lets a GM delete the whole room after typing its name', async () => {
+    const { room, url } = await mapTable();
+    await call(tok.p1, 'POST', `/api/rooms/${room.id}/chat`, { requestId: rid(), text: '再見了' });
+    await call(tok.gm, 'POST', `${url}/tokens`, { name: '哥布林', x: 3, y: 3 });
+    expect((await call(tok.p1, 'DELETE', `/api/rooms/${room.id}`, { confirm: room.name })).status).toBe(403);
+    expect((await call(tok.gm, 'DELETE', `/api/rooms/${room.id}`, { confirm: '別的名字' })).status).toBe(400);
+    expect((await call(tok.gm, 'DELETE', `/api/rooms/${room.id}`, { confirm: room.name })).status).toBe(200);
+    expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}`)).status).toBe(404);
+    expect((await call(tok.p1, 'GET', '/api/rooms')).body.map((r: any) => r.id)).not.toContain(room.id);
+    expect((await call(tok.p1, 'POST', '/api/rooms/join', { code: room.code })).status).toBe(404);
+  });
+
   it('tells members watching the room what changed, over a WebSocket', async () => {
     const { room, url } = await mapTable();
     const ws = new WebSocket(base.replace('http', 'ws') + '/ws');
@@ -463,6 +496,9 @@ describe('interactive combat', () => {
     const requestId = rid();
     const rolled = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
     expect(rolled.body.encounter.status).toBe('active');
+    // The roll carries the die as it landed, so the dice tray can land on the same face.
+    const init = rolled.body.events.find((e: any) => e.kind === 'initiative' && e.text.startsWith('索林'));
+    expect(init.data.dice).toEqual([{ sides: 20, value: 10, kept: true }]);
     // A resend changes nothing.
     const again = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
     expect(again.body.encounter.seq).toBe(rolled.body.encounter.seq);
@@ -489,6 +525,14 @@ describe('interactive combat', () => {
     expect(ended.body.vitals).toHaveProperty(Object.values(enc.combatants as Record<string, any>).find((c) => c.characterId)!.characterId);
     // After the fight the token moves freely again.
     expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${token.id}`, { x: 11, y: 0 })).body).toMatchObject({ x: 11, y: 0 });
+  });
+
+  it('deleting a room also removes its fight, even though fight records never change otherwise', async () => {
+    const { room, token, url } = await arena();
+    await call(tok.gm, 'POST', url, { entries: [{ tokenId: token.id }], template: { id: 'goblin_ambush', x: 6, y: 3 }, mode: 'quick' });
+    expect((await call(tok.gm, 'GET', url)).body.events.length).toBeGreaterThan(3);
+    expect((await call(tok.gm, 'DELETE', `/api/rooms/${room.id}`, { confirm: room.name })).status).toBe(200);
+    expect((await call(tok.gm, 'GET', url)).status).toBe(404);
   });
 
   it('keeps each player’s combat settings and the room’s own bullet patterns', async () => {

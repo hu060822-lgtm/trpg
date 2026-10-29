@@ -344,6 +344,132 @@
         150,
         600
       ]
+    },
+    {
+      "id": "sickle",
+      "label": "鐮刀",
+      "ability": "str",
+      "damage": "1d4",
+      "damageType": "揮砍",
+      "interaction": "slash"
+    },
+    {
+      "id": "light_hammer",
+      "label": "輕錘",
+      "ability": "str",
+      "damage": "1d4",
+      "damageType": "鈍擊",
+      "interaction": "slash"
+    },
+    {
+      "id": "war_pick",
+      "label": "戰鎬",
+      "ability": "str",
+      "damage": "1d8",
+      "damageType": "穿刺",
+      "interaction": "slash"
+    },
+    {
+      "id": "dart",
+      "label": "飛鏢",
+      "ability": "finesse",
+      "damage": "1d4",
+      "damageType": "穿刺",
+      "interaction": "draw",
+      "range": [
+        20,
+        60
+      ]
+    },
+    {
+      "id": "sling",
+      "label": "投石索",
+      "ability": "dex",
+      "damage": "1d4",
+      "damageType": "鈍擊",
+      "interaction": "draw",
+      "range": [
+        30,
+        120
+      ]
+    },
+    {
+      "id": "blowgun",
+      "label": "吹箭筒",
+      "ability": "dex",
+      "damage": "1",
+      "damageType": "穿刺",
+      "interaction": "draw",
+      "range": [
+        25,
+        100
+      ]
+    },
+    {
+      "id": "katana",
+      "label": "太刀（同長劍）",
+      "ability": "str",
+      "damage": "1d8",
+      "damageType": "揮砍",
+      "interaction": "slash"
+    },
+    {
+      "id": "nunchaku",
+      "label": "雙節棍（同彎刀）",
+      "ability": "finesse",
+      "damage": "1d6",
+      "damageType": "鈍擊",
+      "interaction": "sweep"
+    },
+    {
+      "id": "tonfa",
+      "label": "拐（同硬頭錘）",
+      "ability": "str",
+      "damage": "1d6",
+      "damageType": "鈍擊",
+      "interaction": "thrust"
+    },
+    {
+      "id": "kusarigama",
+      "label": "鎖鐮（同長鞭）",
+      "ability": "finesse",
+      "damage": "1d4",
+      "damageType": "揮砍",
+      "interaction": "sweep",
+      "reach": 10
+    },
+    {
+      "id": "war_scythe",
+      "label": "戰鐮（同長柄刀）",
+      "ability": "str",
+      "damage": "1d10",
+      "damageType": "揮砍",
+      "interaction": "sweep",
+      "reach": 10
+    },
+    {
+      "id": "throwing_knives",
+      "label": "飛刀（同飛鏢）",
+      "ability": "finesse",
+      "damage": "1d4",
+      "damageType": "穿刺",
+      "interaction": "draw",
+      "range": [
+        20,
+        60
+      ]
+    },
+    {
+      "id": "chakram",
+      "label": "戰輪（同手弩）",
+      "ability": "dex",
+      "damage": "1d6",
+      "damageType": "揮砍",
+      "interaction": "draw",
+      "range": [
+        30,
+        120
+      ]
     }
   ],
   "spells": [
@@ -478,8 +604,7 @@
           "label": "彎刀",
           "bonus": 4,
           "damage": "1d6+2",
-          "damageType": "揮砍",
-          "pattern": "thread-fan"
+          "damageType": "揮砍"
         },
         {
           "id": "shortbow",
@@ -490,9 +615,13 @@
           "range": [
             80,
             320
-          ],
-          "pattern": "snipe"
+          ]
         }
+      ],
+      "patterns": [
+        "thread-fan",
+        "shuttle",
+        "cross-stitch"
       ]
     },
     {
@@ -510,8 +639,7 @@
           "label": "短劍",
           "bonus": 4,
           "damage": "1d6+2",
-          "damageType": "穿刺",
-          "pattern": "snipe"
+          "damageType": "穿刺"
         },
         {
           "id": "shortbow",
@@ -522,9 +650,13 @@
           "range": [
             80,
             320
-          ],
-          "pattern": "needle-rain"
+          ]
         }
+      ],
+      "patterns": [
+        "snipe",
+        "bone-rattle",
+        "needle-volley"
       ]
     },
     {
@@ -545,9 +677,13 @@
           "label": "重擊",
           "bonus": 3,
           "damage": "1d6+1",
-          "damageType": "鈍擊",
-          "pattern": "loom-wall"
+          "damageType": "鈍擊"
         }
+      ],
+      "patterns": [
+        "loom-wall",
+        "rot-tide",
+        "hem"
       ]
     },
     {
@@ -565,9 +701,13 @@
           "label": "啃咬",
           "bonus": 4,
           "damage": "2d4+2",
-          "damageType": "穿刺",
-          "pattern": "thread-fan"
+          "damageType": "穿刺"
         }
+      ],
+      "patterns": [
+        "thread-fan",
+        "wolf-pack",
+        "frayed"
       ]
     },
     {
@@ -585,8 +725,7 @@
           "label": "彎刀",
           "bonus": 3,
           "damage": "1d6+1",
-          "damageType": "揮砍",
-          "pattern": "thread-fan"
+          "damageType": "揮砍"
         },
         {
           "id": "light_crossbow",
@@ -597,9 +736,13 @@
           "range": [
             80,
             320
-          ],
-          "pattern": "snipe"
+          ]
         }
+      ],
+      "patterns": [
+        "thread-fan",
+        "tangle",
+        "sickle-moon"
       ]
     },
     {
@@ -617,9 +760,13 @@
           "label": "矛",
           "bonus": 3,
           "damage": "1d6+1",
-          "damageType": "穿刺",
-          "pattern": "snipe"
+          "damageType": "穿刺"
         }
+      ],
+      "patterns": [
+        "snipe",
+        "weave-gate",
+        "lattice"
       ]
     },
     {
@@ -637,9 +784,13 @@
           "label": "彎刀",
           "bonus": 3,
           "damage": "1d6+1",
-          "damageType": "揮砍",
-          "pattern": "ring-burst"
+          "damageType": "揮砍"
         }
+      ],
+      "patterns": [
+        "ring-burst",
+        "cult-sigil",
+        "bobbin"
       ]
     },
     {
@@ -657,8 +808,7 @@
           "label": "啃咬",
           "bonus": 5,
           "damage": "1d8+3",
-          "damageType": "穿刺",
-          "pattern": "spiral"
+          "damageType": "穿刺"
         },
         {
           "id": "web",
@@ -672,6 +822,11 @@
           ],
           "pattern": "loom-wall"
         }
+      ],
+      "patterns": [
+        "spiral",
+        "web-snare",
+        "knot-bloom"
       ]
     },
     {
@@ -689,8 +844,7 @@
           "label": "釘頭錘",
           "bonus": 4,
           "damage": "2d8+2",
-          "damageType": "穿刺",
-          "pattern": "loom-wall"
+          "damageType": "穿刺"
         },
         {
           "id": "javelin",
@@ -701,9 +855,13 @@
           "range": [
             30,
             120
-          ],
-          "pattern": "snipe"
+          ]
         }
+      ],
+      "patterns": [
+        "loom-wall",
+        "warp-weft",
+        "tassel"
       ]
     },
     {
@@ -721,8 +879,7 @@
           "label": "巨棍",
           "bonus": 6,
           "damage": "2d8+4",
-          "damageType": "鈍擊",
-          "pattern": "loom-wall"
+          "damageType": "鈍擊"
         },
         {
           "id": "javelin",
@@ -733,9 +890,13 @@
           "range": [
             30,
             120
-          ],
-          "pattern": "snipe"
+          ]
         }
+      ],
+      "patterns": [
+        "loom-wall",
+        "ogre-quake",
+        "whirl"
       ]
     },
     {
@@ -759,17 +920,20 @@
           "label": "彎刀",
           "bonus": 5,
           "damage": "1d6+3",
-          "damageType": "揮砍",
-          "pattern": "thread-fan"
+          "damageType": "揮砍"
         },
         {
           "id": "dagger",
           "label": "匕首",
           "bonus": 5,
           "damage": "1d4+3",
-          "damageType": "穿刺",
-          "pattern": "snipe"
+          "damageType": "穿刺"
         }
+      ],
+      "patterns": [
+        "thread-fan",
+        "feint",
+        "frayed"
       ]
     },
     {
@@ -795,16 +959,14 @@
           "bonus": 10,
           "damage": "2d10+6+1d6",
           "damageType": "穿刺與火焰",
-          "reach": 10,
-          "pattern": "dragon-claw"
+          "reach": 10
         },
         {
           "id": "claw",
           "label": "爪擊",
           "bonus": 10,
           "damage": "2d6+6",
-          "damageType": "揮砍",
-          "pattern": "dragon-claw"
+          "damageType": "揮砍"
         },
         {
           "id": "breath",
@@ -824,14 +986,17 @@
         }
       ],
       "patterns": [
-        "dragon-claw"
+        "dragon-claw",
+        "ember",
+        "wingbeat"
       ],
       "phases": [
         {
           "below": 66,
           "patterns": [
             "dragon-claw",
-            "shear-laser"
+            "shear-laser",
+            "meteor"
           ],
           "say": "幼紅龍怒吼，鱗片間透出熔岩般的光。"
         },
@@ -839,7 +1004,8 @@
           "below": 33,
           "patterns": [
             "dragon-flame",
-            "spiral"
+            "spiral",
+            "last-thread"
           ],
           "say": "幼紅龍振翅升空，熱浪逼得人睜不開眼。"
         }
@@ -1085,6 +1251,640 @@
           "repeat": 8,
           "every": 600,
           "size": 9
+        }
+      ]
+    },
+    {
+      "id": "cross-stitch",
+      "name": "十字繡",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "fan",
+          "count": 4,
+          "speed": 290,
+          "spread": 40,
+          "side": "left",
+          "repeat": 4,
+          "every": 1000
+        },
+        {
+          "at": 800,
+          "kind": "fan",
+          "count": 4,
+          "speed": 290,
+          "spread": 40,
+          "side": "right",
+          "repeat": 4,
+          "every": 1000
+        },
+        {
+          "at": 600,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 400,
+          "side": "top",
+          "repeat": 5,
+          "every": 800,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "shuttle",
+      "name": "梭子",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 480,
+          "side": "left",
+          "repeat": 8,
+          "every": 500,
+          "size": 8
+        },
+        {
+          "at": 550,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 480,
+          "side": "right",
+          "repeat": 7,
+          "every": 500,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "warp-weft",
+      "name": "經緯",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "top",
+          "gap": 40,
+          "repeat": 4,
+          "every": 1000
+        },
+        {
+          "at": 900,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "left",
+          "gap": 40,
+          "repeat": 4,
+          "every": 1000
+        }
+      ]
+    },
+    {
+      "id": "bobbin",
+      "name": "線軸",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "ring",
+          "count": 8,
+          "speed": 240,
+          "side": "center",
+          "repeat": 7,
+          "every": 600,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "tangle",
+      "name": "亂麻",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "rain",
+          "count": 3,
+          "speed": 250,
+          "repeat": 10,
+          "every": 450,
+          "size": 8
+        },
+        {
+          "at": 700,
+          "kind": "aimed",
+          "count": 2,
+          "speed": 380,
+          "side": "top",
+          "repeat": 4,
+          "every": 1100
+        }
+      ]
+    },
+    {
+      "id": "tassel",
+      "name": "流蘇",
+      "emitters": [
+        {
+          "at": 200,
+          "kind": "rain",
+          "count": 6,
+          "speed": 340,
+          "repeat": 12,
+          "every": 380,
+          "size": 5
+        }
+      ]
+    },
+    {
+      "id": "hem",
+      "name": "鎖邊",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "wall",
+          "count": 1,
+          "speed": 190,
+          "side": "top",
+          "gap": 180,
+          "repeat": 3,
+          "every": 1500,
+          "size": 8
+        },
+        {
+          "at": 1150,
+          "kind": "wall",
+          "count": 1,
+          "speed": 190,
+          "side": "bottom",
+          "gap": 180,
+          "repeat": 2,
+          "every": 1500,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "knot-bloom",
+      "name": "結花",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "ring",
+          "count": 16,
+          "speed": 160,
+          "side": "center",
+          "repeat": 3,
+          "every": 1400,
+          "size": 8
+        },
+        {
+          "at": 1000,
+          "kind": "spiral",
+          "count": 10,
+          "speed": 230,
+          "repeat": 2,
+          "every": 1800,
+          "size": 7
+        }
+      ]
+    },
+    {
+      "id": "needle-volley",
+      "name": "針陣",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "fan",
+          "count": 7,
+          "speed": 280,
+          "spread": 90,
+          "side": "bottom",
+          "repeat": 5,
+          "every": 900,
+          "size": 7
+        }
+      ]
+    },
+    {
+      "id": "frayed",
+      "name": "斷線",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 420,
+          "side": "top",
+          "repeat": 4,
+          "every": 900
+        },
+        {
+          "at": 525,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 420,
+          "side": "right",
+          "repeat": 4,
+          "every": 900
+        },
+        {
+          "at": 750,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 420,
+          "side": "bottom",
+          "repeat": 4,
+          "every": 900
+        },
+        {
+          "at": 975,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 420,
+          "side": "left",
+          "repeat": 4,
+          "every": 900
+        }
+      ]
+    },
+    {
+      "id": "weave-gate",
+      "name": "織門",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "wall",
+          "count": 1,
+          "speed": 210,
+          "side": "left",
+          "gap": 170,
+          "repeat": 3,
+          "every": 1300,
+          "size": 8
+        },
+        {
+          "at": 950,
+          "kind": "wall",
+          "count": 1,
+          "speed": 210,
+          "side": "right",
+          "gap": 170,
+          "repeat": 3,
+          "every": 1300,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "lattice",
+      "name": "格紋",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "top",
+          "gap": 36,
+          "repeat": 6,
+          "every": 700
+        },
+        {
+          "at": 750,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "right",
+          "gap": 36,
+          "repeat": 5,
+          "every": 800
+        }
+      ]
+    },
+    {
+      "id": "whirl",
+      "name": "旋渦",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "spiral",
+          "count": 14,
+          "speed": 210,
+          "repeat": 3,
+          "every": 1300,
+          "size": 8
+        },
+        {
+          "at": 950,
+          "kind": "spiral",
+          "count": 10,
+          "speed": 260,
+          "repeat": 2,
+          "every": 1500,
+          "size": 6
+        }
+      ]
+    },
+    {
+      "id": "bone-rattle",
+      "name": "骨響",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "rain",
+          "count": 4,
+          "speed": 240,
+          "repeat": 8,
+          "every": 550,
+          "size": 8
+        },
+        {
+          "at": 800,
+          "kind": "fan",
+          "count": 3,
+          "speed": 320,
+          "spread": 36,
+          "side": "top",
+          "repeat": 4,
+          "every": 1100
+        }
+      ]
+    },
+    {
+      "id": "rot-tide",
+      "name": "腐潮",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "wall",
+          "count": 1,
+          "speed": 140,
+          "side": "bottom",
+          "gap": 200,
+          "repeat": 3,
+          "every": 1500,
+          "size": 10
+        },
+        {
+          "at": 600,
+          "kind": "rain",
+          "count": 2,
+          "speed": 200,
+          "repeat": 8,
+          "every": 600,
+          "size": 10
+        }
+      ]
+    },
+    {
+      "id": "wolf-pack",
+      "name": "狼群",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "aimed",
+          "count": 2,
+          "speed": 500,
+          "side": "left",
+          "repeat": 5,
+          "every": 800,
+          "size": 8
+        },
+        {
+          "at": 700,
+          "kind": "aimed",
+          "count": 2,
+          "speed": 500,
+          "side": "right",
+          "repeat": 4,
+          "every": 900,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "web-snare",
+      "name": "蛛網",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "ring",
+          "count": 10,
+          "speed": 200,
+          "side": "center",
+          "repeat": 4,
+          "every": 1100
+        },
+        {
+          "at": 900,
+          "kind": "wall",
+          "count": 1,
+          "speed": 170,
+          "side": "top",
+          "gap": 190,
+          "repeat": 2,
+          "every": 1700,
+          "size": 7
+        }
+      ]
+    },
+    {
+      "id": "ogre-quake",
+      "name": "震地",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "wall",
+          "count": 1,
+          "speed": 230,
+          "side": "bottom",
+          "gap": 210,
+          "repeat": 3,
+          "every": 1400,
+          "size": 14
+        },
+        {
+          "at": 800,
+          "kind": "ring",
+          "count": 8,
+          "speed": 180,
+          "side": "center",
+          "repeat": 2,
+          "every": 1800,
+          "size": 12
+        }
+      ]
+    },
+    {
+      "id": "cult-sigil",
+      "name": "邪印",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "ring",
+          "count": 12,
+          "speed": 190,
+          "side": "center",
+          "repeat": 4,
+          "every": 1200
+        },
+        {
+          "at": 1000,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "top",
+          "gap": 44,
+          "repeat": 3,
+          "every": 1300
+        }
+      ]
+    },
+    {
+      "id": "feint",
+      "name": "虛招",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "fan",
+          "count": 5,
+          "speed": 300,
+          "spread": 64,
+          "side": "top",
+          "repeat": 4,
+          "every": 1000
+        },
+        {
+          "at": 800,
+          "kind": "aimed",
+          "count": 1,
+          "speed": 520,
+          "side": "left",
+          "repeat": 4,
+          "every": 1000,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "ember",
+      "name": "餘燼",
+      "emitters": [
+        {
+          "at": 200,
+          "kind": "rain",
+          "count": 7,
+          "speed": 200,
+          "repeat": 10,
+          "every": 450,
+          "size": 6
+        }
+      ]
+    },
+    {
+      "id": "wingbeat",
+      "name": "振翅",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "wall",
+          "count": 1,
+          "speed": 280,
+          "side": "left",
+          "gap": 160,
+          "repeat": 3,
+          "every": 1200,
+          "size": 9
+        },
+        {
+          "at": 900,
+          "kind": "wall",
+          "count": 1,
+          "speed": 280,
+          "side": "right",
+          "gap": 160,
+          "repeat": 3,
+          "every": 1200,
+          "size": 9
+        }
+      ]
+    },
+    {
+      "id": "meteor",
+      "name": "墜火",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "rain",
+          "count": 2,
+          "speed": 170,
+          "repeat": 10,
+          "every": 480,
+          "size": 18
+        }
+      ]
+    },
+    {
+      "id": "sickle-moon",
+      "name": "鐮月",
+      "emitters": [
+        {
+          "at": 400,
+          "kind": "fan",
+          "count": 9,
+          "speed": 260,
+          "spread": 110,
+          "side": "top",
+          "repeat": 4,
+          "every": 1100,
+          "size": 7
+        },
+        {
+          "at": 650,
+          "kind": "aimed",
+          "count": 2,
+          "speed": 380,
+          "side": "top",
+          "repeat": 4,
+          "every": 1100,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "id": "last-thread",
+      "name": "終線",
+      "emitters": [
+        {
+          "at": 300,
+          "kind": "spiral",
+          "count": 12,
+          "speed": 230,
+          "repeat": 3,
+          "every": 1400,
+          "size": 7
+        },
+        {
+          "at": 700,
+          "kind": "laser",
+          "count": 1,
+          "speed": 0,
+          "side": "top",
+          "gap": 40,
+          "repeat": 4,
+          "every": 1100
+        },
+        {
+          "at": 1200,
+          "kind": "fan",
+          "count": 5,
+          "speed": 320,
+          "spread": 60,
+          "side": "bottom",
+          "repeat": 3,
+          "every": 1300
         }
       ]
     }

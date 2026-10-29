@@ -8,6 +8,7 @@ import { GESTURE_TEXT } from '../../../src/encounter/weapons';
 import { DodgePlay, DodgeReplay } from './Arena';
 import { GesturePad } from './Gesture';
 import { GmConsole, EncounterSetup } from './Gm';
+import { DiceStage, NowBar, RollToastView, SplashCard, reducedMotion, throwFor, useRollToasts, useSplash, type Throw } from './Situation';
 import { useCountdown, type Cell, type Combat } from './state';
 
 export const STEP_NAME: Record<string, string> = {
@@ -129,6 +130,14 @@ export function CombatDock({ combat, view, pack, data }: { combat: Combat; view:
   const replay = useReplays(combat, view);
   const result = useLatestResult(combat.events);
   const running = enc && enc.status !== 'ended';
+  const [frozen, setFrozen] = useState<Throw | null>(null);
+  const own = useRef(new Set<number>());
+  const aim = running ? throwFor(enc, view.me.userId) : null;
+  const splash = useSplash(combat, view);
+  const toasts = useRollToasts(combat, view, own);
+  const instant = combat.prefs.skipAnimations || reducedMotion();
+  // The step panels wait while the player's dice are still rolling.
+  const rolling = !!(frozen ?? aim);
 
   return (
     <>
@@ -140,8 +149,12 @@ export function CombatDock({ combat, view, pack, data }: { combat: Combat; view:
         <button aria-expanded={prefsOpen} onClick={() => setPrefsOpen((v) => !v)}>戰鬥設定</button>
         {gm && running && <button aria-expanded={console} onClick={() => setConsole((v) => !v)}>GM 主控台</button>}
       </div>
-      {running && <StepPanel combat={combat} enc={enc} view={view} pack={pack} />}
-      {running && <TurnPanel combat={combat} enc={enc} view={view} pack={pack} />}
+      {running && <NowBar combat={combat} enc={enc} view={view} />}
+      {running && <DiceStage combat={combat} aim={aim} frozen={frozen} setFrozen={setFrozen} own={own} />}
+      {running && !rolling && <StepPanel combat={combat} enc={enc} view={view} pack={pack} />}
+      {running && !rolling && <TurnPanel combat={combat} enc={enc} view={view} pack={pack} />}
+      {splash.splash && !rolling && <SplashCard splash={splash.splash} onDone={splash.clear} />}
+      {toasts.current && !rolling && <RollToastView toast={toasts.current} instant={instant} onDone={toasts.next} />}
       {feed && running && <EventFeed events={combat.events} gm={gm} onReplay={replay.open} onClose={() => setFeed(false)} />}
       {prefsOpen && <PrefsPanel combat={combat} onClose={() => setPrefsOpen(false)} />}
       {console && gm && enc && <GmConsole combat={combat} enc={enc} pack={pack} view={view} data={data} onClose={() => setConsole(false)} />}
@@ -152,7 +165,7 @@ export function CombatDock({ combat, view, pack, data }: { combat: Combat; view:
           <DodgeReplay setup={replay.current.setup} seed={replay.current.seed} moves={replay.current.moves} contrast={combat.prefs.highContrast} onEnd={() => setTimeout(replay.close, 1500)} />
         </div>
       )}
-      {result && <div className="result-banner" role="status">{result}</div>}
+      {result && !rolling && !toasts.current && <div className="result-banner" role="status">{result}</div>}
       {combat.error && <ErrorNote of={combat.error} className="map-toast combat-toast" />}
     </>
   );
@@ -175,14 +188,15 @@ function InitiativeBar({ enc }: { enc: EncounterView }) {
         if (!c) return null;
         const now = enc.turn?.combatantId === id;
         return (
-          <li key={id} className={`${now ? 'now' : ''} side-${c.side}${c.defeated || c.dead ? ' out' : ''}${c.hidden ? ' secret' : ''}`} aria-current={now ? 'step' : undefined}>
+          <li key={id} className={`${now ? 'now' : ''} side-${c.side}${c.defeated || c.dead ? ' out' : ''}${c.dead ? ' dead' : ''}${c.dying ? ' dying' : ''}${c.hidden ? ' secret' : ''}`} aria-current={now ? 'step' : undefined}>
             <span className="init">{c.initiative ?? '—'}</span>
+            {(c.dead || c.defeated || c.dying || c.stable) && <span className="fate">{c.dead ? '☠ 死亡' : c.defeated ? '擊倒' : c.dying ? '垂危' : '穩定'}</span>}
             <span className="who">
               <b>{c.name}</b>
               <small>{c.hp !== null ? `${c.hp}/${c.maxHp}` : c.health}{c.tempHp ? ` +${c.tempHp}` : ''}{c.ac !== null ? `・AC ${c.ac}` : ''}</small>
               {hpBar(c)}
               {c.conditions.length > 0 && <small className="conds">{c.conditions.map((k) => CONDITION_LABEL[k]).join('、')}</small>}
-              {c.dying && <small className="conds">死亡豁免 ✓{c.dying.successes} ✗{c.dying.failures}</small>}
+              {c.dying && <small className="pips" aria-label={`死亡豁免成功 ${c.dying.successes}、失敗 ${c.dying.failures}`}>{[0, 1, 2].map((i) => <i key={`s${i}`} className={i < c.dying!.successes ? 'ok' : ''} />)}<span>／</span>{[0, 1, 2].map((i) => <i key={`f${i}`} className={i < c.dying!.failures ? 'bad' : ''} />)}</small>}
             </span>
           </li>
         );
@@ -199,88 +213,48 @@ function StepPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
   const me = view.me.userId;
   const [result, setResult] = useState<string | null>(null);
   useEffect(() => setResult(null), [st?.id]);
-  if (!st || st.kind === 'npcPending') return null;
-  const mine = st.awaiting.includes(me);
+  // Dice steps are the tray's; what others are doing is said by the bar above. Only the player's own move shows here.
+  if (!st || !st.awaiting.includes(me) || !['attackInteract', 'dodge'].includes(st.kind)) return null;
   const flow = enc.flow;
   const who = st.combatantId ? enc.combatants[st.combatantId] : undefined;
-  const attacker = flow ? enc.combatants[flow.attackerId] : undefined;
-  const secs = left === null ? '' : `${Math.ceil(left / 1000)} 秒`;
-  if (!mine) {
-    const names = st.awaiting.map((u) => view.members.find((m) => m.userId === u)?.name ?? '玩家').join('、');
-    return (
-      <div className="step-wait" aria-live="polite">
-        {st.awaiting.length ? `等待 ${names}：${STEP_NAME[st.kind]}${who ? `（${who.name}）` : ''}` : STEP_NAME[st.kind]}
-        <span className="muted">　{secs}</span>
-      </div>
-    );
-  }
-  const release = (label: string, hint: string) => (
-    <DiceButton label={label} hint={hint} busy={combat.busy} onRelease={() => void combat.send({ type: 'release', stepId: st.id })} />
-  );
-  let body: React.ReactNode;
-  if (st.kind === 'initiative') {
-    const mineToRoll = Object.values(enc.combatants).filter((c) => c.controller === me && c.initiative === null);
-    body = <>{release('擲先攻', mineToRoll.map((c) => c.name).join('、'))}</>;
-  } else if (st.kind === 'attackRoll' && flow) {
-    const targets = flow.targets.map((t) => enc.combatants[t]?.name ?? '目標').join('、');
-    body = <>{release(`擲攻擊骰：${flow.label}`, `${attacker?.name} 攻擊 ${targets}${flow.mode === 'advantage' ? '（優勢，擲兩顆取高）' : flow.mode === 'disadvantage' ? '（劣勢，擲兩顆取低）' : ''}`)}</>;
-  } else if (st.kind === 'attackInteract' && flow && flow.interaction !== 'none') {
+  let body: React.ReactNode = null;
+  if (st.kind === 'attackInteract' && flow && flow.interaction !== 'none') {
     body = (
       <>
-        <p className="step-dice">攻擊擲骰 <b>{flow.roll?.total}</b>（{flow.roll?.text}）　現在做{GESTURE_TEXT[flow.interaction].name}，品質好可以加 +1 或 +2。</p>
+        <p className="step-dice">骰出 <b>{flow.roll?.total}</b>・做得好再 +1～+2</p>
         {result ? <p>{result}</p> : (
           <GesturePad kind={flow.interaction} seed={st.seed} oneKey={combat.prefs.oneKey} contrast={combat.prefs.highContrast}
             runes={4 + Math.min(3, flow.source.kind === 'spell' ? pack.combat?.spells.find((s) => s.id === flow.source.id)?.level ?? 0 : 0)}
-            onDone={(input, preview) => { setResult(`送出中…（預估品質 ${Math.round(preview * 100)}%）`); void combat.send({ type: 'gesture', stepId: st.id, input }); }} />
+            onDone={(input, preview) => { setResult(`送出中…（約 ${Math.round(preview * 100)}%）`); void combat.send({ type: 'gesture', stepId: st.id, input }); }} />
         )}
       </>
     );
-  } else if (st.kind === 'saveRoll' && flow) {
-    const dmg = flow.results[0]?.damage;
-    body = <>{release(`擲豁免：DC ${flow.dc}`, `${attacker?.name} 的${flow.label}，傷害已擲出 ${dmg?.total ?? '?'}（${dmg?.text ?? ''}）`)}</>;
   } else if (st.kind === 'dodge' && st.dodge && who) {
-    body = <DodgeStep key={st.id} combat={combat} stepId={st.id} setup={st.dodge} seed={st.seed} begun={!!st.begunAt} who={who.name} flowLabel={flow?.label ?? ''} />;
-  } else if (st.kind === 'deathSave' && who) {
-    body = <>{release(`${who.name} 的死亡豁免`, '擲 d20：10 以上成功，三次成功穩定，三次失敗死亡；20 直接醒來。')}</>;
+    body = <DodgeStep key={st.id} combat={combat} stepId={st.id} setup={st.dodge} seed={st.seed} begun={!!st.begunAt} />;
   }
   return (
     <div className="step-panel" role="dialog" aria-label={STEP_NAME[st.kind]}>
-      <div className="row"><b>{STEP_NAME[st.kind]}</b><span className="spacer" /><span className={`timer${left !== null && left < 8000 ? ' urgent' : ''}`}>{secs}</span></div>
+      <div className="row"><b>{st.kind === 'dodge' ? '閃避！' : flow && flow.interaction !== 'none' ? GESTURE_TEXT[flow.interaction].name : STEP_NAME[st.kind]}</b><span className="spacer" /><span className={`timer${left !== null && left < 8000 ? ' urgent' : ''}`}>{left === null ? '' : `${Math.ceil(left / 1000)} 秒`}</span></div>
       {body}
     </div>
   );
 }
 
-/** Press and hold to shake the dice, let go to throw; Space or Enter does the same. The server rolls. */
-function DiceButton({ label, hint, busy, onRelease }: { label: string; hint: string; busy: boolean; onRelease: () => void }) {
-  const [shaking, setShaking] = useState(false);
-  const fire = () => { if (shaking && !busy) onRelease(); setShaking(false); };
-  return (
-    <div className="dice-step">
-      <p className="small muted">{hint}</p>
-      <button className={`dice-throw${shaking ? ' shaking' : ''}`} disabled={busy}
-        onPointerDown={() => setShaking(true)} onPointerUp={fire} onPointerLeave={() => setShaking(false)}
-        onKeyDown={(e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); setShaking(true); } }}
-        onKeyUp={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!busy) onRelease(); setShaking(false); } }}>
-        <span className="die" aria-hidden>d20</span>
-        <span>{shaking ? '放開擲出' : label}</span>
-      </button>
-      <p className="small muted">按住搖骰，放開就擲出；骰子由伺服器擲。</p>
-    </div>
-  );
-}
-
-function DodgeStep({ combat, stepId, setup, seed, begun, who, flowLabel }: { combat: Combat; stepId: string; setup: DodgeSetup; seed: number; begun: boolean; who: string; flowLabel: string }) {
+function DodgeStep({ combat, stepId, setup, seed, begun }: { combat: Combat; stepId: string; setup: DodgeSetup; seed: number; begun: boolean }) {
   const [phase, setPhase] = useState<'ready' | 'play' | 'sent'>(begun ? 'sent' : 'ready');
   const [hits, setHits] = useState(0);
+  const [more, setMore] = useState(false);
   const factors = [0.5, 0.75, 1, 1.1, 1.25];
   if (phase === 'ready') {
     return (
       <div className="stack tight">
-        <p className="step-dice">{flowLabel}命中 {who}，傷害已擲出 <b>{setup.damage}</b>。閃避決定最後吃下幾成。</p>
-        <p className="small">局勢：<b>{setup.tier.label}</b>・{setup.duration / 1000} 秒・{setup.pattern.name}{setup.reduced ? '・減量模式（彈速較慢）' : ''}</p>
-        <p className="small muted">被打中 0 次 ×0.5、1 次 ×0.75、2 次 ×1、3 次 ×1.1、4 次以上 ×1.25（無條件捨去，至少 1）。開始後中斷不能重來。</p>
-        <p className="small muted">鍵盤：方向鍵或 WASD。手機：手指放在場內任何地方滑動。</p>
+        <div className="dodge-facts">
+          <span><small>傷害</small><b>{setup.damage}</b></span>
+          <span><small>局勢</small><b>{setup.tier.label}</b></span>
+          <span><small>時間</small><b>{setup.duration / 1000} 秒</b></span>
+        </div>
+        <p className="small">躲得越好傷害越低：0 次 ×0.5，4 次以上 ×1.25。{!more && <button className="link small" onClick={() => setMore(true)}>操作方式</button>}</p>
+        {more && <p className="small muted">鍵盤：方向鍵或 WASD。手機：手指在場內任何地方滑動。開始後不能重來。{setup.reduced ? '（減量模式：彈速較慢）' : ''}</p>}
         <button className="primary" disabled={combat.busy} onClick={() => void combat.send({ type: 'begin', stepId }).then((ok) => { if (ok) setPhase('play'); })}>開始閃避</button>
       </div>
     );
@@ -288,7 +262,7 @@ function DodgeStep({ combat, stepId, setup, seed, begun, who, flowLabel }: { com
   if (phase === 'play') {
     return <DodgePlay setup={setup} seed={seed} contrast={combat.prefs.highContrast} onDone={(moves, h) => { setHits(h); setPhase('sent'); void combat.send({ type: 'dodge', stepId, moves }); }} />;
   }
-  return <p>閃避結束：被打中 {hits} 次，傷害 ×{factors[Math.min(hits, 4)]}。{begun && hits === 0 ? '（這次閃避已經開始過，等時間到或 GM 處理）' : ''}</p>;
+  return <p>被打中 {hits} 次，傷害 ×{factors[Math.min(hits, 4)]}{begun && hits === 0 ? '（等時間到或 GM 處理）' : ''}</p>;
 }
 
 // ---------------- the turn ----------------
@@ -314,14 +288,15 @@ function TurnPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
   return (
     <div className="turn-panel" aria-label={`${actor.name} 的回合`}>
       <div className="row">
-        <b>{actor.name} 的回合</b>
-        <small className="muted">移動剩 {Math.max(0, moveLeft)} 呎・{canAttack ? (t.actionUsed ? `還能攻擊 ${t.attacksLeft} 次` : '動作可用') : '動作已用'}</small>
+        <b>{actor.name}</b>
+        <span className={`stat-chip${moveLeft > 0 ? '' : ' spent'}`}>移動 {Math.max(0, moveLeft)} 呎</span>
+        <span className={`stat-chip${canAttack ? '' : ' spent'}`}>{canAttack ? (t.actionUsed ? `再攻擊 ${t.attacksLeft} 次` : '動作 1') : '動作已用'}</span>
         <span className="spacer" />
         {gm && actor.controller === 'gm' && <button disabled={combat.busy} onClick={() => void combat.send({ type: 'gm', op: { kind: 'auto' } })}>交給自動</button>}
       </div>
       {p ? (
         <div className="stack tight">
-          <p className="small">{p.kind === 'target' ? '點地圖上發光的目標，或從下面選。' : p.point ? '確認範圍後按「施放」。' : '點地圖選範圍的位置。'}</p>
+          <p className="small">{p.kind === 'target' ? '選目標（地圖上發光的也可以點）' : p.point ? '範圍對了就按「施放」' : '在地圖上點範圍的位置'}</p>
           {p.kind === 'target' && (
             <div className="row wrap">
               {targetsInList.map((o) => (
@@ -359,7 +334,7 @@ function TurnPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
             <span className="spacer" />
             <button className="primary" disabled={combat.busy} onClick={() => void combat.send({ type: 'endTurn', combatantId: actor.id })}>結束回合</button>
           </div>
-          <p className="small muted">在地圖上拖曳代幣移動（淡綠色的格子走得到）。</p>
+          {moveLeft > 0 && <p className="small muted">拖曳代幣到淡綠色的格子移動</p>}
         </>
       )}
     </div>
@@ -368,14 +343,24 @@ function TurnPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
 
 // ---------------- feed, replays, settings ----------------
 
+/** What a player needs from the log: who acted, what it did to whom, who fell. The rest is under 全部. */
+const KEY_EVENTS = new Set(['started', 'order', 'turn', 'resolved', 'down', 'defeated', 'dead', 'stable', 'phase', 'trigger', 'reveal', 'deathSave', 'ended']);
+
 function EventFeed({ events, gm, onReplay, onClose }: { events: EncounterEvent[]; gm: boolean; onReplay: (e: EncounterEvent) => void; onClose: () => void }) {
   const list = useRef<HTMLOListElement>(null);
-  useEffect(() => { list.current?.lastElementChild?.scrollIntoView({ block: 'nearest' }); }, [events.length]);
+  const [all, setAll] = useState(gm);
+  const shown = (all ? events : events.filter((e) => KEY_EVENTS.has(e.kind) || (e.kind === 'dodge' && (e.data as { moves?: string })?.moves !== undefined))).slice(-60);
+  useEffect(() => { list.current?.lastElementChild?.scrollIntoView({ block: 'nearest' }); }, [shown.length]);
   return (
     <div className="event-feed">
-      <div className="row"><b>戰鬥紀錄</b><span className="spacer" /><button className="link" onClick={onClose}>收起</button></div>
+      <div className="row"><b>戰鬥紀錄</b><span className="spacer" />
+        <span className="seg" role="group" aria-label="顯示">
+          <button aria-pressed={!all} onClick={() => setAll(false)}>重點</button>
+          <button aria-pressed={all} onClick={() => setAll(true)}>全部</button>
+        </span>
+        <button className="link" onClick={onClose}>收起</button></div>
       <ol ref={list}>
-        {events.slice(-60).map((e) => (
+        {shown.map((e) => (
           <li key={e.seq} className={`ev-${e.kind}${e.gmOnly ? ' secret' : ''}`}>
             {e.text}
             {e.kind === 'dodge' && (e.data as { moves?: string })?.moves !== undefined && <button className="link small" onClick={() => onReplay(e)}>重播</button>}
@@ -395,7 +380,7 @@ function useLatestResult(events: EncounterEvent[]) {
     const last = events.at(-1);
     if (!last) return;
     const first = seen.current === 0;
-    const fresh = events.filter((e) => e.seq > seen.current && ['resolved', 'down', 'defeated', 'dead', 'phase', 'trigger'].includes(e.kind));
+    const fresh = events.filter((e) => e.seq > seen.current && ['resolved', 'phase', 'trigger'].includes(e.kind));
     seen.current = last.seq;
     if (first || fresh.length === 0) return;
     setText(fresh.map((e) => e.text).join('　'));

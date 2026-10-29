@@ -196,7 +196,7 @@ export interface TargetResult {
   critical?: boolean;
   /** Save attacks: the target's save. */
   save?: { total: number; text: string; success: boolean };
-  damage?: { total: number; text: string };
+  damage?: { total: number; text: string; dice?: DieFace[] };
   /** Model B margin and the row it picked. */
   margin?: number;
   tier?: string;
@@ -305,6 +305,9 @@ export interface CombatPrefs {
   oneKey: boolean;
 }
 export const DEFAULT_PREFS: CombatPrefs = { interaction: 'full', skipAnimations: false, watchReplays: true, highContrast: false, oneKey: false };
+
+/** One die as it landed, so screens can show the same faces the server rolled. `kept` false: dropped (advantage). */
+export interface DieFace { sides: number; value: number; kept: boolean }
 
 export interface EncounterEvent {
   seq: number;

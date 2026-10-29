@@ -5,6 +5,7 @@ import { IsoBoard } from '../combat/Iso';
 import type { Combat } from '../combat/state';
 import { useAction } from '../hooks';
 import { MapManager } from './MapManager';
+import { shrinkImage, useTokenImages } from './tokenImages';
 import { defaultsFor, ObjectArt, ObjectCard, ObjectPalette } from './MapObjects';
 import { Bars, Confirm, ErrorNote, IconButton } from './ui';
 
@@ -151,6 +152,7 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
   const mine = useMemo(() => new Set(view.characters.filter((c) => c.ownerUserId === view.me.userId).map((c) => c.id)), [view]);
   const canMove = (t: Token) => gm || t.ownerUserId === view.me.userId;
   const tokens = data?.tokens ?? [];
+  const pictures = useTokenImages(api, roomId, tokens);
   const sel = tokens.find((t) => t.id === selected) ?? null;
   const objects = data?.objects ?? [];
   const selObj = gm ? objects.find((o) => o.id === selectedObj) ?? null : null;
@@ -395,7 +397,7 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
 
       <CombatDock combat={combat} view={view} pack={pack} data={data} />
       {tilted && (
-        <IsoBoard map={map} tokens={tokens} objects={objects} image={image} overlay={overlay} gm={gm} selected={selected} canMove={canMove}
+        <IsoBoard map={map} tokens={tokens} objects={objects} image={image} pictures={pictures} overlay={overlay} gm={gm} selected={selected} canMove={canMove}
           onSelect={(id) => pick(id, null)}
           onMove={(t, c) => {
             setData((d) => (d ? { ...d, tokens: d.tokens.map((o) => (o.id === t.id ? { ...o, ...c } : o)) } : d));
@@ -428,10 +430,11 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
               <div key={t.id} data-token={t.id} role="button" tabIndex={0}
                 aria-label={`${t.name}，第 ${t.x + 1} 欄第 ${t.y + 1} 列${canMove(t) ? '，方向鍵移動' : ''}`} aria-pressed={t.id === selected}
                 onFocus={() => pick(t.id, null)} onKeyDown={(e) => nudge(e, t)}
-                className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}${ov?.turn ? ' turn' : ''}${overlay?.targets.has(t.id) ? ' target' : ''}${ov && (ov.c.defeated || ov.c.dead) ? ' down' : ''}`}
+                className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}${ov?.turn ? ' turn' : ''}${overlay?.targets.has(t.id) ? ' target' : ''}${ov && (ov.c.defeated || ov.c.dead || ov.c.dying || ov.c.stable) ? ' down' : ''}${ov?.c.dead ? ' dead' : ''}${ov && ov.c.side === 'foe' ? ' foe' : ''}`}
                 style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: t.size * CELL, height: t.size * CELL, '--c': t.color } as React.CSSProperties}>
-                <span className="disc" style={{ fontSize: Math.max(14, t.size * CELL * 0.38) }}>{initial(t.name)}</span>
+                <span className={`disc${pictures[t.id] ? ' pic' : ''}`} style={{ fontSize: Math.max(14, t.size * CELL * 0.38), ...(pictures[t.id] ? { backgroundImage: `url(${pictures[t.id]})` } : {}) }}>{pictures[t.id] ? '' : initial(t.name)}</span>
                 <span className="tag">{t.name}{t.elevation ? `・${t.elevation}${map.unit}` : ''}</span>
+                {ov && (ov.c.dead || ov.c.defeated || ov.c.dying || ov.c.stable) && <span className="token-fate" aria-hidden>{ov.c.dead ? '☠' : ov.c.dying ? '✚' : '✕'}</span>}
                 {ov && (hp !== null ? <span className="token-hp" aria-hidden><span className={hp <= 25 ? 'low' : ''} style={{ width: `${hp}%` }} /></span> : <span className="token-health">{ov.c.health}</span>)}
               </div>
             );
@@ -476,6 +479,7 @@ function TokenCard({ api, roomId, token, gm, canEdit, mine, onClose, onChanged }
 }) {
   const act = useAction();
   const [asking, setAsking] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
   const save = (change: Parameters<Api['updateToken']>[2]) => void act.run(async () => { await api.updateToken(roomId, token.id, change); await onChanged(); });
   return (
     <div className="token-card" onKeyDown={(e) => { if (e.key === 'Escape' && !asking) onClose(); }}>
@@ -487,6 +491,14 @@ function TokenCard({ api, roomId, token, gm, canEdit, mine, onClose, onChanged }
         <span className="spacer" />
         <button className="link" onClick={onClose}>收起</button>
       </div>
+      {canEdit && (
+        <div className="row">
+          <button className="small" disabled={act.busy} onClick={() => file.current?.click()}>{token.imageVersion ? '換圖片' : '用圖片當代幣'}</button>
+          <input ref={file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void act.run(async () => { await api.uploadTokenImage(roomId, token.id, await shrinkImage(f)); await onChanged(); }); }} />
+          {token.imageVersion > 0 && <button className="small" disabled={act.busy} onClick={() => void act.run(async () => { await api.removeTokenImage(roomId, token.id); await onChanged(); })}>拿掉圖片</button>}
+        </div>
+      )}
       {canEdit && (
         <div className="row">
           {COLORS.map((c) => <button key={c} className="swatch-btn" aria-label={`代幣改成這個顏色 ${c}`} aria-pressed={token.color === c} style={{ background: c }} onClick={() => save({ color: c })} />)}

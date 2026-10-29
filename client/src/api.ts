@@ -69,6 +69,7 @@ export class Api {
   join(code: string) { return this.call<Room>('POST', '/api/rooms/join', { code }); }
   room(id: string) { return this.call<RoomView>('GET', `/api/rooms/${id}`); }
   log(id: string, after: number) { return this.call<LogEntry[]>('GET', `/api/rooms/${id}/log?after=${after}`); }
+  deleteRoom(id: string, confirm: string) { return this.call('DELETE', `/api/rooms/${id}`, { confirm }); }
   setRole(id: string, userId: string, role: Role) { return this.call('POST', `/api/rooms/${id}/members/${encodeURIComponent(userId)}`, { role }); }
   chat(id: string, text: string) { return this.call<LogEntry>('POST', `/api/rooms/${id}/chat`, { text, requestId: crypto.randomUUID() }); }
   roll(id: string, target: RollTarget, secret = false) {
@@ -91,6 +92,9 @@ export class Api {
   addToken(id: string, mid: string, t: TokenInput) { return this.call<Token>('POST', `/api/rooms/${id}/maps/${mid}/tokens`, t); }
   updateToken(id: string, tid: string, t: TokenInput) { return this.call<Token>('PATCH', `/api/rooms/${id}/tokens/${tid}`, t); }
   removeToken(id: string, tid: string) { return this.call('DELETE', `/api/rooms/${id}/tokens/${tid}`); }
+  uploadTokenImage(id: string, tid: string, image: Blob) { return this.call<Token>('PUT', `/api/rooms/${id}/tokens/${tid}/image`, image); }
+  removeTokenImage(id: string, tid: string) { return this.call<Token>('DELETE', `/api/rooms/${id}/tokens/${tid}/image`); }
+  tokenImage(id: string, tid: string) { return this.call<Blob>('GET', `/api/rooms/${id}/tokens/${tid}/image`); }
   addObject(id: string, mid: string, o: ObjectInput) { return this.call<MapObject>('POST', `/api/rooms/${id}/maps/${mid}/objects`, o); }
   updateObject(id: string, oid: string, o: ObjectInput) { return this.call<MapObject>('PATCH', `/api/rooms/${id}/objects/${oid}`, o); }
   removeObject(id: string, oid: string) { return this.call('DELETE', `/api/rooms/${id}/objects/${oid}`); }

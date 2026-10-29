@@ -60,9 +60,15 @@ CREATE INDEX IF NOT EXISTS map_objects_map ON map_objects(map_id);
 ALTER TABLE map_tokens ADD COLUMN IF NOT EXISTS elevation INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS open BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS height INTEGER;
+ALTER TABLE map_tokens ADD COLUMN IF NOT EXISTS image_version INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS token_images (
+  token_id TEXT PRIMARY KEY REFERENCES map_tokens(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  data TEXT NOT NULL
+);
 `;
 
-export const MAP_LIMITS = { side: 100, tokens: 200, objects: 500, imageBytes: 4 * 1024 * 1024 };
+export const MAP_LIMITS = { side: 100, tokens: 200, objects: 500, imageBytes: 4 * 1024 * 1024, tokenImageBytes: 512 * 1024 };
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const COLOR = /^#[0-9a-f]{6}$/i;
 
@@ -70,7 +76,7 @@ interface MapRow {
   id: string; room_id: string; name: string; cols: number; rows: number; cell_distance: number; unit: string;
   show_grid: boolean; fog_enabled: boolean; fog: string; image_version: number; version: number;
 }
-interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean; elevation: number }
+interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean; elevation: number; image_version: number }
 
 interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean; open: boolean; height: number | null }
 const objectOf = (r: ObjectRow): MapObject => ({
@@ -84,7 +90,7 @@ const mapOf = (r: MapRow): MapInfo => ({
 });
 const tokenOf = (r: TokenRow): Token => ({
   id: r.id, mapId: r.map_id, name: r.name, color: r.color, x: r.x, y: r.y, size: r.size,
-  characterId: r.character_id, ownerUserId: r.owner_user_id, hidden: r.hidden, elevation: r.elevation ?? 0,
+  characterId: r.character_id, ownerUserId: r.owner_user_id, hidden: r.hidden, elevation: r.elevation ?? 0, imageVersion: r.image_version ?? 0,
 });
 
 export interface MapSettings { name?: string; cols?: number; rows?: number; cellDistance?: number; unit?: string; showGrid?: boolean; fogEnabled?: boolean }
@@ -253,7 +259,7 @@ export class MapStore {
     const t: Token = {
       id: randomUUID(), mapId, name: words(name ?? '代幣', 24, '代幣名稱'), color: color(input.color ?? '#6cc4a1'),
       x: cell(input.x ?? 0, row.cols - size + 1), y: cell(input.y ?? 0, row.rows - size + 1), size,
-      characterId, ownerUserId: owner, hidden: me.role === 'gm' && !!input.hidden, elevation: elevation(input.elevation ?? 0),
+      characterId, ownerUserId: owner, hidden: me.role === 'gm' && !!input.hidden, elevation: elevation(input.elevation ?? 0), imageVersion: 0,
     };
     await this.db.run(`INSERT INTO map_tokens (id, map_id, name, color, x, y, size, character_id, owner_user_id, hidden, created_at, elevation)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, [t.id, mapId, t.name, t.color, t.x, t.y, t.size, t.characterId, t.ownerUserId, t.hidden, now.toISOString(), t.elevation]);
@@ -287,6 +293,38 @@ export class MapStore {
     await this.table.requireRole(roomId, userId, 'player');
     const { token } = await this.tokenWithMap(roomId, tokenId, false);
     return tokenOf(token);
+  }
+
+  /** A picture for a token (a portrait, a monster). Its owner or a GM sets it; the browser shrinks it before sending. */
+  async setTokenImage(roomId: string, userId: string, tokenId: string, type: string, bytes: Buffer | null): Promise<Token> {
+    const me = await this.table.requireRole(roomId, userId, 'player');
+    if (bytes) {
+      if (!IMAGE_TYPES.includes(type)) throw new TableError(400, 'bad-request', '代幣圖片只能是 PNG、JPEG、WebP 或 GIF');
+      if (bytes.length === 0) throw new TableError(400, 'bad-request', '請選一張圖片');
+      if (bytes.length > MAP_LIMITS.tokenImageBytes) throw new TableError(413, 'too-large', '代幣圖片太大（上限 512 KB）');
+    }
+    return this.db.tx(async () => {
+      const { token } = await this.tokenWithMap(roomId, tokenId, true);
+      if (me.role !== 'gm' && token.owner_user_id !== userId) throw new TableError(403, 'forbidden', '只能換自己代幣的圖片');
+      if (bytes) {
+        await this.db.run(`INSERT INTO token_images (token_id, type, data) VALUES ($1, $2, $3)
+          ON CONFLICT (token_id) DO UPDATE SET type = EXCLUDED.type, data = EXCLUDED.data`, [tokenId, type, bytes.toString('base64')]);
+      } else await this.db.run('DELETE FROM token_images WHERE token_id = $1', [tokenId]);
+      // A new version number tells browsers to fetch the new picture; 0 means none.
+      const next = bytes ? Math.max(1, (token.image_version ?? 0) + 1) : 0;
+      await this.db.run('UPDATE map_tokens SET image_version = $2 WHERE id = $1', [tokenId, next]);
+      return { ...tokenOf(token), imageVersion: next };
+    });
+  }
+
+  /** A token's picture, for members who can see the token. */
+  async tokenImage(roomId: string, userId: string, tokenId: string): Promise<{ type: string; bytes: Buffer }> {
+    const { token } = await this.tokenWithMap(roomId, tokenId, false);
+    const seen = await this.view(roomId, userId, token.map_id);
+    if (!seen.tokens.some((t) => t.id === tokenId)) throw new TableError(404, 'not-found', '找不到這個代幣');
+    const row = await this.db.one<{ type: string; data: string }>('SELECT type, data FROM token_images WHERE token_id = $1', [tokenId]);
+    if (!row) throw new TableError(404, 'not-found', '這個代幣沒有圖片');
+    return { type: row.type, bytes: Buffer.from(row.data, 'base64') };
   }
 
   async removeToken(roomId: string, userId: string, tokenId: string): Promise<string> {

@@ -12,7 +12,7 @@ export type Picking =
 /**
  * The running fight as this member sees it, kept fresh by the room's live updates (and a slow poll as a safety
  * net), plus every command they can send. Commands return the new state at once, so the screen never waits for
- * the WebSocket after the player's own action.
+ * the WebSocket after the player's own action; `send` resolves to the events the command caused, or null if it failed.
  */
 export function useEncounter(api: Api, roomId: string, version: number, live: boolean) {
   const [bundle, setBundle] = useState<EncounterBundle | null>(null);
@@ -58,13 +58,16 @@ export function useEncounter(api: Api, roomId: string, version: number, live: bo
     setBusy(true);
     setError(null);
     try {
-      take(await api.command(roomId, cmd));
-      return true;
+      const before = lastSeq.current;
+      const b = await api.command(roomId, cmd);
+      take(b);
+      // What this command caused, so the screen can show it (the dice in the tray land on these faces).
+      return b.events.filter((e) => e.seq > before);
     } catch (e) {
       setError(e as Error);
       // The step may have moved on (someone else acted, a timeout); show what is true now.
       void reload();
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }

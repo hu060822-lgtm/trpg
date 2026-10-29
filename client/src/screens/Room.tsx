@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_URL, hasSheet, type Api, type CharacterData, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
+import { API_URL, ApiError, hasSheet, type Api, type CharacterData, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
 import { useAction, useDraft, useMedia, usePoll, useRoomEvents } from '../hooks';
 import { CharacterBuilder } from '../parts/CharacterBuilder';
 import { CharacterForm } from '../parts/CharacterForm';
@@ -65,6 +65,14 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
   const shownMap = gm ? picked ?? activeMapId : activeMapId;
 
 
+  if (view.failure instanceof ApiError && view.failure.status === 404) {
+    return (
+      <main className="page stack">
+        <div className="empty"><h2>這個房間已經刪除了</h2><p className="muted">GM 刪除了這個房間，裡面的角色、紀錄和地圖都不在了。</p></div>
+        <div className="row"><button className="primary" onClick={() => go('')}>回到大廳</button></div>
+      </main>
+    );
+  }
   if (view.error && !view.data) return <main className="page stack"><ErrorNote of={view} /><div className="row"><button onClick={() => void view.reload()}>再試一次</button><button onClick={() => go('')}>回到大廳</button></div></main>;
   if (!view.data || !pack) return <RoomSkeleton />;
   const choose = (t: Tab) => { setTab(t); if (t === 'log') unread.current = 0; };
@@ -98,7 +106,7 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
         <div className={`side-pane log-pane${pane === 'log' ? ' on' : ''}`}>{logPanel}</div>
         {medium && <div className={`side-pane table-pane${pane === 'sheet' ? ' on' : ''}`}>{characters}</div>}
         <div className={`side-pane table-pane${pane === 'table' ? ' on' : ''}`}>
-          <TableSide api={api} view={view.data} pack={pack} reload={view.reload} />
+          <TableSide api={api} view={view.data} pack={pack} reload={view.reload} go={go} />
         </div>
       </section>
       <nav className="tabs" aria-label="房間分頁">
@@ -205,7 +213,7 @@ function Characters({ api, view, pack, reload, pull }: { api: Api; view: RoomVie
   );
 }
 
-function TableSide({ api, view, pack, reload }: { api: Api; view: RoomView; pack: Pack; reload: () => Promise<void> }) {
+function TableSide({ api, view, pack, reload, go }: { api: Api; view: RoomView; pack: Pack; reload: () => Promise<void>; go: (path: string) => void }) {
   const gm = view.me.role === 'gm';
   const [q, setQ] = useState('');
   const [copied, setCopied] = useState(false);
@@ -276,7 +284,38 @@ function TableSide({ api, view, pack, reload }: { api: Api; view: RoomView; pack
         <p className="muted small">授權 {pack.manifest.license}{pack.manifest.author ? `・${pack.manifest.author}` : ''}</p>
         {pack.manifest.attribution && <p className="muted small">{pack.manifest.attribution}</p>}
       </section>
+
+      {gm && <DeleteRoom api={api} view={view} go={go} />}
     </div>
+  );
+}
+
+/** Deletes the room for everyone. Nothing comes back, so the GM types the room's name first. */
+function DeleteRoom({ api, view, go }: { api: Api; view: RoomView; go: (path: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const del = useAction();
+  return (
+    <section className="block danger-zone">
+      <h3>刪除房間</h3>
+      {!open ? (
+        <>
+          <p className="muted small">房間、所有角色卡、聊天紀錄、地圖和戰鬥會一起刪除，所有成員都不能再進來，刪了就救不回來。</p>
+          <button className="destructive" onClick={() => setOpen(true)}>刪除這個房間…</button>
+        </>
+      ) : (
+        <form className="stack tight" onSubmit={(e) => { e.preventDefault(); void del.run(async () => { await api.deleteRoom(view.room.id, name); go(''); }); }}>
+          <label>輸入房間名稱「{view.room.name}」確認
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+          </label>
+          <ErrorNote of={del} />
+          <div className="row">
+            <button type="button" onClick={() => { setOpen(false); setName(''); }}>取消</button>
+            <button type="submit" className="destructive" disabled={del.busy}>永久刪除房間</button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 

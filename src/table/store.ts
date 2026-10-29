@@ -15,7 +15,11 @@ import type { Character, CharacterView, LogEntry, Member, PackSummary, Role, Rol
  */
 const SCHEMA = `
 CREATE OR REPLACE FUNCTION fw_forbid() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
-BEGIN RAISE EXCEPTION '%', TG_ARGV[0]; END $$;
+BEGIN
+  -- Logs never change. The one exception is deleting a whole room, which sets this flag inside its own transaction.
+  IF TG_OP = 'DELETE' AND current_setting('fateweave.purge', true) = 'on' THEN RETURN OLD; END IF;
+  RAISE EXCEPTION '%', TG_ARGV[0];
+END $$;
 CREATE TABLE IF NOT EXISTS packs (
   key TEXT PRIMARY KEY,
   id TEXT NOT NULL,
@@ -194,6 +198,28 @@ export class TableStore {
       await this.db.run('UPDATE room_members SET role = $3 WHERE room_id = $1 AND user_id = $2', [roomId, userId, role]);
       const actor = await this.member(roomId, by);
       await this.append(roomId, by, actor!.name, 'system', { text: `${actor!.name} 讓 ${target.name} 成為${role === 'gm' ? ' GM' : '玩家'}` }, now);
+    });
+  }
+
+  /**
+   * Deletes a room and everything in it: members, sheets, log, maps, fights. Only a GM can, and only by typing the
+   * room's name, because nothing comes back. The tables of maps and fights belong to other stores but hang off the
+   * room, so they go here too, children first.
+   */
+  async deleteRoom(roomId: string, userId: string, confirmName: unknown) {
+    await this.requireRole(roomId, userId, 'gm');
+    const room = await this.db.one<{ name: string }>('SELECT name FROM rooms WHERE id = $1', [roomId]);
+    if (!room) throw new TableError(404, 'not-found', '找不到這個房間');
+    if (typeof confirmName !== 'string' || confirmName.trim() !== room.name) throw new TableError(400, 'confirm', '請輸入房間名稱確認刪除');
+    await this.db.tx(async () => {
+      await this.db.query("SELECT set_config('fateweave.purge', 'on', true)");
+      const enc = 'SELECT id FROM encounters WHERE room_id = $1';
+      await this.db.run(`DELETE FROM encounter_events WHERE encounter_id IN (${enc})`, [roomId]);
+      await this.db.run(`DELETE FROM encounter_requests WHERE encounter_id IN (${enc})`, [roomId]);
+      for (const t of ['encounters', 'combat_vitals', 'room_patterns', 'room_maps', 'room_log', 'room_requests', 'room_characters', 'room_members']) {
+        await this.db.run(`DELETE FROM ${t} WHERE room_id = $1`, [roomId]);
+      }
+      await this.db.run('DELETE FROM rooms WHERE id = $1', [roomId]);
     });
   }
 

@@ -24,8 +24,8 @@ const FLAT: Partial<Record<MapObject['kind'], string>> = { water: 'rgba(80,140,2
 
 interface Cam { x: number; y: number; z: number }
 
-export function IsoBoard({ map, tokens, objects, image, overlay, gm, selected, canMove, onSelect, onMove }: {
-  map: MapInfo; tokens: Token[]; objects: MapObject[]; image: string | null; overlay: MapOverlay | null; gm: boolean;
+export function IsoBoard({ map, tokens, objects, image, pictures = {}, overlay, gm, selected, canMove, onSelect, onMove }: {
+  map: MapInfo; tokens: Token[]; objects: MapObject[]; image: string | null; pictures?: Record<string, string>; overlay: MapOverlay | null; gm: boolean;
   selected: string | null; canMove: (t: Token) => boolean; onSelect: (id: string | null) => void; onMove: (t: Token, c: Cell) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -37,6 +37,15 @@ export function IsoBoard({ map, tokens, objects, image, overlay, gm, selected, c
   const img = useRef<HTMLImageElement | null>(null);
   const [, imgLoaded] = useState(0);
   const fitted = useRef('');
+  const faces = useRef(new Map<string, HTMLImageElement>());
+  useEffect(() => {
+    for (const [id, url] of Object.entries(pictures)) {
+      if (faces.current.get(id)?.src === url) continue;
+      const i = new Image();
+      i.onload = () => { faces.current.set(id, i); imgLoaded((n) => n + 1); };
+      i.src = url;
+    }
+  }, [pictures]);
 
   useEffect(() => {
     if (!image) { img.current = null; return; }
@@ -189,13 +198,15 @@ export function IsoBoard({ map, tokens, objects, image, overlay, gm, selected, c
         g.globalAlpha = t.hidden ? 0.55 : ov && (ov.c.defeated || ov.c.dead) ? 0.4 : 1;
         g.fillStyle = t.color;
         g.beginPath(); g.arc(up.x, discY, r, 0, Math.PI * 2); g.fill();
+        const face = pictures[t.id] ? faces.current.get(t.id) : undefined;
+        if (face) { g.save(); g.clip(); g.drawImage(face, up.x - r, discY - r, r * 2, r * 2); g.restore(); g.beginPath(); g.arc(up.x, discY, r, 0, Math.PI * 2); }
         g.lineWidth = t.id === selected || overlay?.targets.has(t.id) ? 4 : 2;
         g.strokeStyle = overlay?.targets.has(t.id) ? '#d4505e' : t.id === selected ? '#6cc4a1' : '#0b0908';
         g.stroke();
         g.fillStyle = '#0b0908';
         g.font = `600 ${Math.max(11, r * 0.9)}px 'LXGW WenKai TC', serif`;
         g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillText([...t.name.trim()][0] ?? '?', up.x, discY);
+        if (!face) g.fillText([...t.name.trim()][0] ?? '?', up.x, discY);
         g.globalAlpha = 1;
         g.font = `500 ${Math.max(10, 11 * cam.z)}px 'Noto Sans TC', sans-serif`;
         g.fillStyle = '#f2ead8';
