@@ -27,7 +27,7 @@ export function SheetPanel({ pack, character, mode, setMode, secret, setSecret, 
     <div className="sheet">
       <div className="sheet-head">
         <h2>{character.name}</h2>
-        <button className="link" onClick={onEdit}>編輯</button>
+        <button className="link" onClick={onEdit}>編輯角色</button>
       </div>
 
       <div className="modes row" role="group" aria-label="擲骰方式">

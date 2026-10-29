@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Api, MapInfo, MapSummary } from '../api';
 import { useAction } from '../hooks';
+import { Confirm, ErrorNote } from './ui';
 
 /** Shrinks a big picture before upload (longest side 2400 px, WebP) so it loads quickly on phones. */
 async function shrink(file: File): Promise<Blob> {
@@ -27,6 +28,7 @@ export function MapManager({ api, roomId, map, activeMapId, onDone, compact }: {
   const [cols, setCols] = useState(20);
   const [rows, setRows] = useState(15);
   const act = useAction();
+  const [asking, setAsking] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!compact) void api.maps(roomId).then((r) => setList(r.maps)).catch(() => {}); }, [api, roomId, compact, map?.version]);
 
@@ -43,14 +45,14 @@ export function MapManager({ api, roomId, map, activeMapId, onDone, compact }: {
       <button className="primary" disabled={act.busy}>建立地圖</button>
     </form>
   );
-  if (compact || !map) return <>{create}{act.error && <p className="error">{act.error}</p>}</>;
+  if (compact || !map) return <>{create}<ErrorNote of={act} /></>;
 
   const set = (s: Parameters<Api['updateMap']>[2]) => void act.run(async () => { await api.updateMap(roomId, map.id, s); onDone(map.id); });
   return (
     <div className="stack">
       <section className="block">
         <h3>這個房間的地圖</h3>
-        <ul className="list">
+        <ul className="list framed">
           {list.map((m) => (
             <li key={m.id}>
               <button className="link" onClick={() => onDone(m.id)} aria-current={m.id === map.id}>{m.id === map.id ? `▸ ${m.name}` : m.name}</button>
@@ -79,16 +81,19 @@ export function MapManager({ api, roomId, map, activeMapId, onDone, compact }: {
         }} />
         <button disabled={act.busy} onClick={() => file.current?.click()}>{act.busy ? '處理中…' : map.imageVersion ? '換一張底圖' : '上傳底圖'}</button>
         <p className="muted small">圖片會鋪滿整個格線範圍。如果圖片本身畫了格子，把寬、高調成一樣的格數就會對齊。</p>
-        <button className="danger" disabled={act.busy} onClick={() => {
-          if (confirm(`刪除地圖「${map.name}」和上面的代幣？這無法復原。`)) void act.run(async () => { await api.deleteMap(roomId, map.id); onDone(null); });
-        }}>刪除這張地圖</button>
+        <button className="danger" disabled={act.busy} onClick={() => setAsking(true)}>刪除這張地圖</button>
+        {asking && (
+          <Confirm title={`刪除地圖「${map.name}」？`} action="刪除地圖" onClose={() => setAsking(false)}
+            body="地圖、底圖、迷霧和上面所有代幣都會一起刪掉，無法復原。角色卡不受影響。"
+            onConfirm={() => void act.run(async () => { await api.deleteMap(roomId, map.id); onDone(null); })} />
+        )}
       </section>
 
       <section className="block">
         <h3>新地圖</h3>
         {create}
       </section>
-      {act.error && <p className="error">{act.error}</p>}
+      <ErrorNote of={act} />
     </div>
   );
 }

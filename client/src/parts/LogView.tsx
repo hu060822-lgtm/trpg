@@ -15,7 +15,7 @@ function Total({ value, tumble }: { value: number; tumble: boolean }) {
   useEffect(() => {
     if (shown !== null) return;
     const top = Math.max(6, Math.abs(value) * 1.5);
-    const end = performance.now() + 650;
+    const end = performance.now() + 600; // dice are the game's content, not chrome: the one animation allowed past 300ms
     let frame = 0;
     const spin = (t: number) => {
       if (t >= end) { setShown(value); return; }

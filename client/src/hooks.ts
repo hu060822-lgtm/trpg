@@ -18,15 +18,15 @@ export function useRoute(): [string[], (path: string) => void] {
  */
 export function usePoll<T>(load: () => Promise<T>, ms: number, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Error | null>(null);
   const loadRef = useRef(load);
   loadRef.current = load;
   const reload = useCallback(async () => {
     try {
       setData(await loadRef.current());
-      setError(null);
+      setFailure(null);
     } catch (e) {
-      setError((e as Error).message);
+      setFailure(e as Error);
     }
   }, []);
   useEffect(() => {
@@ -36,27 +36,61 @@ export function usePoll<T>(load: () => Promise<T>, ms: number, deps: unknown[]) 
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  return { data, error, reload };
+  return { data, error: failure?.message ?? null, failure, reload };
 }
 
 /** Runs an action, shows its error, and blocks double clicks while it is in flight. */
 export function useAction() {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Error | null>(null);
   const run = useCallback(async (fn: () => Promise<unknown>) => {
     setBusy(true);
-    setError(null);
+    setFailure(null);
     try {
       await fn();
       return true;
     } catch (e) {
-      setError((e as Error).message);
+      setFailure(e as Error);
       return false;
     } finally {
       setBusy(false);
     }
   }, []);
-  return { busy, error, run, clear: () => setError(null) };
+  return { busy, error: failure?.message ?? null, failure, run, clear: () => setFailure(null) };
+}
+
+/** Whether a media query matches now; follows changes such as a rotated tablet. */
+export function useMedia(query: string) {
+  const [on, setOn] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches);
+  useEffect(() => {
+    const m = matchMedia(query);
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener('change', change);
+    return () => m.removeEventListener('change', change);
+  }, [query]);
+  return on;
+}
+
+/**
+ * State that survives a reload or a closed tab: half-built characters and unsent messages are kept in this
+ * browser until they are sent or dropped. Storage can be off (private windows), so every access is guarded.
+ */
+export function useDraft<T>(key: string | null, initial: () => T): [T, (v: T | ((old: T) => T)) => void, () => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const saved = key === null ? null : localStorage.getItem(key);
+      if (saved !== null) return JSON.parse(saved) as T;
+    } catch { /* storage unavailable */ }
+    return initial();
+  });
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current || key === null) { first.current = false; return; }
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ }
+  }, [key, value]);
+  const drop = useCallback(() => { try { if (key !== null) localStorage.removeItem(key); } catch { /* storage unavailable */ } }, [key]);
+  return [value, setValue, drop];
 }
 
 export type RoomEvent = { type: 'log' } | { type: 'room' } | { type: 'map'; mapId: string } | { type: 'maps' };

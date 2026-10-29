@@ -18,7 +18,7 @@ export type RollTarget =
 export const hasSheet = (c: CharacterView | CharacterRef): c is CharacterView => 'sheet' in c;
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public problems?: PackProblem[]) {
+  constructor(public status: number, public code: string, message: string, public problems?: PackProblem[], public detail?: string) {
     super(message);
   }
 }
@@ -43,12 +43,17 @@ export class Api {
         body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       });
     } catch {
-      throw new ApiError(0, 'offline', '連不上伺服器。伺服器閒置時會休眠，請等半分鐘再試一次。');
+      throw new ApiError(0, 'offline', '連不上伺服器，剛才的動作沒有送出。伺服器閒置時會休眠，請等半分鐘再試一次。', undefined, `${method} ${path} → network error`);
     }
     if (res.ok && res.headers.get('content-type')?.startsWith('image/')) return await res.blob() as T;
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) this.onUnauthorized?.();
-    if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `伺服器回應 ${res.status}`, data.problems);
+    if (!res.ok) {
+      const detail = `${method} ${path} → ${res.status} ${data.error ?? ''} ${data.message ?? ''}`.trim();
+      // The server's own words are written for players; anything else (a crash, a proxy page) gets a plain retry hint.
+      const message = res.status < 500 && data.message ? data.message : '伺服器這次沒有處理好，剛才的動作沒有生效。請再試一次。';
+      throw new ApiError(res.status, data.error ?? 'error', message, data.problems, detail);
+    }
     return data as T;
   }
 

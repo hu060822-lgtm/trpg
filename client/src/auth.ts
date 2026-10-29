@@ -1,4 +1,4 @@
-import { API_URL } from './api';
+import { API_URL, ApiError } from './api';
 
 /**
  * Sign-in with a name and password kept by the game server; no email or outside account is needed. The server
@@ -44,7 +44,10 @@ export async function signIn(mode: 'sign-in' | 'register', name: string, passwor
     throw new Error('連不上遊戲伺服器。伺服器閒置時會休眠，請等一分鐘再試一次。');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message ?? `伺服器回應 ${res.status}`);
+  if (!res.ok) {
+    const message = res.status < 500 && data.message ? data.message : '伺服器這次沒有處理好，還沒登入。請再試一次。';
+    throw new ApiError(res.status, data.error ?? 'error', message, undefined, `POST /api/auth/${mode} → ${res.status} ${data.error ?? ''}`.trim());
+  }
   const stored: Stored = { token: data.token, name: data.name };
   try { localStorage.setItem(KEY, JSON.stringify(stored)); } catch { /* storage unavailable: signed in for this visit only */ }
   return signedIn(stored);
