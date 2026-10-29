@@ -1,9 +1,33 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LogEntry } from '../api';
 
 /** Dice a roll dropped (the low die of 4d6kh3) come back wrapped in ~…~; show them struck through. */
 function Breakdown({ text }: { text: string }) {
   return <>{text.split(/~([^~]*)~/).map((part, i) => (i % 2 ? <del key={i}>{part}</del> : part))}</>;
+}
+
+const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** A just-rolled total tumbles through random faces for a moment, then lands on the real number. */
+function Total({ value, tumble }: { value: number; tumble: boolean }) {
+  const [shown, setShown] = useState<number | null>(tumble && !calm() ? null : value);
+  const [face, setFace] = useState(value);
+  useEffect(() => {
+    if (shown !== null) return;
+    const top = Math.max(6, Math.abs(value) * 1.5);
+    const end = performance.now() + 650;
+    let frame = 0;
+    const spin = (t: number) => {
+      if (t >= end) { setShown(value); return; }
+      setFace(1 + Math.floor(Math.random() * top));
+      frame = requestAnimationFrame(spin);
+    };
+    frame = requestAnimationFrame(spin);
+    return () => cancelAnimationFrame(frame);
+  }, [shown, value]);
+  return shown === null
+    ? <b className="total rolling" aria-hidden>{face}</b>
+    : <b className={`total${tumble ? ' landed' : ''}`}>{shown}</b>;
 }
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
@@ -27,14 +51,14 @@ export function LogView({ entries, freshFrom, visible }: { entries: LogEntry[]; 
               <header><time>{time(e.at)}</time><span className="who">{e.author}</span>{b.secret && <span className="badge secret">暗骰</span>}</header>
               <div className="roll-line">
                 <span className="roll-label">{b.label}</span>
-                <b className="total">{b.total}</b>
+                <Total value={b.total} tumble={!!fresh} />
                 {b.natural === 'critical' && <span className="badge crit">大成功</span>}
                 {b.natural === 'fumble' && <span className="badge fumble">大失敗</span>}
               </div>
               <p className="breakdown"><Breakdown text={b.text} /></p>
               {b.damage && (
                 <div className="roll-line damage">
-                  <span className="roll-label">傷害</span><b className="total">{b.damage.total}</b>
+                  <span className="roll-label">傷害</span><Total value={b.damage.total} tumble={!!fresh} />
                   <span className="breakdown"><Breakdown text={b.damage.text} /></span>
                 </div>
               )}

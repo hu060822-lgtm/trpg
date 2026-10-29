@@ -13,7 +13,7 @@ function Stepper({ value, min, max, onChange, label }: { value: number; min: num
   return (
     <span className="stepper">
       <button type="button" aria-label={`${label}減一`} disabled={value <= min} onClick={() => onChange(value - 1)}>−</button>
-      <b>{value}</b>
+      <b key={value} className="bump">{value}</b>
       <button type="button" aria-label={`${label}加一`} disabled={value >= max} onClick={() => onChange(value + 1)}>＋</button>
     </span>
   );
