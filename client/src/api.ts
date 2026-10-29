@@ -1,20 +1,24 @@
-import type { CharacterDraft } from '../../src/character/create';
-import type { CombatAction, CombatEvent, CombatState } from '../../src/combat/types';
-import type { Change, GmGrant, LedgerEntry, WorldCommand, WorldEvent, WorldState } from '../../src/world/types';
+import type { CharacterData, CheckMode, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
+import type { Character, LogEntry, Member, PackSummary, Role, Room } from '../../src/table/types';
+
+export type { CharacterData, CheckMode, LogEntry, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue };
 
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
 
-export interface StoredCharacter {
-  id: string; name: string; classId: string; ownerUserId: string; attributes: Record<string, number>; skills: Record<string, number>;
-  hp: number; maxHp: number; condition: string; status: 'alive' | 'dead';
-}
-export interface Me { userId: string; name: string | null; characters: StoredCharacter[]; gmOf: ({ worldId: string } & GmGrant)[] }
-export interface WorldSummary { id: string; name: string; day: number; characters: number; outposts: { id: string; name: string }[] }
-export interface View { world: WorldState; history: WorldEvent[]; audit: Change[]; ledger: LedgerEntry[] }
-export type Combat = CombatState & { events?: CombatEvent[] };
+export type RoomListItem = Room & { role: Role; packName: string };
+/** Your own characters (and every character, for a GM) come with the sheet the server worked out. */
+export type CharacterView = Character & { sheet: Record<string, SheetValue> };
+export type CharacterRef = Pick<Character, 'id' | 'ownerUserId' | 'name'>;
+export interface RoomView { room: Room; me: Member; members: Member[]; characters: (CharacterView | CharacterRef)[]; pack: PackSummary }
+export type RollTarget =
+  | { formula: string; label?: string; characterId?: string }
+  | { characterId: string; check: { attribute: string } | { skill: string }; mode?: CheckMode }
+  | { characterId: string; action: string };
+
+export const hasSheet = (c: CharacterView | CharacterRef): c is CharacterView => 'sheet' in c;
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  constructor(public status: number, public code: string, message: string, public problems?: PackProblem[]) {
     super(message);
   }
 }
@@ -24,42 +28,42 @@ export class Api {
   constructor(private token: () => Promise<string>, private onUnauthorized?: () => void) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const raw = body instanceof Blob;
     let res: Response;
     try {
       res = await fetch(API_URL + path, {
         method,
-        headers: { authorization: `Bearer ${await this.token()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: {
+          authorization: `Bearer ${await this.token()}`,
+          ...(body === undefined ? {} : { 'content-type': raw ? 'application/zip' : 'application/json' }),
+        },
+        body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       });
     } catch {
-      throw new ApiError(0, 'offline', '連不上遊戲伺服器。伺服器閒置時會休眠，請等半分鐘再試一次。');
+      throw new ApiError(0, 'offline', '連不上伺服器。伺服器閒置時會休眠，請等半分鐘再試一次。');
     }
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) this.onUnauthorized?.();
-    if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `伺服器回應 ${res.status}`);
+    if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `伺服器回應 ${res.status}`, data.problems);
     return data as T;
   }
 
-  me() { return this.call<Me>('GET', '/api/me'); }
-  worlds() { return this.call<WorldSummary[]>('GET', '/api/worlds'); }
-  createCharacter(draft: CharacterDraft) { return this.call<StoredCharacter>('POST', '/api/characters', { draft }); }
-  join(worldId: string, characterId: string, locationId: string) {
-    return this.call('POST', `/api/worlds/${worldId}/join`, { characterId, locationId });
+  packs() { return this.call<PackSummary[]>('GET', '/api/packs'); }
+  pack(key: string) { return this.call<Pack>('GET', `/api/packs/${encodeURIComponent(key)}`); }
+  uploadPack(zip: Blob) { return this.call<{ key: string; name: string }>('POST', '/api/packs', zip); }
+
+  rooms() { return this.call<RoomListItem[]>('GET', '/api/rooms'); }
+  createRoom(name: string, pack: string) { return this.call<Room>('POST', '/api/rooms', { name, pack }); }
+  join(code: string) { return this.call<Room>('POST', '/api/rooms/join', { code }); }
+  room(id: string) { return this.call<RoomView>('GET', `/api/rooms/${id}`); }
+  log(id: string, after: number) { return this.call<LogEntry[]>('GET', `/api/rooms/${id}/log?after=${after}`); }
+  setRole(id: string, userId: string, role: Role) { return this.call('POST', `/api/rooms/${id}/members/${encodeURIComponent(userId)}`, { role }); }
+  chat(id: string, text: string) { return this.call<LogEntry>('POST', `/api/rooms/${id}/chat`, { text, requestId: crypto.randomUUID() }); }
+  roll(id: string, target: RollTarget, secret = false) {
+    return this.call<LogEntry>('POST', `/api/rooms/${id}/rolls`, { ...target, secret, requestId: crypto.randomUUID() });
   }
-  view(worldId: string, asGm = false) { return this.call<View>('GET', `/api/worlds/${worldId}/view${asGm ? '?as=gm' : ''}`); }
-  command(worldId: string, command: WorldCommand, opts: { asGm?: boolean; requestId?: string } = {}) {
-    return this.call<{ replayed: boolean; events: WorldEvent[]; combatId: string | null }>('POST', `/api/worlds/${worldId}/commands`, {
-      command, as: opts.asGm ? 'gm' : 'player', requestId: opts.requestId ?? crypto.randomUUID(),
-    });
-  }
-  combats(worldId: string) { return this.call<Combat[]>('GET', `/api/worlds/${worldId}/combats`); }
-  combat(worldId: string, id: string) { return this.call<Combat>('GET', `/api/worlds/${worldId}/combats/${id}`); }
-  startFight(worldId: string, body: { locationId: string; characters: { id: string; weaponId: string; armorId: string }[]; monsters: { bestiaryId: string }[] }) {
-    return this.call<Combat>('POST', `/api/worlds/${worldId}/combats`, body);
-  }
-  act(worldId: string, combat: CombatState, combatantId: string, action: CombatAction) {
-    return this.call('POST', `/api/worlds/${worldId}/combats/${combat.id}/actions`, {
-      actionId: crypto.randomUUID(), combatantId, round: combat.round, action,
-    });
+  createCharacter(id: string, name: string, data: CharacterData) { return this.call<Character>('POST', `/api/rooms/${id}/characters`, { name, data }); }
+  updateCharacter(id: string, cid: string, version: number, change: { name?: string; data?: CharacterData }) {
+    return this.call<Character>('PATCH', `/api/rooms/${id}/characters/${cid}`, { version, ...change });
   }
 }

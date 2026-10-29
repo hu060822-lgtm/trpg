@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** Hash routes keep GitHub Pages happy: #/, #/create, #/play/<world>/<character>, #/gm/<world>. */
+/** Hash routes keep static hosting simple: #/ for the lobby, #/room/<id> for a room. */
 export function useRoute(): [string[], (path: string) => void] {
   const read = () => location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   const [parts, setParts] = useState(read);

@@ -15,7 +15,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: SignedIn) => void }) {
     <main className="page">
       <div className="hero">
         <h1>命運編織</h1>
-        <p>一個世界，一位真人主持人，很多個不必同時上線的玩家。你離開時世界照樣運轉，回來時看看發生了什麼，再決定下一步。</p>
+        <p>開一個房間，選一套規則，把代碼給朋友。聊天、擲骰、角色卡都在同一個地方，數字自動幫你算好。</p>
       </div>
       <div className="card stack" style={{ maxWidth: 420 }}>
         <div className="switch" role="tablist">

@@ -2,10 +2,8 @@ import { useMemo, useState } from 'react';
 import { Api } from './api';
 import { currentSignIn, forgetSignIn, type SignedIn } from './auth';
 import { useRoute } from './hooks';
-import { CreateCharacter } from './screens/CreateCharacter';
-import { GmDesk } from './screens/GmDesk';
 import { Lobby } from './screens/Lobby';
-import { Play } from './screens/Play';
+import { RoomScreen } from './screens/Room';
 import { SignIn } from './screens/SignIn';
 
 export function App() {
@@ -16,7 +14,7 @@ export function App() {
 
   if (!user || !api) return <SignIn onSignedIn={setUser} />;
 
-  const [screen, a, b] = route;
+  const [screen, id] = route;
   const signOut = async () => { await user.signOut(); setUser(null); go(''); };
   return (
     <>
@@ -26,10 +24,7 @@ export function App() {
         <span className="muted small">{user.label}</span>
         <button className="link" onClick={signOut}>登出</button>
       </header>
-      {screen === 'create' ? <CreateCharacter api={api} go={go} />
-        : screen === 'play' && a && b ? <Play api={api} worldId={a} characterId={b} go={go} />
-          : screen === 'gm' && a ? <GmDesk api={api} worldId={a} />
-            : <Lobby api={api} go={go} />}
+      {screen === 'room' && id ? <RoomScreen key={id} api={api} roomId={id} go={go} /> : <Lobby api={api} go={go} />}
     </>
   );
 }
