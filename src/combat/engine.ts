@@ -433,7 +433,7 @@ export function submitAction(
 }
 
 /**
- * Called by the server scheduler. If the current turn's deadline passed, the combatant takes the
+ * Called on a timer by whatever hosts combat. If the current turn's deadline passed, the combatant takes the
  * safe default (defend) and the turn ends. Never attacks or spends rare items on the player's behalf.
  */
 export function applyTimeout(

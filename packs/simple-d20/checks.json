@@ -1,0 +1,15 @@
+{
+  "die": "1d20",
+  "advantage": "2d20kh1",
+  "disadvantage": "2d20kl1",
+  "attribute": "{d20} + @score.{attr}",
+  "skill": "{d20} + @score.{attr} + @rank.{skill}",
+  "critical": 20,
+  "fumble": 1,
+  "difficulties": [
+    { "label": "簡單", "value": 8 },
+    { "label": "普通", "value": 12 },
+    { "label": "困難", "value": 16 },
+    { "label": "極難", "value": 20 }
+  ]
+}

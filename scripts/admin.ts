@@ -1,59 +1,50 @@
 // Server administration from the command line. Point DATABASE_URL at the same database as the server
 // (the Supabase connection string in production; default ./data/pglite locally):
-//   npm run admin -- create-world [seed.json] --gm pw:<name>=main [--gm pw:<name>=scene:ruins,road] [--gm pw:<name>=arbiter]
-//   npm run admin -- set-gm <worldId> <userId> <main | scene:loc1,loc2 | arbiter | none>
+//   npm run admin -- packs                               list rule packs
+//   npm run admin -- import-pack <file.zip>              check and add a rule pack
+//   npm run admin -- check-pack <file.zip | folder>      check a rule pack without adding it
 //   npm run admin -- issue-token <userId> [label]        an API token for scripts or tests
 //   npm run admin -- issue-service-token [label]         a service token (may act for users with X-Act-As)
 //   npm run admin -- revoke-token <token>
-//   npm run admin -- worlds
-// A player's user id is shown on the web client's 帳號 page and by GET /api/me.
-import { mkdirSync, readFileSync } from 'node:fs';
-import { openGame, parseGrant } from '../src/server/boot';
-import type { WorldSeed } from '../src/world/engine';
-import type { GmGrant } from '../src/world/types';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { PackError } from '../src/pack/pack';
+import { readPackDir, readPackZip } from '../src/pack/zip';
+import { openGame } from '../src/server/boot';
 
-const url = process.env.DATABASE_URL ?? './data/pglite';
-if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
-const { db, store, auth } = await openGame(url);
 const [cmd, ...args] = process.argv.slice(2);
+const readPack = (path: string) => (statSync(path).isDirectory() ? readPackDir(path) : readPackZip(readFileSync(path)));
 
-switch (cmd) {
-  case 'create-world': {
-    const seedPath = args[0] && !args[0].startsWith('--') ? args[0] : 'config/world-seed.json';
-    const gms: Record<string, GmGrant> = {};
-    args.forEach((a, i) => {
-      if (a !== '--gm') return;
-      const pair = args[i + 1];
-      const at = pair.lastIndexOf('=');
-      gms[pair.slice(0, at)] = parseGrant(pair.slice(at + 1));
-    });
-    if (!Object.values(gms).some((g) => g.role === 'main')) throw new Error('a world needs at least one main GM: --gm <userId>=main');
-    const seed = JSON.parse(readFileSync(seedPath, 'utf8')) as WorldSeed;
-    await store.createWorld(seed, gms);
-    console.log(`created world ${seed.id} (${seed.name}) with GMs ${Object.keys(gms).join(', ')}`);
-    break;
+if (cmd === 'check-pack') {
+  try {
+    const p = readPack(args[0]);
+    console.log(`OK: ${p.manifest.name} ${p.manifest.version}（${p.attributes.length} 個屬性、${p.skills.length} 個技能、${p.actions.length} 個動作）`);
+  } catch (e) {
+    console.error(e instanceof PackError ? e.message : e);
+    process.exitCode = 1;
   }
-  case 'set-gm':
-    await store.setGm(args[0], args[1], args[2] === 'none' ? null : parseGrant(args[2]));
-    console.log(`${args[1]} in ${args[0]}: ${args[2]}`);
-    break;
-  case 'issue-token':
-    console.log(await auth.issue(args[0], 'user', args[1] ?? ''));
-    break;
-  case 'issue-service-token':
-    console.log(await auth.issue('service:bot', 'service', args[0] ?? 'service'));
-    break;
-  case 'revoke-token':
-    await auth.revoke(args[0]);
-    console.log('revoked');
-    break;
-  case 'worlds':
-    for (const id of await store.worldIds()) {
-      const s = await store.load(id);
-      console.log(id, s.name, JSON.stringify(s.gms));
-    }
-    break;
-  default:
-    console.log(readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).join('\n'));
+} else {
+  const url = process.env.DATABASE_URL ?? './data/pglite';
+  if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
+  const { db, table, auth } = await openGame(url);
+  switch (cmd) {
+    case 'packs':
+      for (const p of await table.listPacks()) console.log(`${p.key}  ${p.name}${p.builtin ? '（內建）' : ''}  ${p.license}`);
+      break;
+    case 'import-pack':
+      console.log(`added ${await table.savePack(readPack(args[0]), 'admin', false)}`);
+      break;
+    case 'issue-token':
+      console.log(await auth.issue(args[0], 'user', args[1] ?? ''));
+      break;
+    case 'issue-service-token':
+      console.log(await auth.issue('service:bot', 'service', args[0] ?? 'service'));
+      break;
+    case 'revoke-token':
+      await auth.revoke(args[0]);
+      console.log('revoked');
+      break;
+    default:
+      console.log(readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).join('\n'));
+  }
+  await db.close();
 }
-await db.close();

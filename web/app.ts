@@ -10,7 +10,6 @@ import { randomRng } from '../src/rules/dice';
 import { distribution } from '../src/sim/enumerate';
 import type { AttributeCode, RollMode } from '../src/rules/types';
 import { initCombat } from './combat-ui';
-import { initWorld } from './world-ui';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -261,7 +260,6 @@ function boot() {
 
   renderSheet(); renderHero(); fillCheckSelects(); renderOdds();
   initCombat(() => ({ draft: hero ?? draft, created: !!hero }));
-  initWorld();
 }
 
 boot();

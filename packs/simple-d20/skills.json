@@ -1,0 +1,12 @@
+{
+  "list": [
+    { "id": "athletics", "name": "運動", "attribute": "body", "description": "攀爬、游泳、跳躍、推開重物。" },
+    { "id": "melee", "name": "近戰", "attribute": "body", "description": "用刀劍、拳頭或棍棒攻擊。" },
+    { "id": "stealth", "name": "潛行", "attribute": "agility", "description": "不被發現地移動或躲藏。" },
+    { "id": "shooting", "name": "射擊", "attribute": "agility", "description": "用弓、弩或投擲武器攻擊。" },
+    { "id": "lore", "name": "學識", "attribute": "mind", "description": "回想歷史、魔法、怪物的知識。" },
+    { "id": "perception", "name": "察覺", "attribute": "mind", "description": "注意到陷阱、聲響或謊言。" },
+    { "id": "persuasion", "name": "說服", "attribute": "presence", "description": "用道理或交情讓人同意你。" },
+    { "id": "intimidation", "name": "威嚇", "attribute": "presence", "description": "用威脅讓人退讓。" }
+  ]
+}

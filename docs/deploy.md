@@ -44,8 +44,7 @@ GitHub Pages 只能放靜態網頁，不能跑伺服器，所以多人遊戲需�
 - Build：`npm ci --include=dev`；Start：`npm run server`；
 - 環境變數：
   - `DATABASE_URL`：上面的連線字串；
-  - `CORS_ORIGINS`：網頁版的網址來源，逗號分隔，例如 `https://fateweave.onrender.com,https://hu060822-lgtm.github.io`；
-  - `INITIAL_GMS`：見第 4 步。
+  - `CORS_ORIGINS`：網頁版的網址來源，逗號分隔，例如 `https://fateweave.onrender.com,https://hu060822-lgtm.github.io`。
 
 **網頁版**（Static Site）：
 - Build：`npm ci && npm --prefix client ci && npm --prefix client run build`；
@@ -63,16 +62,9 @@ GitHub Pages 只能放靜態網頁，不能跑伺服器，所以多人遊戲需�
 
 網址會是 `https://hu060822-lgtm.github.io/trpg/`，記得在伺服器的 `CORS_ORIGINS` 加上 `https://hu060822-lgtm.github.io`。
 
-## 4. 設定主 GM
+## 4. GM 與房間
 
-1. 在網頁版建立帳號。你的使用者 ID 是 `pw:` 加上小寫的名字，例如名字 `Luz` 就是 `pw:luz`。大廳也會顯示這個 ID。
-2. 在 Render 把 `INITIAL_GMS` 設成 `pw:luz=main`，存檔後伺服器會重新啟動，並補上這個權限。
-
-要加其他 GM，用逗號分隔，例如 `pw:luz=main,pw:mira=scene:ruins,road,pw:kai=arbiter`。已經有的權限不會被改掉。也可以用管理工具：
-
-```bash
-DATABASE_URL='<連線字串>' npm run admin -- set-gm <世界ID> pw:<名字> main
-```
+沒有全站的主 GM。每個房間的建立者就是那個房間的 GM，GM 可以在房間的成員列表把其他人設成 GM（房間至少會留一位 GM）。其他人用房間的 6 碼加入代碼進來。
 
 ## 疑難排解
 

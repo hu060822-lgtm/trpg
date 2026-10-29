@@ -17,9 +17,6 @@ services:
       # Web client origins, e.g. https://fateweave.onrender.com,https://hu060822-lgtm.github.io
       - key: CORS_ORIGINS
         sync: false
-      # Main GM of the first world: pw:<lower-case account name>=main
-      - key: INITIAL_GMS
-        sync: false
   - type: web
     name: fateweave
     runtime: static

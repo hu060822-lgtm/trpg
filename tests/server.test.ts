@@ -1,23 +1,19 @@
-import type { AddressInfo } from 'node:net';
 import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { readFileSync, readdirSync } from 'node:fs';
+import { strToU8, zipSync } from 'fflate';
 import { SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { exampleBuild } from '../src/character/create';
 import type { Database } from '../src/persistence/db';
-import type { WorldStore } from '../src/persistence/world-store';
-import { RULES_V03 as R } from '../src/rules/config';
-import { scriptedRng } from '../src/rules/dice';
 import { createApp } from '../src/server/app';
 import type { Auth } from '../src/server/auth';
-import { ensureWorld, openGame, parseGrants } from '../src/server/boot';
-import { Scheduler } from '../src/server/scheduler';
+import { openGame } from '../src/server/boot';
 import { freshDatabaseUrl } from './helpers/db';
 
 const T0 = new Date('2026-10-28T12:00:00Z');
 const JWT_SECRET = 'test-secret-at-least-32-characters-long';
 let cleanup: () => Promise<void>;
 let db: Database;
-let store: WorldStore;
 let auth: Auth;
 let server: Server;
 let base: string;
@@ -25,15 +21,15 @@ let tok: Record<'p1' | 'p2' | 'gm' | 'bot', string>;
 
 beforeEach(async () => {
   let url: string;
+  let table;
   ({ url, cleanup } = await freshDatabaseUrl());
-  ({ db, store, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }));
-  await ensureWorld(store, { 'user:gm': { role: 'main' } });
+  ({ db, table, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }));
   tok = {
     p1: await auth.issue('user:1', 'user'), p2: await auth.issue('user:2', 'user'),
     gm: await auth.issue('user:gm', 'user'), bot: await auth.issue('service:bot', 'service'),
   };
-  // Rolls of 10 keep every check deterministic.
-  server = createApp({ store, auth, rules: R, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
+  // Every die shows 10, so totals are predictable.
+  server = createApp({ table, auth, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -57,13 +53,19 @@ async function call(token: string | undefined, method: string, path: string, bod
   return { status: res.status, body: await res.json() as any };
 }
 
-/** Creates a character for a token's user and walks it into the world at the plaza. */
-async function enter(token: string, classId: string, name: string) {
-  const c = await call(token, 'POST', '/api/characters', { draft: { ...exampleBuild(classId, R), name } });
-  expect(c.status).toBe(201);
-  const j = await call(token, 'POST', '/api/worlds/greystone/join', { characterId: c.body.id, locationId: 'plaza' });
-  expect(j.status).toBe(201);
-  return c.body.id as string;
+let n = 0;
+const rid = () => `req-${++n}-${Date.now()}`;
+
+/** The GM opens a room on the example pack; player 1 joins with the code and makes a character. */
+async function table3() {
+  const room = (await call(tok.gm, 'POST', '/api/rooms', { name: '星期五團', pack: 'simple-d20@1.0.0' })).body;
+  expect(room.code).toMatch(/^[A-Z2-9]{6}$/);
+  expect((await call(tok.p1, 'POST', '/api/rooms/join', { code: room.code.toLowerCase() })).status).toBe(200);
+  const hero = await call(tok.p1, 'POST', `/api/rooms/${room.id}/characters`, {
+    name: '灰鴉', data: { scores: { body: 2, agility: 2, mind: 1, presence: 1 }, ranks: { melee: 2, stealth: 1 }, inputs: { armor: 1 } },
+  });
+  expect(hero.status).toBe(201);
+  return { room, hero: hero.body };
 }
 
 describe('authentication', () => {
@@ -153,162 +155,105 @@ describe('authentication', () => {
   });
 });
 
-describe('characters and joining', () => {
-  it('validates the build, and new characters enter only at an outpost', async () => {
-    const bad = await call(tok.p1, 'POST', '/api/characters', { draft: { ...exampleBuild('guardian', R), skills: {} } });
+describe('rule packs', () => {
+  const DIR = 'packs/simple-d20';
+  const zipWith = (change: Record<string, string>) => zipSync(Object.fromEntries(Object.entries({
+    ...Object.fromEntries(readdirSync(DIR).map((f) => [f, readFileSync(`${DIR}/${f}`, 'utf8')])), ...change,
+  }).map(([k, v]) => [k, strToU8(v)])));
+  const upload = (token: string, zip: Uint8Array) => fetch(`${base}/api/packs`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' }, body: Buffer.from(zip),
+  }).then(async (r) => ({ status: r.status, body: await r.json() as any }));
+
+  it('lists the built-in pack with its licence', async () => {
+    const packs = (await call(tok.p1, 'GET', '/api/packs')).body;
+    expect(packs).toContainEqual(expect.objectContaining({ key: 'simple-d20@1.0.0', name: '簡易 d20', builtin: true, license: 'CC0-1.0' }));
+    expect((await call(tok.p1, 'GET', '/api/packs/simple-d20@1.0.0')).body.skills).toHaveLength(8);
+  });
+
+  it('imports a zip, refuses the same version twice, and explains what is wrong with a bad one', async () => {
+    const manifest = JSON.stringify({ id: 'my-game', name: '我的遊戲', version: '0.1', license: 'CC-BY-4.0' });
+    expect(await upload(tok.p1, zipWith({ 'manifest.json': manifest }))).toEqual({ status: 201, body: { key: 'my-game@0.1', name: '我的遊戲' } });
+    expect((await upload(tok.p2, zipWith({ 'manifest.json': manifest }))).status).toBe(409);
+    const bad = await upload(tok.p1, zipWith({ 'manifest.json': manifest.replace('0.1', '0.2'), 'sheet.json': JSON.stringify({ derived: [{ id: 'hp', label: 'HP', formula: '@vigor * 2' }] }) }));
     expect(bad.status).toBe(400);
-    const c = await call(tok.p1, 'POST', '/api/characters', { draft: { ...exampleBuild('guardian', R), name: '灰鴉' } });
-    expect((await call(tok.p1, 'POST', '/api/worlds/greystone/join', { characterId: c.body.id, locationId: 'ruins' })).status).toBe(400);
-    expect((await call(tok.p2, 'POST', '/api/worlds/greystone/join', { characterId: c.body.id, locationId: 'plaza' })).status).toBe(403);
-    expect((await call(tok.p1, 'POST', '/api/worlds/greystone/join', { characterId: c.body.id, locationId: 'plaza' })).status).toBe(201);
-    const me = await call(tok.p1, 'GET', '/api/me');
-    expect(me.body.characters.map((x: { name: string }) => x.name)).toEqual(['灰鴉']);
-  });
-
-  it('a character sheet is for its owner and GMs only', async () => {
-    const id = await enter(tok.p1, 'guardian', '灰鴉');
-    expect((await call(tok.p1, 'GET', `/api/characters/${id}`)).status).toBe(200);
-    expect((await call(tok.p2, 'GET', `/api/characters/${id}`)).status).toBe(403);
-    expect((await call(tok.gm, 'GET', `/api/characters/${id}`)).status).toBe(200);
+    expect(bad.body.problems).toContainEqual(expect.objectContaining({ file: 'sheet.json', path: '.derived[0].formula', message: expect.stringContaining('@vigor') }));
+    expect((await upload(tok.p1, strToU8('not a zip'))).body.problems[0].message).toContain('不是有效的 zip');
   });
 });
 
-describe('world view and commands', () => {
-  it('players get the redacted view; asking for the GM view without a grant gets nothing extra', async () => {
-    await enter(tok.p1, 'guardian', '灰鴉');
-    const p = await call(tok.p1, 'GET', '/api/worlds/greystone/view');
-    expect(p.body.world.locations.plaza.gmNotes).toBe('');
-    const fake = await call(tok.p1, 'GET', '/api/worlds/greystone/view?as=gm');
-    expect(fake.body.world.locations.plaza.gmNotes).toBe('');
-    expect(fake.body.audit).toEqual([]);
-    const gm = await call(tok.gm, 'GET', '/api/worlds/greystone/view?as=gm');
-    expect(gm.body.world.locations.plaza.gmNotes).not.toBe('');
+describe('rooms', () => {
+  it('a room has a code to join; only members can see it, and the creator is its GM', async () => {
+    const { room } = await table3();
+    expect((await call(tok.p2, 'GET', `/api/rooms/${room.id}`)).status).toBe(403);
+    const view = (await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body;
+    expect(view.me).toMatchObject({ userId: 'user:1', role: 'player' });
+    expect(view.members.map((m: any) => [m.userId, m.role])).toEqual([['user:gm', 'gm'], ['user:1', 'player']]);
+    expect((await call(tok.p1, 'GET', '/api/rooms')).body).toContainEqual(expect.objectContaining({ id: room.id, role: 'player', packName: '簡易 d20' }));
+    expect((await call(tok.p1, 'POST', '/api/rooms/join', { code: 'ZZZZZZ' })).status).toBe(404);
   });
 
-  it('GM commands need a grant; the system role can never be claimed', async () => {
-    const forged = await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { as: 'gm', command: { type: 'gmPublish', title: 'x', body: 'x' } });
-    expect(forged.status).toBe(403);
-    expect((await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { as: 'system', command: { type: 'advanceDay' } })).status).toBe(400);
-    const ok = await call(tok.gm, 'POST', '/api/worlds/greystone/commands', { as: 'gm', command: { type: 'gmPublish', title: '鐘聲', body: '第一聲鐘響' } });
-    expect(ok.status).toBe(200);
-    const seen = await call(tok.p1, 'GET', '/api/worlds/greystone/view');
-    expect(seen.body.history.map((e: { kind: string }) => e.kind)).toContain('worldEvent');
+  it('works out sheets on the server; players see their own sheet and only the names of others', async () => {
+    const { room, hero } = await table3();
+    await call(tok.p2, 'POST', '/api/rooms/join', { code: room.code });
+    const mine = (await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body.characters[0];
+    expect(mine.sheet.defense).toEqual({ value: 13, text: '10 + 靈巧 2 + 護甲加值 1' });
+    const theirs = (await call(tok.p2, 'GET', `/api/rooms/${room.id}`)).body.characters[0];
+    expect(theirs).toEqual({ id: hero.id, ownerUserId: 'user:1', name: '灰鴉' });
+    expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}`)).body.characters[0].sheet.hp.value).toBe(14);
   });
 
-  it('a value-moving command needs a request id, and a retry is not applied twice', async () => {
-    const id = await enter(tok.p1, 'guardian', '灰鴉');
-    const grant = { as: 'gm', command: { type: 'gmGrantCoins', characterId: id, amount: 10, reason: '起始資金' } };
-    expect((await call(tok.gm, 'POST', '/api/worlds/greystone/commands', grant)).body.error).toBe('request-id-required');
-    const first = await call(tok.gm, 'POST', '/api/worlds/greystone/commands', { ...grant, requestId: 'g-1' });
-    const again = await call(tok.gm, 'POST', '/api/worlds/greystone/commands', { ...grant, requestId: 'g-1' });
-    expect([first.body.replayed, again.body.replayed]).toEqual([false, true]);
-    const me = await call(tok.p1, 'GET', '/api/worlds/greystone/view');
-    expect(me.body.world.characters[id].coins).toBe(10);
-    expect(me.body.ledger).toHaveLength(1);
+  it('holds new characters to the creation budget and edits to a version check', async () => {
+    const { room, hero } = await table3();
+    const over = await call(tok.p1, 'POST', `/api/rooms/${room.id}/characters`, { name: '太強', data: { scores: { body: 4, agility: 4 } } });
+    expect(over).toMatchObject({ status: 400, body: { message: expect.stringContaining('屬性點數用了') } });
+    const up = await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/characters/${hero.id}`, { version: 1, data: { ...hero.data, inputs: { level: 2, armor: 1 } } });
+    expect(up.body.version).toBe(2);
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/characters/${hero.id}`, { version: 1, name: 'x' })).status).toBe(409);
+    await call(tok.p2, 'POST', '/api/rooms/join', { code: room.code });
+    expect((await call(tok.p2, 'PATCH', `/api/rooms/${room.id}/characters/${hero.id}`, { version: 2, name: '偷改' })).status).toBe(403);
+    expect((await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/characters/${hero.id}`, { version: 2, name: '灰鴉二世' })).status).toBe(200);
   });
 
-  it("one player cannot command another player's character", async () => {
-    const id = await enter(tok.p1, 'guardian', '灰鴉');
-    await enter(tok.p2, 'scout', '夜鶯');
-    const r = await call(tok.p2, 'POST', '/api/worlds/greystone/commands', { command: { type: 'move', characterId: id, to: 'market' } });
-    expect(r.status).toBe(403);
-  });
-});
-
-describe('PvP combat through the API', () => {
-  it('a legal attack opens a combat that only its participants and GMs can read', async () => {
-    const a = await enter(tok.p1, 'guardian', '灰鴉');
-    const b = await enter(tok.p2, 'scout', '夜鶯');
-    for (const [t, id] of [[tok.p1, a], [tok.p2, b]] as const) {
-      await call(t, 'POST', '/api/worlds/greystone/commands', { command: { type: 'move', characterId: id, to: 'market' } });
-      await call(t, 'POST', '/api/worlds/greystone/commands', { command: { type: 'move', characterId: id, to: 'road' } });
-    }
-    const atk = await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { command: { type: 'attack', characterId: a, targetId: b } });
-    expect(atk.status).toBe(200);
-    const cid = atk.body.combatId as string;
-    expect(cid).toMatch(/^pvp-/);
-    expect((await call(tok.p2, 'GET', `/api/worlds/greystone/combats/${cid}`)).status).toBe(200);
-    const outsider = await auth.issue('user:3', 'user');
-    expect((await call(outsider, 'GET', `/api/worlds/greystone/combats/${cid}`)).status).toBe(403);
-    expect((await call(tok.gm, 'GET', `/api/worlds/greystone/combats/${cid}`)).status).toBe(200);
-  });
-});
-
-describe('GM-run fights', () => {
-  it('a GM starts a fight with bestiary monsters; players see only their own fights and cannot move the monsters', async () => {
-    const a = await enter(tok.p1, 'guardian', '灰鴉');
-    await enter(tok.p2, 'scout', '夜鶯');
-    const body = { locationId: 'plaza', characters: [{ id: a, weaponId: 'sword', armorId: 'chain' }], monsters: [{ bestiaryId: 'wolf' }, { bestiaryId: 'wolf' }] };
-    expect((await call(tok.p1, 'POST', '/api/worlds/greystone/combats', body)).status).toBe(403);
-    const started = await call(tok.gm, 'POST', '/api/worlds/greystone/combats', body);
-    expect(started.status).toBe(201);
-    expect(Object.values(started.body.combatants).map((c: any) => c.name)).toEqual(['灰鴉', '灰狼甲', '灰狼乙']);
-    expect((await call(tok.p1, 'GET', '/api/worlds/greystone/combats')).body.map((c: any) => c.id)).toEqual([started.body.id]);
-    expect((await call(tok.p2, 'GET', '/api/worlds/greystone/combats')).body).toEqual([]);
-    const moveWolf = await call(tok.p1, 'POST', `/api/worlds/greystone/combats/${started.body.id}/actions`, {
-      actionId: 'w', combatantId: 'm1', round: started.body.round, action: { type: 'defend' },
-    });
-    expect(moveWolf.status).toBe(403);
-    const log = await call(tok.p2, 'GET', '/api/worlds/greystone/view');
-    expect(log.body.history.map((e: any) => e.text)).toContain('戰鬥開始：灰鴉、灰狼甲、灰狼乙');
+  it('chat, /r and sheet rolls go into one log, each roll with its breakdown; a resend does not roll twice', async () => {
+    const { room, hero } = await table3();
+    await call(tok.p1, 'POST', `/api/rooms/${room.id}/chat`, { text: '有人在嗎？', requestId: rid() });
+    const free = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/chat`, { text: '/r 2d6+3', requestId: rid() })).body;
+    expect(free.body).toMatchObject({ label: '擲骰', text: '2d6[10,10] + 3', total: 23 });
+    const req = rid();
+    const atk = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/rolls`, { characterId: hero.id, action: 'melee_attack', requestId: req })).body;
+    expect(atk.body).toMatchObject({ label: '灰鴉：近戰攻擊', text: '1d20[10] + 體魄 2 + 近戰 2', total: 14, damage: { text: '1d8[10] + 體魄 2', total: 12 } });
+    const again = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/rolls`, { characterId: hero.id, action: 'melee_attack', requestId: req })).body;
+    expect(again.seq).toBe(atk.seq);
+    const check = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/rolls`, { characterId: hero.id, check: { skill: 'stealth' }, mode: 'advantage', requestId: rid() })).body;
+    expect(check.body).toMatchObject({ label: '灰鴉：潛行檢定（優勢）', total: 13 });
+    const log = (await call(tok.gm, 'GET', `/api/rooms/${room.id}/log`)).body;
+    expect(log.map((e: any) => e.kind)).toEqual(['system', 'system', 'system', 'chat', 'roll', 'roll', 'roll']);
+    expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}/log?after=${atk.seq}`)).body).toHaveLength(1);
   });
 
-  it('refuses a fight with someone who is not at the location', async () => {
-    const a = await enter(tok.p1, 'guardian', '灰鴉');
-    await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { command: { type: 'move', characterId: a, to: 'market' } });
-    const r = await call(tok.gm, 'POST', '/api/worlds/greystone/combats', { locationId: 'plaza', characters: [{ id: a }], monsters: [{ bestiaryId: 'wolf' }] });
-    expect(r.status).toBe(400);
-  });
-});
-
-describe('bot feed and scheduler', () => {
-  it('only the service token reads the raw feed, which carries owners for routing', async () => {
-    const id = await enter(tok.p1, 'guardian', '灰鴉');
-    await call(tok.p1, 'POST', '/api/worlds/greystone/commands', { command: { type: 'search', characterId: id } });
-    expect((await call(tok.p1, 'GET', '/api/worlds/greystone/feed')).status).toBe(403);
-    expect((await call(tok.bot, 'GET', '/api/worlds/greystone/feed', undefined, { 'x-act-as': 'user:1' })).status).toBe(403);
-    const feed = await call(tok.bot, 'GET', '/api/worlds/greystone/feed?after=0');
-    expect(feed.body.owners[id]).toBe('user:1');
-    expect(feed.body.events.some((e: { visibility: string }) => e.visibility === 'private')).toBe(true);
-    const later = await call(tok.bot, 'GET', `/api/worlds/greystone/feed?after=${feed.body.events.at(-1).seq}`);
-    expect(later.body.events).toEqual([]);
+  it("only the owner or a GM rolls for a character; a /gr roll is seen by GMs and the roller only", async () => {
+    const { room, hero } = await table3();
+    await call(tok.p2, 'POST', '/api/rooms/join', { code: room.code });
+    expect((await call(tok.p2, 'POST', `/api/rooms/${room.id}/rolls`, { characterId: hero.id, action: 'melee_attack', requestId: rid() })).status).toBe(403);
+    expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/rolls`, { characterId: hero.id, check: { attribute: 'mind' }, requestId: rid() })).status).toBe(200);
+    const secret = (await call(tok.gm, 'POST', `/api/rooms/${room.id}/chat`, { text: '/gr 1d20', requestId: rid() })).body;
+    expect(secret.body.secret).toBe(true);
+    const seenBy = async (t: string) => (await call(t, 'GET', `/api/rooms/${room.id}/log`)).body.some((e: any) => e.seq === secret.seq);
+    expect([await seenBy(tok.gm), await seenBy(tok.p1), await seenBy(tok.p2)]).toEqual([true, false, false]);
   });
 
-  it('runs the daily tick once per UTC date, however often it ticks', async () => {
-    const sched = await Scheduler.open(store, scriptedRng([]));
-    const day0 = (await store.load('greystone')).day;
-    await sched.tick(new Date('2026-10-29T00:00:30Z'));
-    await sched.tick(new Date('2026-10-29T00:01:30Z'));
-    expect((await store.load('greystone')).day).toBe(day0 + 1);
-    expect((await (await Scheduler.open(store, scriptedRng([]))).tick(new Date('2026-10-29T08:00:00Z')))[0].daily).toBe(false);
-    await sched.tick(new Date('2026-10-30T00:00:30Z'));
-    expect((await store.load('greystone')).day).toBe(day0 + 2);
+  it('a bad formula is a 400 with a message the player can act on', async () => {
+    const { room } = await table3();
+    const r = await call(tok.p1, 'POST', `/api/rooms/${room.id}/chat`, { text: '/r 2d6+', requestId: rid() });
+    expect(r).toMatchObject({ status: 400, body: { error: 'bad-formula', message: expect.stringContaining('不完整') } });
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/chat`, { text: 'hi' })).status).toBe(400);
   });
 
-  it('a server that slept catches up on its first request, and only once per window', async () => {
-    const sched = await Scheduler.open(store, scriptedRng([]));
-    const day0 = (await store.load('greystone')).day;
-    await Promise.all([sched.catchUp(new Date('2026-11-02T09:00:00Z')), sched.catchUp(new Date('2026-11-02T09:00:01Z'))]);
-    expect((await store.load('greystone')).day).toBe(day0 + 1);
-    await sched.catchUp(new Date('2026-11-03T00:00:05Z'), 60_000); // a new date, outside the window: ticks again
-    expect((await store.load('greystone')).day).toBe(day0 + 2);
-  });
-
-  it('lists worlds with the outposts a new character may enter from', async () => {
-    const w = await call(tok.p1, 'GET', '/api/worlds');
-    expect(w.body[0]).toMatchObject({ id: 'greystone' });
-    expect(w.body[0].outposts.map((o: { id: string }) => o.id)).toContain('plaza');
-  });
-});
-
-describe('first start', () => {
-  it('INITIAL_GMS adds missing grants to an existing world without touching current ones', async () => {
-    const out = await ensureWorld(store, parseGrants('sb:luz=main,user:gm=arbiter,sb:s=scene:ruins,road'));
-    expect(out).toEqual({ created: false, granted: ['sb:luz', 'sb:s'] });
-    const [w] = await store.worldIds();
-    expect((await store.load(w)).gms).toEqual({
-      'user:gm': { role: 'main' }, 'sb:luz': { role: 'main' }, 'sb:s': { role: 'scene', locations: ['ruins', 'road'] },
-    });
-    expect(await ensureWorld(store, parseGrants('sb:luz=main'))).toEqual({ created: false, granted: [] });
+  it('GMs can make other members GMs, and a room always keeps at least one', async () => {
+    const { room } = await table3();
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/members/user:gm`, { role: 'player' })).status).toBe(403);
+    expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/members/user:gm`, { role: 'player' })).body.error).toBe('last-gm');
+    expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/members/user:1`, { role: 'gm' })).status).toBe(200);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body.me.role).toBe('gm');
   });
 });
