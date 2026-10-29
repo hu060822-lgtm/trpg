@@ -23,7 +23,7 @@ if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 const { store, auth } = await openGame(url, {
   supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, supabaseAnonKey: env.SUPABASE_ANON_KEY, dev: env.AUTH_DEV === '1',
 });
-const initialGms = parseGrants(env.INITIAL_GMS ?? (env.AUTH_DEV === '1' ? 'dev:gm=main' : ''));
+const initialGms = parseGrants(env.INITIAL_GMS ?? (env.AUTH_DEV === '1' ? 'pw:gm=main,dev:gm=main' : ''));
 const seeded = await ensureWorld(store, initialGms);
 if (seeded.created) console.log(`created the seed world, GMs: ${seeded.granted.join(', ') || 'none yet (set INITIAL_GMS and restart)'}`);
 else if (seeded.granted.length) console.log(`gave GM grants from INITIAL_GMS to ${seeded.granted.join(', ')}`);

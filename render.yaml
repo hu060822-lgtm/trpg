@@ -1,4 +1,4 @@
-# Render blueprint for the game server. Free plan: no disk is needed because the data lives in Supabase.
+# Render blueprint for the game server and the web client. Free plan: no disk is needed because the data lives in Supabase.
 # A free service sleeps after 15 minutes without traffic; the first request after that takes about a minute.
 services:
   - type: web
@@ -14,16 +14,19 @@ services:
       # Supabase Session pooler connection string (the direct one is IPv6 only and Render cannot reach it).
       - key: DATABASE_URL
         sync: false
-      # Supabase project URL, for verifying sign-ins.
-      - key: SUPABASE_URL
-        sync: false
-      # Supabase anon or publishable key (public). Older projects sign with a shared secret; with this key the server
-      # asks Supabase Auth to check those sign-ins, so the secret is not needed.
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      # The GitHub Pages origin, e.g. https://hu060822-lgtm.github.io
+      # Web client origins, e.g. https://fateweave.onrender.com,https://hu060822-lgtm.github.io
       - key: CORS_ORIGINS
         sync: false
-      # Main GM of the first world: sb:<your Supabase user id>=main (the lobby shows your id after you sign in).
+      # Main GM of the first world: pw:<lower-case account name>=main
       - key: INITIAL_GMS
         sync: false
+  - type: web
+    name: fateweave
+    runtime: static
+    buildCommand: npm ci && npm --prefix client ci && npm --prefix client run build
+    staticPublishPath: client/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: VITE_API_URL
+        value: https://fateweave-server.onrender.com

@@ -67,6 +67,31 @@ async function enter(token: string, classId: string, name: string) {
 }
 
 describe('authentication', () => {
+  it('accounts: register, sign in, sign out; names are unique and passwords are never stored in the clear', async () => {
+    const reg = await call(undefined, 'POST', '/api/auth/register', { name: 'Luz', password: 'weave-the-fate' });
+    expect(reg.status).toBe(201);
+    expect(reg.body).toMatchObject({ userId: 'pw:luz', name: 'Luz' });
+    expect((await call(reg.body.token, 'GET', '/api/me')).body).toMatchObject({ userId: 'pw:luz', name: 'Luz' });
+    expect((await call(undefined, 'POST', '/api/auth/register', { name: 'luz', password: 'another-password' })).status).toBe(409);
+    expect((await call(undefined, 'POST', '/api/auth/register', { name: 'x', password: 'weave-the-fate' })).status).toBe(400);
+    expect((await call(undefined, 'POST', '/api/auth/register', { name: 'mira', password: 'short' })).status).toBe(400);
+    const stored = await db.one<{ password_hash: string }>("SELECT password_hash FROM accounts WHERE name_key = 'luz'");
+    expect(stored!.password_hash).not.toContain('weave-the-fate');
+
+    const login = await call(undefined, 'POST', '/api/auth/sign-in', { name: 'LUZ', password: 'weave-the-fate' });
+    expect(login.body).toMatchObject({ userId: 'pw:luz', name: 'Luz' });
+    expect((await call(undefined, 'POST', '/api/auth/sign-in', { name: 'luz', password: 'wrong-password' })).status).toBe(401);
+    expect((await call(login.body.token, 'POST', '/api/auth/sign-out')).status).toBe(200);
+    expect((await call(login.body.token, 'GET', '/api/me')).status).toBe(401);
+    expect((await call(reg.body.token, 'GET', '/api/me')).status).toBe(200);
+  });
+
+  it('slows down password guessing: five wrong tries lock the name for a minute', async () => {
+    await call(undefined, 'POST', '/api/auth/register', { name: 'mira', password: 'right-password' });
+    for (let i = 0; i < 5; i++) expect((await call(undefined, 'POST', '/api/auth/sign-in', { name: 'mira', password: 'nope-nope' })).status).toBe(401);
+    expect((await call(undefined, 'POST', '/api/auth/sign-in', { name: 'mira', password: 'right-password' })).status).toBe(429);
+  });
+
   it('needs a token, and only the bot may act on behalf of someone else', async () => {
     expect((await call(undefined, 'GET', '/api/me')).status).toBe(401);
     expect((await call('fw_u_forged', 'GET', '/api/me')).status).toBe(401);

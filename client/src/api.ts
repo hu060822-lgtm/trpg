@@ -21,7 +21,7 @@ export class ApiError extends Error {
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
 export class Api {
-  constructor(private token: () => Promise<string>) {}
+  constructor(private token: () => Promise<string>, private onUnauthorized?: () => void) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
@@ -35,6 +35,7 @@ export class Api {
       throw new ApiError(0, 'offline', '連不上遊戲伺服器。伺服器閒置時會休眠，請等半分鐘再試一次。');
     }
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) this.onUnauthorized?.();
     if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `伺服器回應 ${res.status}`);
     return data as T;
   }

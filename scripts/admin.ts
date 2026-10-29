@@ -1,6 +1,6 @@
 // Server administration from the command line. Point DATABASE_URL at the same database as the server
 // (the Supabase connection string in production; default ./data/pglite locally):
-//   npm run admin -- create-world [seed.json] --gm sb:<user id>=main [--gm sb:<id>=scene:ruins,road] [--gm sb:<id>=arbiter]
+//   npm run admin -- create-world [seed.json] --gm pw:<name>=main [--gm pw:<name>=scene:ruins,road] [--gm pw:<name>=arbiter]
 //   npm run admin -- set-gm <worldId> <userId> <main | scene:loc1,loc2 | arbiter | none>
 //   npm run admin -- issue-token <userId> [label]        an API token for scripts or tests
 //   npm run admin -- issue-service-token [label]         a service token (may act for users with X-Act-As)

@@ -1,10 +1,13 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from 'jose';
 import type { Database } from '../persistence/db';
 
 /**
- * Who is calling. Three kinds of bearer token are accepted:
- * - a Supabase Auth access token (the web game's sign-in); the user id is `sb:<Supabase user id>`;
+ * Who is calling. Accounts are a name and a password kept by this server (user id `pw:<lower-case name>`); signing
+ * in returns an ordinary user API token. Bearer tokens accepted:
+ * - an API token, from signing in or from the admin CLI;
+ * - a Supabase Auth access token; the user id is `sb:<Supabase user id>`;
  * - an API token issued from the admin CLI (`fw_u_…` for a user, `fw_s_…` for a service such as a future bot).
  *   Only a SHA-256 of each is stored, so a leaked database does not leak working tokens;
  * - in development only (`AUTH_DEV=1`), `dev:<name>`, so the game can be tried locally without Supabase.
@@ -18,7 +21,33 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   created_at TEXT NOT NULL,
   revoked_at TEXT
 );
+CREATE TABLE IF NOT EXISTS accounts (
+  name_key TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 `;
+
+const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
+const NAME = /^[\w一-鿿-]{2,20}$/u;
+
+export class AuthError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+  }
+}
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16);
+  return `scrypt:${salt.toString('base64')}:${(await scryptAsync(password, salt, 32)).toString('base64')}`;
+}
+
+async function passwordMatches(password: string, stored: string) {
+  const [, salt, want] = stored.split(':');
+  const got = await scryptAsync(password, Buffer.from(salt, 'base64'), 32);
+  return timingSafeEqual(got, Buffer.from(want, 'base64'));
+}
 
 export interface Principal { userId: string; kind: 'user' | 'service'; name?: string }
 
@@ -41,6 +70,8 @@ export class Auth {
   private jwks?: ReturnType<typeof createRemoteJWKSet>;
   private secret?: Uint8Array;
   private remote = new Map<string, { principal: Principal | undefined; until: number }>();
+  /** Failed sign-ins per account name, to slow down password guessing. */
+  private failures = new Map<string, { count: number; until: number }>();
 
   private constructor(private db: Database, private opts: AuthOptions) {
     if (opts.supabaseUrl) this.jwks = createRemoteJWKSet(new URL('/auth/v1/.well-known/jwks.json', opts.supabaseUrl));
@@ -60,6 +91,33 @@ export class Auth {
     return token;
   }
 
+  /** Creates an account and signs it in. Names are unique regardless of letter case. */
+  async register(name: string, password: string, now = new Date()): Promise<{ token: string; userId: string; name: string }> {
+    name = String(name ?? '').trim();
+    if (!NAME.test(name)) throw new AuthError(400, 'bad-name', '名字要 2 到 20 個字，只能用中文、英文、數字、底線或連字號');
+    if (typeof password !== 'string' || password.length < 8 || password.length > 200) throw new AuthError(400, 'bad-password', '密碼至少要 8 個字');
+    const key = name.toLowerCase();
+    const added = await this.db.run('INSERT INTO accounts (name_key, name, password_hash, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [key, name, await hashPassword(password), now.toISOString()]);
+    if (!added) throw new AuthError(409, 'name-taken', `「${name}」已經有人用了，換一個名字`);
+    return { token: await this.issue(`pw:${key}`, 'user', 'sign-in', now), userId: `pw:${key}`, name };
+  }
+
+  async signIn(name: string, password: string, now = new Date()): Promise<{ token: string; userId: string; name: string }> {
+    const key = String(name ?? '').trim().toLowerCase();
+    const fail = this.failures.get(key);
+    if (fail && fail.count >= 5 && fail.until > now.getTime()) throw new AuthError(429, 'too-many-tries', '密碼錯太多次，請一分鐘後再試');
+    const row = await this.db.one<{ name: string; password_hash: string }>('SELECT name, password_hash FROM accounts WHERE name_key = $1', [key]);
+    if (!row || typeof password !== 'string' || !(await passwordMatches(password, row.password_hash))) {
+      const count = fail && fail.until > now.getTime() ? fail.count + 1 : 1;
+      if (this.failures.size > 10000) this.failures.clear();
+      this.failures.set(key, { count, until: now.getTime() + 60_000 });
+      throw new AuthError(401, 'bad-credentials', '名字或密碼不對');
+    }
+    this.failures.delete(key);
+    return { token: await this.issue(`pw:${key}`, 'user', 'sign-in', now), userId: `pw:${key}`, name: row.name };
+  }
+
   async revoke(token: string, now = new Date()) {
     await this.db.run('UPDATE api_tokens SET revoked_at = $1 WHERE token_hash = $2', [now.toISOString(), hash(token)]);
   }
@@ -67,9 +125,10 @@ export class Auth {
   async verify(token: string | undefined): Promise<Principal | undefined> {
     if (!token) return undefined;
     if (token.startsWith('fw_')) {
-      const row = await this.db.one<{ user_id: string; kind: Principal['kind'] }>(
-        'SELECT user_id, kind FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL', [hash(token)]);
-      return row && { userId: row.user_id, kind: row.kind };
+      const row = await this.db.one<{ user_id: string; kind: Principal['kind']; name: string | null }>(
+        `SELECT t.user_id, t.kind, a.name FROM api_tokens t LEFT JOIN accounts a ON t.user_id = 'pw:' || a.name_key
+         WHERE t.token_hash = $1 AND t.revoked_at IS NULL`, [hash(token)]);
+      return row && { userId: row.user_id, kind: row.kind, ...(row.name ? { name: row.name } : {}) };
     }
     if (token.startsWith('dev:')) {
       const name = token.slice(4).trim();

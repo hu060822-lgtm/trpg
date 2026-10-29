@@ -1,64 +1,51 @@
-import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
+import { API_URL } from './api';
 
 /**
- * Sign-in. With a Supabase project configured, players sign in with an email link or GitHub, and every API call
- * carries the Supabase access token. Without one (local development), a player picks a test name and the server,
- * started with AUTH_DEV=1, accepts `dev:<name>`.
+ * Sign-in with a name and password kept by the game server; no email or outside account is needed. The server
+ * answers with an API token, which stays in this browser until the player signs out.
  */
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null;
-
-const DEV_KEY = 'fateweave.devName';
+const KEY = 'fateweave.session';
 
 export interface SignedIn { token: () => Promise<string>; label: string; signOut: () => Promise<void> }
+interface Stored { token: string; name: string }
 
-function fromSession(s: Session): SignedIn {
+function signedIn(s: Stored): SignedIn {
   return {
-    label: s.user.user_metadata?.user_name ?? s.user.email ?? '玩家',
-    token: async () => (await supabase!.auth.getSession()).data.session?.access_token ?? s.access_token,
-    signOut: async () => { await supabase!.auth.signOut(); },
+    label: s.name,
+    token: async () => s.token,
+    signOut: async () => {
+      try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
+      await fetch(`${API_URL}/api/auth/sign-out`, { method: 'POST', headers: { authorization: `Bearer ${s.token}` } }).catch(() => {});
+    },
   };
 }
 
-function devSignedIn(name: string): SignedIn {
-  return {
-    label: name,
-    token: async () => `dev:${name}`,
-    signOut: async () => { try { localStorage.removeItem(DEV_KEY); } catch { /* storage unavailable */ } },
-  };
-}
-
-export async function currentSignIn(): Promise<SignedIn | null> {
-  if (supabase) {
-    const { data } = await supabase.auth.getSession();
-    return data.session ? fromSession(data.session) : null;
-  }
+export function currentSignIn(): SignedIn | null {
   try {
-    const name = localStorage.getItem(DEV_KEY);
-    return name ? devSignedIn(name) : null;
+    const raw = localStorage.getItem(KEY);
+    return raw ? signedIn(JSON.parse(raw) as Stored) : null;
   } catch {
     return null;
   }
 }
 
-export function onSignInChange(cb: (s: SignedIn | null) => void) {
-  if (!supabase) return () => {};
-  const { data } = supabase.auth.onAuthStateChange((_e, session) => cb(session ? fromSession(session) : null));
-  return () => data.subscription.unsubscribe();
+/** Forgets a session the server no longer accepts. */
+export function forgetSignIn() {
+  try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
 }
 
-export async function signInWithEmail(email: string) {
-  const { error } = await supabase!.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0] } });
-  if (error) throw error;
-}
-
-export async function signInWithGitHub() {
-  const { error } = await supabase!.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: location.href.split('#')[0] } });
-  if (error) throw error;
-}
-
-export function signInDev(name: string): SignedIn {
-  try { localStorage.setItem(DEV_KEY, name); } catch { /* storage unavailable: signed in for this visit only */ }
-  return devSignedIn(name);
+export async function signIn(mode: 'sign-in' | 'register', name: string, password: string): Promise<SignedIn> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/auth/${mode}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password }),
+    });
+  } catch {
+    throw new Error('連不上遊戲伺服器。伺服器閒置時會休眠，請等一分鐘再試一次。');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message ?? `伺服器回應 ${res.status}`);
+  const stored: Stored = { token: data.token, name: data.name };
+  try { localStorage.setItem(KEY, JSON.stringify(stored)); } catch { /* storage unavailable: signed in for this visit only */ }
+  return signedIn(stored);
 }

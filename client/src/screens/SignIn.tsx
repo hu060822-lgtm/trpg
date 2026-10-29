@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { signInDev, signInWithEmail, signInWithGitHub, supabase, type SignedIn } from '../auth';
+import { signIn, type SignedIn } from '../auth';
 import { useAction } from '../hooks';
 
 export function SignIn({ onSignedIn }: { onSignedIn: (s: SignedIn) => void }) {
-  const [email, setEmail] = useState('');
+  const [mode, setMode] = useState<'sign-in' | 'register'>('sign-in');
   const [name, setName] = useState('');
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
+  const [again, setAgain] = useState('');
   const { busy, error, run } = useAction();
+  const registering = mode === 'register';
+  const mismatch = registering && again !== '' && again !== password;
 
   return (
     <main className="page">
@@ -15,33 +18,31 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: SignedIn) => void }) {
         <p>一個世界，一位真人主持人，很多個不必同時上線的玩家。你離開時世界照樣運轉，回來時看看發生了什麼，再決定下一步。</p>
       </div>
       <div className="card stack" style={{ maxWidth: 420 }}>
-        {supabase ? (
-          sent ? (
-            <p className="notice">登入連結已寄到 {email}，在這台裝置上打開信裡的連結就能進入。</p>
-          ) : (
-            <>
-              <h2>登入</h2>
-              <form className="stack" onSubmit={(e) => { e.preventDefault(); void run(async () => { await signInWithEmail(email.trim()); setSent(true); }); }}>
-                <label>Email
-                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-                </label>
-                <button className="primary" disabled={busy}>寄登入連結給我</button>
-              </form>
-              <button disabled={busy} onClick={() => void run(signInWithGitHub)}>用 GitHub 帳號登入</button>
-            </>
-          )
-        ) : (
-          <>
-            <h2>本機試玩</h2>
-            <p className="muted small">這個版本沒有設定 Supabase，用一個名字登入就好。伺服器要用 AUTH_DEV=1 啟動，名字 gm 是預設的主 GM。</p>
-            <form className="stack" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSignedIn(signInDev(name.trim())); }}>
-              <label>名字
-                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={32} placeholder="例如 luz" />
-              </label>
-              <button className="primary">進入</button>
-            </form>
-          </>
-        )}
+        <div className="switch" role="tablist">
+          <button role="tab" aria-selected={!registering} onClick={() => setMode('sign-in')}>登入</button>
+          <button role="tab" aria-selected={registering} onClick={() => setMode('register')}>建立帳號</button>
+        </div>
+        <form className="stack" onSubmit={(e) => {
+          e.preventDefault();
+          if (mismatch) return;
+          void run(async () => onSignedIn(await signIn(mode, name.trim(), password)));
+        }}>
+          <label>名字
+            <input required autoComplete="username" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} placeholder="例如 luz" />
+          </label>
+          <label>密碼
+            <input required type="password" autoComplete={registering ? 'new-password' : 'current-password'} minLength={registering ? 8 : undefined}
+              value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          {registering && (
+            <label>再輸入一次密碼
+              <input required type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+            </label>
+          )}
+          {registering && <p className="muted small">名字 2 到 20 個字，其他玩家會看到。密碼至少 8 個字，忘記了目前沒辦法找回，請記好。</p>}
+          {mismatch && <p className="error">兩次輸入的密碼不一樣</p>}
+          <button className="primary" disabled={busy || mismatch}>{registering ? '建立帳號並進入' : '登入'}</button>
+        </form>
         {error && <p className="error">{error}</p>}
       </div>
     </main>

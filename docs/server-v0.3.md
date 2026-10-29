@@ -15,12 +15,12 @@ npm run admin                    # 管理指令說明（建立世界、設定 GM
 |---|---|
 | `DATABASE_URL` | `postgres://…`（Supabase）；沒設定時用本機的 PGlite 目錄 `./data/pglite` |
 | `PORT` | 預設 3000 |
-| `SUPABASE_URL` | 用 Supabase 專案的金鑰驗證登入 |
+| `SUPABASE_URL` | 選用：要接受 Supabase Auth 登入時才需要 |
 | `SUPABASE_JWT_SECRET` | 舊式共用密鑰。可以不填，改填 `SUPABASE_ANON_KEY` |
 | `SUPABASE_ANON_KEY` | Supabase 的公開金鑰。舊專案用共用密鑰簽登入，沒有密鑰時伺服器會拿這把金鑰去問 Supabase 這是誰，答案保留一分鐘 |
 | `AUTH_DEV=1` | 接受 `dev:<名字>` 登入，只能在本機用，正式環境絕對不要設 |
 | `CORS_ORIGINS` | 網頁版的網址來源，逗號分隔，例如 `https://hu060822-lgtm.github.io` |
-| `INITIAL_GMS` | 第一個世界的 GM，例如 `sb:<使用者ID>=main`。資料庫是空的時候會建立種子世界；之後每次啟動，名單上還沒有權限的人會補上權限，已有的權限不會被改 |
+| `INITIAL_GMS` | 第一個世界的 GM，例如 `pw:luz=main`。資料庫是空的時候會建立種子世界；之後每次啟動，名單上還沒有權限的人會補上權限，已有的權限不會被改 |
 
 ## 資料庫
 
@@ -32,9 +32,12 @@ npm run admin                    # 管理指令說明（建立世界、設定 GM
 
 ## 身分與權限
 
-所有 `/api` 請求都要帶 `Authorization: Bearer <token>`。接受三種 token：
+玩家用名字＋密碼登入（`POST /api/auth/register`、`POST /api/auth/sign-in`，回傳一個 token）。使用者 ID 是 `pw:<小寫名字>`。密碼用 scrypt 雜湊，同一個名字連續錯 5 次會鎖一分鐘。`POST /api/auth/sign-out` 讓目前的 token 失效。
 
-- **Supabase 登入**（網頁版）：使用者 ID 是 `sb:<Supabase 使用者 ID>`，網頁大廳會顯示這個 ID；
+除了上面三個登入端點，所有 `/api` 請求都要帶 `Authorization: Bearer <token>`。接受三種 token：
+
+- **登入或管理工具發的 API token**（見下一點）；
+- **Supabase Auth 登入**（選用）：使用者 ID 是 `sb:<Supabase 使用者 ID>`；
 - **管理工具發的 API token**：`fw_u_…` 是使用者，`fw_s_…` 是服務。資料庫只存雜湊值。服務 token 可以用 `X-Act-As` 代替使用者操作，也可以讀事件推播；
 - **`dev:<名字>`**：只有 `AUTH_DEV=1` 時才接受。
 

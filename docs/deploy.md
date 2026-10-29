@@ -1,99 +1,91 @@
-# 上線步驟：GitHub Pages ＋ Render ＋ Supabase
+# 上線步驟：Render ＋ Supabase（＋ GitHub Pages）
 
 ```
-玩家的瀏覽器 ──► GitHub Pages（網頁版，靜態檔案）
+玩家的瀏覽器 ──► 網頁版（Render 靜態網站，或 GitHub Pages）
       │
-      ├──► Supabase Auth（登入）
-      └──► Render（遊戲伺服器）──► Supabase PostgreSQL（資料）
+      └──► Render（遊戲伺服器，帳號密碼登入）──► Supabase PostgreSQL（資料）
 ```
 
 GitHub Pages 只能放靜態網頁，不能跑伺服器，所以多人遊戲需要另外一台伺服器（Render）和資料庫（Supabase）。三個都有免費方案。
 
-**前提：** 這個分支要先合併進 `main`。Pages 的自動部署和 Render 的 Blueprint 都看 `main`。
+登入用遊戲自己的帳號：名字＋密碼，存在伺服器的資料庫，密碼只存 scrypt 雜湊。不需要 Email，也不需要 GitHub 帳號。伺服器仍然接受 Supabase Auth 的 token，之後要加回 Email 或第三方登入時可以用。
 
-## 1. Supabase
+## 目前的部署（2026-10-29）
 
-1. 在 supabase.com 建立專案，區域選離玩家近的（例如 Tokyo 或 Singapore），記下資料庫密碼。
-2. **Authentication → URL Configuration**：
-   - Site URL 填 `https://hu060822-lgtm.github.io/trpg/`；
-   - Redirect URLs 加上同一個網址，本機開發再加 `http://localhost:5173/`。
-3. **Authentication → Sign In / Providers**：
-   - Email 預設開啟，玩家會收到登入連結；
-   - 想讓玩家用 GitHub 登入，要另外到 GitHub 建一個 OAuth App，callback 填 `https://<專案代號>.supabase.co/auth/v1/callback`，再把 Client ID 和 Secret 填回 Supabase。
-4. 記下三個值：
-   - **Project URL**（Project Settings → Data API），例如 `https://abcd.supabase.co`；
-   - **anon 或 publishable key**（Project Settings → API Keys）。這把是公開金鑰，可以放進網頁；
-   - **資料庫連線字串**：按上方 **Connect**，選 **Session pooler**，把 `[YOUR-PASSWORD]` 換成資料庫密碼。不要用 Direct connection，它只走 IPv6，Render 連不到。
+| 部分 | 位置 |
+|---|---|
+| 網頁版 | https://fateweave.onrender.com （Render 靜態網站 `fateweave`） |
+| 伺服器 | https://fateweave-server.onrender.com （Render `fateweave-server`，新加坡，免費方案） |
+| 資料庫 | Supabase 專案「trpg計畫」，帳號 `fateweave`，schema `fateweave` |
+
+兩個 Render 服務目前從 `web-game` 分支自動部署，推送到這個分支就會更新。
+
+## 1. Supabase（資料庫）
+
+1. 建立專案，區域選離玩家近的（例如 Tokyo）。
+2. 讓伺服器用自己的資料庫帳號，資料表放在 `fateweave` schema。這個 schema 不會經由 Supabase 的 Data API 公開。在 SQL Editor 執行：
+
+   ```sql
+   CREATE ROLE fateweave LOGIN PASSWORD '<一組長密碼>';
+   GRANT fateweave TO postgres;
+   CREATE SCHEMA fateweave AUTHORIZATION fateweave;
+   ALTER ROLE fateweave SET search_path = fateweave;
+   ```
+
+3. 連線字串用 **Session pooler**：`postgres://fateweave.<專案代號>:<密碼>@aws-0-<區域>.pooler.supabase.com:5432/postgres`。
+   - 不要用 Direct connection，它只走 IPv6，Render 連不到。
+   - 如果日誌出現 `tenant/user ... not found`，把 `aws-0` 換成 `aws-1` 試試（看專案建立的時間）。
 
 不用手動建表，伺服器啟動時會自己建。
 
-建議讓伺服器用自己的資料庫帳號，資料表放在 `fateweave` schema。這個 schema 不會經由 Supabase 的 Data API 公開。在 SQL Editor 執行：
-
-```sql
-CREATE ROLE fateweave LOGIN PASSWORD '<另一組密碼>';
-GRANT fateweave TO postgres;
-CREATE SCHEMA fateweave AUTHORIZATION fateweave;
-ALTER ROLE fateweave SET search_path = fateweave;
-```
-
-連線字串的使用者名稱改成 `fateweave.<專案代號>`。
-
 ## 2. Render
 
-1. 在 render.com 選 **New → Blueprint**，連到 `hu060822-lgtm/trpg`，它會讀 `render.yaml` 建立免費的 `fateweave-server`。
-2. 填環境變數：
-   - `DATABASE_URL`：Supabase 的 Session pooler 連線字串；
-   - `SUPABASE_URL`：Supabase 的 Project URL；
-   - `SUPABASE_ANON_KEY`：Supabase 的 anon 或 publishable key；
-   - `CORS_ORIGINS`：`https://hu060822-lgtm.github.io`；
-   - `INITIAL_GMS`：先留空，第 4 步再填。
-3. 部署完成後打開 `https://<服務名稱>.onrender.com/health`，看到 `{"ok":true}` 就成功了。
+**伺服器**（`render.yaml` 的 Blueprint，或手動建 Web Service）：
+- Build：`npm ci --include=dev`；Start：`npm run server`；
+- 環境變數：
+  - `DATABASE_URL`：上面的連線字串；
+  - `CORS_ORIGINS`：網頁版的網址來源，逗號分隔，例如 `https://fateweave.onrender.com,https://hu060822-lgtm.github.io`；
+  - `INITIAL_GMS`：見第 4 步。
+
+**網頁版**（Static Site）：
+- Build：`npm ci && npm --prefix client ci && npm --prefix client run build`；
+- Publish directory：`client/dist`；
+- 環境變數：`VITE_API_URL` 設成伺服器網址。
 
 免費方案閒置 15 分鐘會休眠，下一個人進來時要等大約一分鐘伺服器才會醒來。網頁版連不上時會提示玩家稍等再試。
 
-## 3. GitHub Pages
+## 3. GitHub Pages（選用）
 
-1. 到 repo 的 **Settings → Pages**，Source 選 **GitHub Actions**。
-2. 到 **Settings → Secrets and variables → Actions → Variables** 新增三個 repository variable：
-   - `VITE_API_URL`：Render 服務的網址，例如 `https://fateweave-server.onrender.com`；
-   - `VITE_SUPABASE_URL`：Supabase 的 Project URL；
-   - `VITE_SUPABASE_ANON_KEY`：Supabase 的 anon 或 publishable key。
-3. 到 **Actions → Deploy web client → Run workflow**（之後每次推到 `main` 都會自動部署）。
-4. 網址是 `https://hu060822-lgtm.github.io/trpg/`。
+需要 repo 擁有者操作，而且 `.github/workflows/pages.yml` 只在 `main` 上執行：
+1. **Settings → Pages**，Source 選 **GitHub Actions**；
+2. **Settings → Secrets and variables → Actions → Variables** 新增 `VITE_API_URL`；
+3. **Actions → Deploy web client → Run workflow**。
 
-### 不用 Pages 的替代做法：Render 靜態網站
+網址會是 `https://hu060822-lgtm.github.io/trpg/`，記得在伺服器的 `CORS_ORIGINS` 加上 `https://hu060822-lgtm.github.io`。
 
-GitHub Pages 還沒開時，網頁版也可以放在 Render 的免費靜態網站：
-- Build command：`npm ci && npm --prefix client ci && npm --prefix client run build`；
-- Publish directory：`client/dist`；
-- 環境變數：上面三個 `VITE_` 變數。
+## 4. 設定主 GM
 
-記得把它的網址加進伺服器的 `CORS_ORIGINS`，以及 Supabase 的 Redirect URLs。
+1. 在網頁版建立帳號。你的使用者 ID 是 `pw:` 加上小寫的名字，例如名字 `Luz` 就是 `pw:luz`。大廳也會顯示這個 ID。
+2. 在 Render 把 `INITIAL_GMS` 設成 `pw:luz=main`，存檔後伺服器會重新啟動，並補上這個權限。
 
-## 4. 讓自己成為主 GM
-
-1. 打開網頁版並登入，大廳會顯示你的使用者 ID（`sb:` 開頭）。
-2. 回到 Render，把 `INITIAL_GMS` 設成 `sb:<你的ID>=main`，存檔後 Render 會重新啟動伺服器。
-3. 重新整理網頁，大廳會出現 GM 桌。
-
-之後要加其他 GM，可以在 `INITIAL_GMS` 加上更多人，用逗號分隔，例如 `sb:aaa=main,sb:bbb=scene:ruins,road,sb:ccc=arbiter`。也可以在自己電腦上用管理工具：
+要加其他 GM，用逗號分隔，例如 `pw:luz=main,pw:mira=scene:ruins,road,pw:kai=arbiter`。已經有的權限不會被改掉。也可以用管理工具：
 
 ```bash
-DATABASE_URL='<Session pooler 連線字串>' npm run admin -- set-gm <世界ID> sb:<ID> main
+DATABASE_URL='<連線字串>' npm run admin -- set-gm <世界ID> pw:<名字> main
 ```
 
 ## 疑難排解
 
-- **登入後網頁一直顯示「沒有登入」（401）**：確認 Render 有填 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY`。也可以改填 Project Settings → JWT Keys 的 Legacy JWT secret 到 `SUPABASE_JWT_SECRET`，少一次查詢。
-- **瀏覽器出現 CORS 錯誤**：`CORS_ORIGINS` 要和網頁的來源完全一樣，只寫到網域，不要加 `/trpg/`。
-- **登入連結打開後回到 localhost**：Supabase 的 Site URL 或 Redirect URLs 沒有填 Pages 的網址。
+- **瀏覽器出現 CORS 錯誤**：`CORS_ORIGINS` 要和網頁的來源完全一樣，只寫到網域，不要加路徑。
+- **密碼錯太多次**：同一個名字連續錯 5 次會鎖一分鐘。
+- **忘記密碼**：目前沒有找回功能，GM 可以在資料庫刪掉 `accounts` 裡那一列，讓玩家用同一個名字重新註冊。舊角色的擁有者 ID 不變，所以會跟著回來。
 
 ## 本機試玩（不需要任何帳號）
 
 ```bash
 npm install && (cd client && npm install)
-AUTH_DEV=1 npm run server        # 終端機 1
+AUTH_DEV=1 npm run server        # 終端機 1，資料放在 ./data/pglite
 npm run web:dev                  # 終端機 2，打開 http://localhost:5173
 ```
 
-不設定 Supabase 時，登入畫面改成輸入測試名字。用 `gm` 這個名字登入就是主 GM。
+本機建立名字叫 `gm` 的帳號就是主 GM。

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Api } from './api';
-import { currentSignIn, onSignInChange, type SignedIn } from './auth';
+import { currentSignIn, forgetSignIn, type SignedIn } from './auth';
 import { useRoute } from './hooks';
 import { CreateCharacter } from './screens/CreateCharacter';
 import { GmDesk } from './screens/GmDesk';
@@ -9,15 +9,11 @@ import { Play } from './screens/Play';
 import { SignIn } from './screens/SignIn';
 
 export function App() {
-  const [user, setUser] = useState<SignedIn | null | undefined>(undefined);
+  const [user, setUser] = useState<SignedIn | null>(currentSignIn);
   const [route, go] = useRoute();
-  useEffect(() => {
-    void currentSignIn().then(setUser);
-    return onSignInChange(setUser);
-  }, []);
-  const api = useMemo(() => (user ? new Api(user.token) : null), [user]);
+  // A session the server no longer accepts (signed out elsewhere) sends the player back to the sign-in screen.
+  const api = useMemo(() => (user ? new Api(user.token, () => { forgetSignIn(); setUser(null); }) : null), [user]);
 
-  if (user === undefined) return null;
   if (!user || !api) return <SignIn onSignedIn={setUser} />;
 
   const [screen, a, b] = route;

@@ -10,7 +10,7 @@ import { randomRng, type Rng } from '../rules/dice';
 import type { RulesConfig } from '../rules/types';
 import { WorldError, gmGrant } from '../world/engine';
 import type { WorldActor, WorldCommand } from '../world/types';
-import { Auth, type Principal } from './auth';
+import { Auth, AuthError, type Principal } from './auth';
 
 /**
  * The game server's HTTP API. Every response a player gets goes through the same redaction as the sandbox
@@ -66,6 +66,14 @@ export function createApp(deps: ServerDeps) {
 
   app.get('/health', (_req, res) => { res.json({ ok: true }); });
 
+  // ---------- accounts ----------
+  app.post('/api/auth/register', async (req, res) => {
+    res.status(201).json(await auth.register(req.body?.name, req.body?.password, now()));
+  });
+  app.post('/api/auth/sign-in', async (req, res) => {
+    res.json(await auth.signIn(req.body?.name, req.body?.password, now()));
+  });
+
   // ---------- authentication ----------
   app.use('/api', async (req: Req, _res, next) => {
     const header = req.get('authorization') ?? '';
@@ -79,6 +87,11 @@ export function createApp(deps: ServerDeps) {
   });
 
   const caller = (req: Req) => req.caller!;
+
+  app.post('/api/auth/sign-out', async (req: Req, res) => {
+    await auth.revoke((req.get('authorization') ?? '').slice(7), now());
+    res.json({ ok: true });
+  });
   const worldOf = async (req: Request) => {
     const id = String(req.params.worldId);
     if (!(await store.worldIds()).includes(id)) throw new HttpError(404, 'not-found', `找不到世界 ${id}`);
@@ -282,7 +295,7 @@ export function createApp(deps: ServerDeps) {
   app.use((_req, _res, next) => next(new HttpError(404, 'not-found', '沒有這個 API')));
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
+    if (err instanceof HttpError || err instanceof AuthError) return res.status(err.status).json({ error: err.code, message: err.message });
     if (err instanceof WorldError || err instanceof StoreError || err instanceof CombatError) {
       const code = (err as { code: string }).code;
       const status = STATUS.find(([re]) => re.test(code))?.[1] ?? 400;
