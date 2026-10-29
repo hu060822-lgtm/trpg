@@ -4,14 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../persistence/drivers';
 import { buildPack } from '../pack/pack';
 import { readPackDirFiles } from '../pack/zip';
+import { EncounterStore } from '../table/encounters';
 import { MapStore } from '../table/maps';
+import { randomRng, type Rng } from '../rules/dice';
 import { TableStore } from '../table/store';
 import { Auth, type AuthOptions } from './auth';
 
 const PACKS_DIR = fileURLToPath(new URL('../../packs/', import.meta.url));
 
 /** Opens the database and every store on it, and refreshes the built-in rule packs. Shared by the server and the admin CLI. */
-export async function openGame(url: string, auth: AuthOptions = {}) {
+export async function openGame(url: string, auth: AuthOptions = {}, rng: Rng = randomRng) {
   const db = await openDatabase(url);
   const table = await TableStore.open(db);
   if (existsSync(PACKS_DIR)) {
@@ -21,5 +23,6 @@ export async function openGame(url: string, auth: AuthOptions = {}) {
       await table.savePack(buildPack(files), 'system', true, new Date(), files);
     }
   }
-  return { db, table, maps: await MapStore.open(db, table), auth: await Auth.open(db, auth) };
+  const maps = await MapStore.open(db, table);
+  return { db, table, maps, encounters: await EncounterStore.open(db, table, rng), auth: await Auth.open(db, auth) };
 }

@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { randomRng, type Rng } from '../rules/dice';
+import type { EncounterStore } from '../table/encounters';
 import type { MapStore } from '../table/maps';
 import type { TableStore } from '../table/store';
 import { Auth, AuthError, type Principal } from './auth';
@@ -14,6 +15,7 @@ export interface ServerDeps {
   auth: Auth;
   table: TableStore;
   maps: MapStore;
+  encounters: EncounterStore;
   /** Where room changes are announced for live updates; the server shares one with its WebSocket. */
   hub?: RoomHub;
   rng?: Rng;
@@ -33,7 +35,7 @@ class HttpError extends Error {
 }
 
 export function createApp(deps: ServerDeps) {
-  const { auth, table, maps } = deps;
+  const { auth, table, maps, encounters } = deps;
   const hub = deps.hub ?? new RoomHub();
   const rng = deps.rng ?? randomRng;
   const now = deps.now ?? (() => new Date());
@@ -77,7 +79,7 @@ export function createApp(deps: ServerDeps) {
     res.json({ userId: req.caller!.userId, name: req.caller!.principal.name ?? null });
   });
 
-  app.use('/api', tableRoutes({ table, maps, hub, rng, now }));
+  app.use('/api', tableRoutes({ table, maps, encounters, hub, rng, now }));
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not-found', '沒有這個 API')));
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

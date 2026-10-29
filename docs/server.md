@@ -72,12 +72,24 @@ npm run admin                    # 管理指令：規則包、發 token
 | DELETE | `/api/rooms/:id/tokens/:tid` | 擁有者或 GM 移除代幣 |
 | POST | `/api/rooms/:id/maps/:mid/objects` | 限 GM：放場景物件（`{ kind, x, y, w?, h?, rotation?, name?, hidden? }`）。`kind` 是 `wall`、`door`、`window`、`pillar`、`stairs`、`rubble`、`table`、`chair`、`bed`、`chest`、`barrel`、`crate`、`bookshelf`、`altar`、`statue`、`tree`、`bush`、`rock`、`water`、`fire`、`trap`、`label` 之一；一張地圖最多 500 個。玩家拿不到隱藏的物件，和整個都在迷霧裡的物件 |
 | PATCH / DELETE | `/api/rooms/:id/objects/:oid` | 限 GM：移動、改大小、旋轉（0／90／180／270）、改名、隱藏，或移除物件 |
+| GET | `/api/rooms/:id/encounter` | 目前的戰鬥（玩家看不到隱藏的生物和敵人的確切生命）、戰鬥紀錄和帶到下一場的生命值 |
+| POST | `/api/rooms/:id/encounter` | 限 GM：開始戰鬥（`{ entries?, template?: { id, x, y }, mode?, autoNpc?, showFoeHp? }`）。一個房間同時只有一場 |
+| POST | `/api/rooms/:id/encounter/command` | 戰鬥指令（`{ requestId, type, … }`）：擲骰、操作結果、閃避的方向紀錄、攻擊、移動、結束回合，以及 GM 的調整。同一個 `requestId` 重送只算一次 |
+| GET | `/api/rooms/:id/encounter/events` | 戰鬥紀錄（`?after=序號`），包含閃避重播需要的資料 |
+| POST | `/api/rooms/:id/encounter/rest` | 限 GM：長休，參戰角色生命回滿 |
+| GET / POST | `/api/rooms/:id/patterns` | 房間自訂的閃避彈幕；新增或修改限 GM |
+| DELETE | `/api/rooms/:id/patterns/:pid` | 限 GM：刪除彈幕 |
+| GET / PUT | `/api/combat-prefs` | 自己的戰鬥設定（互動程度、單鍵模式、高對比、自動重播、略過動畫） |
 
 錯誤回應統一是 `{ error, message }`：`401` 沒有登入、`403` 沒有權限、`404` 找不到、`409` 已被別人改過、`400` 其他錯誤（訊息是給玩家看的中文）。
 
+## 戰鬥
+
+戰鬥狀態存在 `encounters` 的一列裡，每個指令都在同一個交易裡鎖住這列、跑引擎、存回去，所以兩個人同時送指令不會打架。戰鬥紀錄（`encounter_events`）只增不改。伺服器每秒檢查一次倒數，時間到的步驟照骰子結果自動結算。閃避由伺服器用玩家送來的方向紀錄重跑一次模擬算被打中幾次。細節見 `docs/combat.md`。
+
 ## 即時同步
 
-伺服器在 `/ws` 開一個 WebSocket。瀏覽器連上後先送 `{ token, room }`，伺服器確認身分和房間成員資格後回 `{ type: "ready" }`，之後房間有變化時送出 `{ type: "log" }`、`{ type: "room" }`、`{ type: "maps" }` 或 `{ type: "map", mapId }`。訊息只說「哪裡變了」，瀏覽器再用一般 API 去拿，所以每個人拿到的仍然只有自己看得到的內容。
+伺服器在 `/ws` 開一個 WebSocket。瀏覽器連上後先送 `{ token, room }`，伺服器確認身分和房間成員資格後回 `{ type: "ready" }`，之後房間有變化時送出 `{ type: "log" }`、`{ type: "room" }`、`{ type: "maps" }`、`{ type: "map", mapId }` 或 `{ type: "encounter" }`。訊息只說「哪裡變了」，瀏覽器再用一般 API 去拿，所以每個人拿到的仍然只有自己看得到的內容。
 
 連線斷掉時網頁版會自動重連，期間改回定時輪詢。目前只有一台伺服器，通知只在同一個程序內轉送；之後如果開多台，要改用 PostgreSQL 的 LISTEN/NOTIFY 之類的方式。
 

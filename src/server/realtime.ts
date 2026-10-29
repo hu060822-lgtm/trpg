@@ -4,7 +4,7 @@ import type { TableStore } from '../table/store';
 import type { Auth } from './auth';
 
 /** What changed in a room. Clients refetch the part named, so each member still gets only what they may see. */
-export type RoomEvent = { type: 'log' } | { type: 'room' } | { type: 'map'; mapId: string } | { type: 'maps' };
+export type RoomEvent = { type: 'log' } | { type: 'room' } | { type: 'map'; mapId: string } | { type: 'maps' } | { type: 'encounter' };
 
 /** Fans room events out to the browsers watching that room, in this process. */
 export class RoomHub {

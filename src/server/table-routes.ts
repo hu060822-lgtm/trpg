@@ -2,6 +2,7 @@ import express, { type Request } from 'express';
 import { buildPack, mergePackFiles, PackError } from '../pack/pack';
 import { readPackZipFiles } from '../pack/zip';
 import type { Rng } from '../rules/dice';
+import type { EncounterStore } from '../table/encounters';
 import { MAP_LIMITS, type MapStore } from '../table/maps';
 import { TableError, type RollRequest, type TableStore } from '../table/store';
 import type { Principal } from './auth';
@@ -13,7 +14,7 @@ type Req = Request & { caller?: { userId: string; principal: Principal } };
  * The rooms API: packs, rooms, members, the log, chat, dice and character sheets. Mounted behind the sign-in check,
  * so every handler has a caller.
  */
-export function tableRoutes({ table, maps, hub, rng, now }: { table: TableStore; maps: MapStore; hub: RoomHub; rng: Rng; now: () => Date }) {
+export function tableRoutes({ table, maps, encounters, hub, rng, now }: { table: TableStore; maps: MapStore; encounters: EncounterStore; hub: RoomHub; rng: Rng; now: () => Date }) {
   const r = express.Router();
   const room = (req: Request) => String(req.params.id);
   const who = (req: Req) => req.caller!;
@@ -125,7 +126,18 @@ export function tableRoutes({ table, maps, hub, rng, now }: { table: TableStore;
     res.status(201).json(t);
   });
   r.patch('/rooms/:id/tokens/:tid', async (req: Req, res) => {
-    const t = await maps.updateToken(room(req), who(req).userId, String(req.params.tid), req.body ?? {});
+    const body = { ...(req.body ?? {}) };
+    // In a fight, a combatant walks by the rules; the encounter moves it and the rest of the edit goes on as usual.
+    if (body.x !== undefined || body.y !== undefined) {
+      const current = await maps.token(room(req), who(req).userId, String(req.params.tid));
+      const to = { x: Math.round(Number(body.x ?? current.x)), y: Math.round(Number(body.y ?? current.y)) };
+      if ((to.x !== current.x || to.y !== current.y) && await encounters.move(room(req), who(req).userId, current.id, to, now())) {
+        delete body.x; delete body.y;
+        hub.publish(room(req), { type: 'encounter' });
+        hub.publish(room(req), { type: 'log' });
+      }
+    }
+    const t = await maps.updateToken(room(req), who(req).userId, String(req.params.tid), body);
     changed(req, t.mapId);
     res.json(t);
   });
@@ -147,6 +159,45 @@ export function tableRoutes({ table, maps, hub, rng, now }: { table: TableStore;
     changed(req, await maps.removeObject(room(req), who(req).userId, String(req.params.oid)));
     res.json({ ok: true });
   });
+
+  // ---------- interactive combat ----------
+  const fought = (req: Request) => {
+    hub.publish(room(req), { type: 'encounter' });
+    hub.publish(room(req), { type: 'log' });
+  };
+  r.get('/rooms/:id/encounter', async (req: Req, res) => {
+    res.json(await encounters.current(room(req), who(req).userId, Number(req.query.after ?? 0) || 0));
+  });
+  r.post('/rooms/:id/encounter', async (req: Req, res) => {
+    const out = await encounters.start(room(req), who(req).userId, req.body ?? {}, now());
+    fought(req);
+    if (out.encounter) changed(req, out.encounter.mapId);
+    res.status(201).json(out);
+  });
+  r.post('/rooms/:id/encounter/command', async (req: Req, res) => {
+    const { requestId, ...cmd } = req.body ?? {};
+    const out = await encounters.command(room(req), who(req).userId, requestId, cmd, now());
+    fought(req);
+    if (out.encounter) changed(req, out.encounter.mapId);
+    res.json(out);
+  });
+  r.get('/rooms/:id/encounter/events', async (req: Req, res) => {
+    res.json(await encounters.events(room(req), who(req).userId, Number(req.query.after ?? 0) || 0));
+  });
+  r.post('/rooms/:id/encounter/rest', async (req: Req, res) => {
+    await encounters.rest(room(req), who(req).userId, now());
+    hub.publish(room(req), { type: 'log' });
+    hub.publish(room(req), { type: 'encounter' });
+    res.json({ ok: true });
+  });
+  r.get('/rooms/:id/patterns', async (req: Req, res) => { res.json(await encounters.patterns(room(req), who(req).userId)); });
+  r.post('/rooms/:id/patterns', async (req: Req, res) => { res.status(201).json(await encounters.savePattern(room(req), who(req).userId, req.body ?? {}, now())); });
+  r.delete('/rooms/:id/patterns/:pid', async (req: Req, res) => {
+    await encounters.removePattern(room(req), who(req).userId, String(req.params.pid));
+    res.json({ ok: true });
+  });
+  r.get('/combat-prefs', async (req: Req, res) => { res.json(await encounters.prefs(who(req).userId)); });
+  r.put('/combat-prefs', async (req: Req, res) => { res.json(await encounters.setPrefs(who(req).userId, req.body ?? {})); });
   return r;
 }
 

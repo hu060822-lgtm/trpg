@@ -19,6 +19,7 @@ let db: Database;
 let auth: Auth;
 let server: Server;
 let base: string;
+let encounters: any;
 let tok: Record<'p1' | 'p2' | 'gm' | 'bot', string>;
 
 beforeEach(async () => {
@@ -26,14 +27,14 @@ beforeEach(async () => {
   let table;
   let maps;
   ({ url, cleanup } = await freshDatabaseUrl());
-  ({ db, table, maps, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }));
+  ({ db, table, maps, encounters, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }, () => 10));
   tok = {
     p1: await auth.issue('user:1', 'user'), p2: await auth.issue('user:2', 'user'),
     gm: await auth.issue('user:gm', 'user'), bot: await auth.issue('service:bot', 'service'),
   };
   // Every die shows 10, so totals are predictable.
   const hub = new RoomHub();
-  server = createApp({ table, maps, auth, hub, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
+  server = createApp({ table, maps, encounters, auth, hub, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
   attachRealtime(server, auth, table, hub);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -429,5 +430,86 @@ describe('maps', () => {
     const closed = new Promise<number>((resolve) => stranger.on('close', (code) => resolve(code)));
     stranger.send(JSON.stringify({ token: tok.bot, room: room.id }));
     expect(await closed).toBe(4001);
+  });
+});
+
+describe('interactive combat', () => {
+  async function arena() {
+    const room = (await call(tok.gm, 'POST', '/api/rooms', { name: '地城', pack: 'srd-5e@1.0.0' })).body;
+    await call(tok.p1, 'POST', '/api/rooms/join', { code: room.code });
+    const data = {
+      method: 'standard', scores: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 }, ranks: {}, inputs: { level: 1, armor_base: 16, armor_dex_cap: 0, shield: 2 },
+      choices: { class: 'fighter', background: 'soldier', species: 'dwarf' },
+      picks: { 'class.skills': ['perception', 'survival'], 'class.style': ['defense'], 'background.asi': { str: 2, con: 1 } },
+    };
+    const hero = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/characters`, { name: '索林', data })).body;
+    const map = (await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps`, { name: '洞窟', cols: 12, rows: 10 })).body;
+    const token = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/maps/${map.id}/tokens`, { characterId: hero.id, x: 2, y: 3 })).body;
+    return { room, hero, map, token, url: `/api/rooms/${room.id}/encounter` };
+  }
+
+  it('the GM starts a fight from a template; players roll initiative by hand and never see the hidden goblin', async () => {
+    const { room, token, url } = await arena();
+    expect((await call(tok.p1, 'POST', url, { entries: [{ tokenId: token.id }] })).status).toBe(403);
+    const started = await call(tok.gm, 'POST', url, { entries: [{ tokenId: token.id }], template: { id: 'goblin_ambush', x: 6, y: 3 } });
+    expect(started.status).toBe(201);
+    expect(Object.keys(started.body.encounter.combatants)).toHaveLength(5);
+    expect((await call(tok.gm, 'POST', url, { entries: [{ tokenId: token.id }] })).status).toBe(409);
+    const mine = (await call(tok.p1, 'GET', url)).body;
+    expect(Object.keys(mine.encounter.combatants)).toHaveLength(4);
+    expect(mine.encounter.step).toMatchObject({ kind: 'initiative', awaiting: ['user:1'] });
+    const goblin = Object.values(mine.encounter.combatants as Record<string, any>).find((c) => c.monsterId === 'goblin')!;
+    expect(goblin).toMatchObject({ hp: null, ac: null, health: '毫髮無傷' });
+    const requestId = rid();
+    const rolled = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
+    expect(rolled.body.encounter.status).toBe('active');
+    // A resend changes nothing.
+    const again = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
+    expect(again.body.encounter.seq).toBe(rolled.body.encounter.seq);
+    const log = (await call(tok.p1, 'GET', `/api/rooms/${room.id}/log`)).body;
+    expect(log.map((e: any) => e.body.text).join()).toContain('先攻順序');
+    expect(log.map((e: any) => e.body.text).join()).not.toContain('某個東西');
+  });
+
+  it('in a fight a token walks by the rules: on its turn, within its speed', async () => {
+    const { room, token, url } = await arena();
+    await call(tok.gm, 'POST', url, { entries: [{ tokenId: token.id }], template: { id: 'goblin_ambush', x: 8, y: 6 }, mode: 'quick' });
+    let enc = (await call(tok.gm, 'GET', url)).body.encounter;
+    const heroId = Object.values(enc.combatants as Record<string, any>).find((c) => c.characterId)!.id;
+    for (let i = 0; i < 6 && enc.turn.combatantId !== heroId; i++) {
+      expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${token.id}`, { x: 3 })).status).toBe(409);
+      enc = (await call(tok.gm, 'POST', `${url}/command`, { requestId: rid(), type: 'gm', op: { kind: 'nextTurn' } })).body.encounter;
+    }
+    expect(enc.turn.combatantId).toBe(heroId);
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${token.id}`, { x: 4, y: 3 })).body).toMatchObject({ x: 4, y: 3 });
+    expect((await call(tok.p1, 'GET', url)).body.encounter.turn.movementUsed).toBe(10);
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${token.id}`, { x: 11, y: 0 })).status).toBe(400);
+    const ended = await call(tok.gm, 'POST', `${url}/command`, { requestId: rid(), type: 'gm', op: { kind: 'end' }, reason: '敵人逃走' });
+    expect(ended.body.encounter.status).toBe('ended');
+    expect(ended.body.vitals).toHaveProperty(Object.values(enc.combatants as Record<string, any>).find((c) => c.characterId)!.characterId);
+    // After the fight the token moves freely again.
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${token.id}`, { x: 11, y: 0 })).body).toMatchObject({ x: 11, y: 0 });
+  });
+
+  it('keeps each player’s combat settings and the room’s own bullet patterns', async () => {
+    const { room } = await arena();
+    expect((await call(tok.p1, 'GET', '/api/combat-prefs')).body).toMatchObject({ interaction: 'full', oneKey: false });
+    expect((await call(tok.p1, 'PUT', '/api/combat-prefs', { interaction: 'reduced', oneKey: true })).body).toMatchObject({ interaction: 'reduced', oneKey: true });
+    expect((await call(tok.p1, 'PUT', '/api/combat-prefs', { interaction: 'max' })).status).toBe(400);
+    const bad = await call(tok.gm, 'POST', `/api/rooms/${room.id}/patterns`, { name: '壞掉', emitters: [{ kind: 'boom', count: 900 }] });
+    expect(bad.status).toBe(400);
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/patterns`, { name: '偷做', emitters: [{ kind: 'ring', count: 8, speed: 200 }] })).status).toBe(403);
+    const good = await call(tok.gm, 'POST', `/api/rooms/${room.id}/patterns`, { name: '螺旋網', emitters: [{ kind: 'spiral', count: 12, speed: 200, at: 300 }] });
+    expect(good.status).toBe(201);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}/patterns`)).body.map((p: any) => p.name)).toEqual(['螺旋網']);
+  });
+
+  it('the clock settles steps nobody finished', async () => {
+    const { token, url, room } = await arena();
+    await call(tok.gm, 'POST', url, { entries: [{ tokenId: token.id }], template: { id: 'goblin_ambush', x: 6, y: 3 } });
+    expect(await encounters.tick(new Date(T0.getTime() + 1000))).toEqual([]);
+    const due = await encounters.tick(new Date(T0.getTime() + 61000));
+    expect(due.map((d: any) => d.roomId)).toEqual([room.id]);
+    expect((await call(tok.p1, 'GET', url)).body.encounter.status).toBe('active');
   });
 });

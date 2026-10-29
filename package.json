@@ -9,6 +9,7 @@
     "demo": "tsx scripts/demo.ts",
     "build:web": "tsx scripts/build-web.ts",
     "sim:combat": "tsx scripts/combat-sim.ts",
+    "sim:dodge": "tsx scripts/dodge-sim.ts",
     "server": "tsx src/server/main.ts",
     "admin": "tsx scripts/admin.ts",
     "web:dev": "npm --prefix client run dev",

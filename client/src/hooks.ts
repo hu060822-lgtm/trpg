@@ -93,7 +93,7 @@ export function useDraft<T>(key: string | null, initial: () => T): [T, (v: T | (
   return [value, setValue, drop];
 }
 
-export type RoomEvent = { type: 'log' } | { type: 'room' } | { type: 'map'; mapId: string } | { type: 'maps' };
+export type RoomEvent = { type: 'log' } | { type: 'room' } | { type: 'map'; mapId: string } | { type: 'maps' } | { type: 'encounter' };
 
 /**
  * Listens for changes in a room over the server's WebSocket and reconnects with growing pauses when the line drops

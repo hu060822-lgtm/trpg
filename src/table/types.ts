@@ -67,6 +67,8 @@ export interface Token {
   ownerUserId: string;
   /** Seen by GMs only. */
   hidden: boolean;
+  /** Height above the ground, in the map's unit (flying, on a ledge). */
+  elevation: number;
 }
 /** Scenery the GM lays out on a map: walls, doors, furniture, traps. The client draws each kind. */
 export const MAP_OBJECT_KINDS = [
@@ -88,6 +90,10 @@ export interface MapObject {
   h: number;
   rotation: number;
   hidden: boolean;
+  /** Doors and windows: open ones let sight and movement through. */
+  open: boolean;
+  /** Feet tall, when the GM changed it from the kind's default. */
+  height: number | null;
 }
 
 export interface MapView { map: MapInfo; tokens: Token[]; objects: MapObject[] }

@@ -15,7 +15,7 @@ npm run admin -- import-pack my-pack.zip         # 檢查後加進資料庫
 
 ## zip 的內容
 
-- 只認得最上層的這些檔案：`manifest.json`（必要）、`attributes.json`、`skills.json`、`sheet.json`、`actions.json`、`checks.json`（必要）、`creation.json`、`builder.json`、`glossary.json`。
+- 只認得最上層的這些檔案：`manifest.json`（必要）、`attributes.json`、`skills.json`、`sheet.json`、`actions.json`、`checks.json`（必要）、`creation.json`、`builder.json`、`glossary.json`、`combat.json`。
 - `assets/` 裡只能放圖片（png、jpg、webp、gif、svg）。
 - 整個 zip 包在一個資料夾裡也可以。
 - 上限：zip 5 MB、解開後 20 MB、500 個檔案。
@@ -35,6 +35,7 @@ npm run admin -- import-pack my-pack.zip         # 檢查後加進資料庫
 | `creation.json` | 創角限制。`attributes.methods` 列出決定屬性的方式，玩家選一種：`{ "kind": "array", "values": [15,14,13,12,10,8] }`（每個數字用一次）、`{ "kind": "pointbuy", "budget": 27, "costs": {"8":0,…,"15":9} }`（照表扣點；`costs` 是空的就直接加總屬性值）、`{ "kind": "free" }`（只檢查上下限），每種都要有 `id`、`label`。舊寫法 `attributes.budget`＋`costs` 仍然可以用。`skills.maxRank` 是創角時技能等級上限，`skills.budget` 是技能點數上限 |
 | `builder.json` | 角色建立器的步驟，見下面「角色建立器」 |
 | `glossary.json` | `list`：規則說明，`id`、`title`、`text`、選填 `tags`，玩家可以在房間裡搜尋 |
+| `combat.json` | 互動戰鬥用的資料（選填），見下面「戰鬥資料」。沒有這個檔的規則包仍然可以開戰鬥，只是 GM 要自己填 AC、生命和攻擊 |
 
 id 一律用小寫英文字母開頭，只含小寫英數字與底線，最多 32 字。
 
@@ -68,6 +69,21 @@ id 一律用小寫英文字母開頭，只含小寫英數字與底線，最多 3
   - `pick`：從 `options` 選 `count` 個，文字會放進角色卡的特性。
 - 角色存的是選了什麼（`choices`、`picks`、`method`），角色卡的數字每次都照規則包重算，伺服器也會重新檢查每個選擇。
 - 有 `builder.json` 的規則包，網頁版會用一步一步的建立精靈；沒有的話用單頁表單。
+
+## 戰鬥資料
+
+`combat.json` 給互動戰鬥用（流程見 `docs/combat.md`），全部欄位都選填：
+
+| 欄位 | 內容 |
+|---|---|
+| `rules` | `distance`（斜走怎麼算：`chebyshev` 一律 5 呎，或 `alternate` 5／10 呎交替）、`tiers`（模型 B 的局勢：`id`、`label`、`min` 差距下限、`duration` 毫秒、`density`、`speed`、`arena` 倍率，由有利排到不利）、`factors`（被打中 0、1、2、3、4 次以上的傷害倍率）、`bonus`（`[品質門檻, 加值]`，例如 `[[0.9, 2], [0.6, 1]]`）、`shortDodgeMs`（一般敵人閃避最長幾毫秒） |
+| `weapons` | `id`、`label`、`ability`（`str`、`dex` 或 `finesse`）、`damage`（算式）、`damageType`、`interaction`（`slash`、`thrust`、`sweep`、`draw`、`rune`、`none`），選填 `range`、`long`、`reach` |
+| `spells` | 戲法：`id`、`label`、`level`（目前只用 0）、`attack: true` 或 `save: { attr, half }`、`damage`（可以用 `@level`）、`damageType`、`range`，選填 `area: { kind, size }`、`description` |
+| `monsters` | `id`、`name`、`size`（格數）、`ac`、`hp`、`speed`、`dex`、`tier`（`minion`、`elite`、`boss`）、`attacks`（`id`、`label`、`bonus` 或 `save: { attr, dc, half }`、`damage`、`damageType`，選填 `reach`、`range`、`area`、`pattern`），選填 `multiattack`、`saves`、`patterns`、`phases`（`below` 生命百分比、換的 `patterns`、`say` 台詞） |
+| `patterns` | 閃避彈幕：`id`、`name`、`emitters`。每個發射器有 `at`（第幾毫秒開始）、`kind`（`fan`、`ring`、`aimed`、`rain`、`laser`、`spiral`、`wall`）、`count`、`speed`，選填 `repeat`、`every`、`size`、`spread` 等 |
+| `encounters` | 遭遇範本：`id`、`name`、`entries`（`monsterId`、相對位置 `dx`、`dy`，選填 `hidden`） |
+
+所有傷害都是算式，匯入時會檢查。完整型別在 `src/pack/combat.ts`。
 
 ## 追加包
 

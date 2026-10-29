@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Api, MapObject, MapObjectKind, MapView, RoomView, Token } from '../api';
+import type { Api, MapObject, MapObjectKind, MapView, Pack, RoomView, Token } from '../api';
+import { CombatDock, useCombatOverlay } from '../combat/Combat';
+import { IsoBoard } from '../combat/Iso';
+import type { Combat } from '../combat/state';
 import { useAction } from '../hooks';
 import { MapManager } from './MapManager';
 import { defaultsFor, ObjectArt, ObjectCard, ObjectPalette } from './MapObjects';
@@ -49,9 +52,12 @@ function useOverlay(ref: React.RefObject<HTMLElement | null>, onClose: () => voi
  * or the mouse pans and drags; two fingers or the wheel zoom. Every change goes to the server, which tells the
  * others at the table.
  */
-export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
+export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onChat }: {
   api: Api;
   view: RoomView;
+  pack: Pack;
+  /** The fight on this table, if any: drawn over the map, with its panels around it. */
+  combat: Combat;
   /** The map to show: the open one, or for a GM whichever they picked. */
   mapId: string | null;
   /** Bumps when the server says this map changed. */
@@ -76,7 +82,9 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
   const [placing, setPlacing] = useState(false);
   const [selectedObj, setSelectedObj] = useState<string | null>(null);
   const [objDrag, setObjDrag] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [tilted, setTilted] = useState(() => { try { return localStorage.getItem('fateweave:tilted') === '1'; } catch { return false; } });
   const act = useAction();
+  const overlay = useCombatOverlay(combat, data, pack, view);
   const stage = useRef<HTMLDivElement>(null);
   const fogCanvas = useRef<HTMLCanvasElement>(null);
   const fitted = useRef<string | null>(null);
@@ -186,6 +194,9 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
     }
     const c = cellAt(e.clientX, e.clientY);
     const tokenEl = (e.target as HTMLElement).closest<HTMLElement>('[data-token]');
+    // Choosing a target or an area during a fight comes before dragging anything.
+    if (overlay?.pickToken && tokenEl && overlay.targets.has(tokenEl.dataset.token!)) { overlay.pickToken(tokenEl.dataset.token!); return; }
+    if (overlay?.pickCell && inside(c)) { overlay.pickCell(c); return; }
     if (tool === 'move' && tokenEl) {
       const t = tokens.find((x) => x.id === tokenEl.dataset.token);
       if (t) {
@@ -353,6 +364,10 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
           <IconButton label="放大地圖" onClick={() => zoomAt(stage.current!.clientWidth / 2, stage.current!.clientHeight / 2, cam.z * 1.25)}>＋</IconButton>
           <IconButton label="整張地圖置中" onClick={() => { steered.current = false; fit(); }}>⤢</IconButton>
         </div>
+        <div className="seg" role="group" aria-label="視角">
+          <button aria-pressed={!tilted} onClick={() => { setTilted(false); try { localStorage.setItem('fateweave:tilted', '0'); } catch { /* storage off */ } }}>俯視</button>
+          <button aria-pressed={tilted} onClick={() => { setTilted(true); try { localStorage.setItem('fateweave:tilted', '1'); } catch { /* storage off */ } }}>2.5D</button>
+        </div>
         <span className="spacer" />
         {placeable.map((c) => <button key={c.id} className="primary" disabled={act.busy} onClick={() => placeCharacter(c.id)}>放上{c.name}</button>)}
         {gm && (
@@ -378,10 +393,21 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
         cover: '在地圖上塗抹，蓋回迷霧。',
       }[tool]}</p>
 
-      <div ref={stage} className={`stage tool-${tool}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onWheel={wheel}>
+      <CombatDock combat={combat} view={view} pack={pack} data={data} />
+      {tilted && (
+        <IsoBoard map={map} tokens={tokens} objects={objects} image={image} overlay={overlay} gm={gm} selected={selected} canMove={canMove}
+          onSelect={(id) => pick(id, null)}
+          onMove={(t, c) => {
+            setData((d) => (d ? { ...d, tokens: d.tokens.map((o) => (o.id === t.id ? { ...o, ...c } : o)) } : d));
+            void act.run(async () => { await api.updateToken(roomId, t.id, c); }).then((ok) => { if (!ok) void load(); });
+          }} />
+      )}
+      <div ref={stage} className={`stage tool-${tool}${tilted ? ' off' : ''}${overlay?.pickToken || overlay?.pickCell ? ' picking' : ''}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onWheel={wheel}>
         <div className="board" style={{ width: W, height: H, transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
           {image ? <img src={image} alt="" draggable={false} /> : <div className="felt" />}
           {map.showGrid && <div className="grid" style={{ backgroundSize: `${CELL}px ${CELL}px` }} />}
+          {overlay && overlay.reach.map((c) => <div key={`r${c.x},${c.y}`} className="cell-mark reach" style={{ transform: `translate(${c.x * CELL}px, ${c.y * CELL}px)`, width: CELL, height: CELL }} />)}
+          {overlay && overlay.area.map((c) => <div key={`a${c.x},${c.y}`} className="cell-mark area" style={{ transform: `translate(${c.x * CELL}px, ${c.y * CELL}px)`, width: CELL, height: CELL }} />)}
           {objects.map((o) => {
             const p = objDrag?.id === o.id ? { ...o, ...objDrag } : o;
             return (
@@ -396,14 +422,17 @@ export function MapPanel({ api, view, mapId, version, onMaps, onChat }: {
           })}
           {tokens.map((t) => {
             const p = at(t);
+            const ov = overlay?.tokens[t.id];
+            const hp = ov && ov.c.hp !== null && ov.c.maxHp ? Math.max(0, Math.min(100, (ov.c.hp / ov.c.maxHp) * 100)) : null;
             return (
               <div key={t.id} data-token={t.id} role="button" tabIndex={0}
                 aria-label={`${t.name}，第 ${t.x + 1} 欄第 ${t.y + 1} 列${canMove(t) ? '，方向鍵移動' : ''}`} aria-pressed={t.id === selected}
                 onFocus={() => pick(t.id, null)} onKeyDown={(e) => nudge(e, t)}
-                className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}`}
+                className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}${ov?.turn ? ' turn' : ''}${overlay?.targets.has(t.id) ? ' target' : ''}${ov && (ov.c.defeated || ov.c.dead) ? ' down' : ''}`}
                 style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: t.size * CELL, height: t.size * CELL, '--c': t.color } as React.CSSProperties}>
                 <span className="disc" style={{ fontSize: Math.max(14, t.size * CELL * 0.38) }}>{initial(t.name)}</span>
-                <span className="tag">{t.name}</span>
+                <span className="tag">{t.name}{t.elevation ? `・${t.elevation}${map.unit}` : ''}</span>
+                {ov && (hp !== null ? <span className="token-hp" aria-hidden><span className={hp <= 25 ? 'low' : ''} style={{ width: `${hp}%` }} /></span> : <span className="token-health">{ov.c.health}</span>)}
               </div>
             );
           })}

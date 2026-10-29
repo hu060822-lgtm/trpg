@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS map_objects (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS map_objects_map ON map_objects(map_id);
+ALTER TABLE map_tokens ADD COLUMN IF NOT EXISTS elevation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS open BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS height INTEGER;
 `;
 
 export const MAP_LIMITS = { side: 100, tokens: 200, objects: 500, imageBytes: 4 * 1024 * 1024 };
@@ -67,11 +70,12 @@ interface MapRow {
   id: string; room_id: string; name: string; cols: number; rows: number; cell_distance: number; unit: string;
   show_grid: boolean; fog_enabled: boolean; fog: string; image_version: number; version: number;
 }
-interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean }
+interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean; elevation: number }
 
-interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean }
+interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean; open: boolean; height: number | null }
 const objectOf = (r: ObjectRow): MapObject => ({
   id: r.id, mapId: r.map_id, kind: r.kind as MapObjectKind, name: r.name, x: r.x, y: r.y, w: r.w, h: r.h, rotation: r.rotation, hidden: r.hidden,
+  open: !!r.open, height: r.height ?? null,
 });
 
 const mapOf = (r: MapRow): MapInfo => ({
@@ -80,12 +84,12 @@ const mapOf = (r: MapRow): MapInfo => ({
 });
 const tokenOf = (r: TokenRow): Token => ({
   id: r.id, mapId: r.map_id, name: r.name, color: r.color, x: r.x, y: r.y, size: r.size,
-  characterId: r.character_id, ownerUserId: r.owner_user_id, hidden: r.hidden,
+  characterId: r.character_id, ownerUserId: r.owner_user_id, hidden: r.hidden, elevation: r.elevation ?? 0,
 });
 
 export interface MapSettings { name?: string; cols?: number; rows?: number; cellDistance?: number; unit?: string; showGrid?: boolean; fogEnabled?: boolean }
-export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean }
-export interface TokenInput { name?: string; color?: string; x?: number; y?: number; size?: number; characterId?: string | null; hidden?: boolean }
+export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean; open?: boolean; height?: number | null }
+export interface TokenInput { name?: string; color?: string; x?: number; y?: number; size?: number; characterId?: string | null; hidden?: boolean; elevation?: number }
 
 export class MapStore {
   private constructor(private db: Database, private table: TableStore) {}
@@ -249,10 +253,10 @@ export class MapStore {
     const t: Token = {
       id: randomUUID(), mapId, name: words(name ?? '代幣', 24, '代幣名稱'), color: color(input.color ?? '#6cc4a1'),
       x: cell(input.x ?? 0, row.cols - size + 1), y: cell(input.y ?? 0, row.rows - size + 1), size,
-      characterId, ownerUserId: owner, hidden: me.role === 'gm' && !!input.hidden,
+      characterId, ownerUserId: owner, hidden: me.role === 'gm' && !!input.hidden, elevation: elevation(input.elevation ?? 0),
     };
-    await this.db.run(`INSERT INTO map_tokens (id, map_id, name, color, x, y, size, character_id, owner_user_id, hidden, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [t.id, mapId, t.name, t.color, t.x, t.y, t.size, t.characterId, t.ownerUserId, t.hidden, now.toISOString()]);
+    await this.db.run(`INSERT INTO map_tokens (id, map_id, name, color, x, y, size, character_id, owner_user_id, hidden, created_at, elevation)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, [t.id, mapId, t.name, t.color, t.x, t.y, t.size, t.characterId, t.ownerUserId, t.hidden, now.toISOString(), t.elevation]);
     return t;
   }
 
@@ -270,11 +274,19 @@ export class MapStore {
         color: input.color !== undefined ? color(input.color) : token.color,
         x: cell(input.x ?? token.x, map.cols - size + 1), y: cell(input.y ?? token.y, map.rows - size + 1), size,
         hidden: input.hidden !== undefined ? !!input.hidden : token.hidden,
+        elevation: input.elevation !== undefined ? elevation(input.elevation) : token.elevation ?? 0,
       };
-      await this.db.run('UPDATE map_tokens SET name = $2, color = $3, x = $4, y = $5, size = $6, hidden = $7 WHERE id = $1',
-        [tokenId, next.name, next.color, next.x, next.y, next.size, next.hidden]);
+      await this.db.run('UPDATE map_tokens SET name = $2, color = $3, x = $4, y = $5, size = $6, hidden = $7, elevation = $8 WHERE id = $1',
+        [tokenId, next.name, next.color, next.x, next.y, next.size, next.hidden, next.elevation]);
       return { ...tokenOf(token), ...next };
     });
+  }
+
+  /** One token, if this member may see it. */
+  async token(roomId: string, userId: string, tokenId: string): Promise<Token> {
+    await this.table.requireRole(roomId, userId, 'player');
+    const { token } = await this.tokenWithMap(roomId, tokenId, false);
+    return tokenOf(token);
   }
 
   async removeToken(roomId: string, userId: string, tokenId: string): Promise<string> {
@@ -294,9 +306,9 @@ export class MapStore {
     const count = await this.db.one<{ n: number }>('SELECT COUNT(*)::int AS n FROM map_objects WHERE map_id = $1', [mapId]);
     if (Number(count?.n) >= MAP_LIMITS.objects) throw new TableError(400, 'bad-request', `一張地圖最多 ${MAP_LIMITS.objects} 個物件`);
     if (!MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
-    const o = placeObject(row, { id: randomUUID(), mapId, kind: input.kind as MapObjectKind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false }, input);
-    await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [o.id, mapId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, now.toISOString()]);
+    const o = placeObject(row, { id: randomUUID(), mapId, kind: input.kind as MapObjectKind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, open: false, height: null }, input);
+    await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at, open, height) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [o.id, mapId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, now.toISOString(), o.open, o.height]);
     return o;
   }
 
@@ -306,8 +318,8 @@ export class MapStore {
       const { object, map } = await this.objectWithMap(roomId, objectId, true);
       if (input.kind !== undefined && !MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
       const o = placeObject(map, objectOf(object), input);
-      await this.db.run('UPDATE map_objects SET kind = $2, name = $3, x = $4, y = $5, w = $6, h = $7, rotation = $8, hidden = $9 WHERE id = $1',
-        [objectId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden]);
+      await this.db.run('UPDATE map_objects SET kind = $2, name = $3, x = $4, y = $5, w = $6, h = $7, rotation = $8, hidden = $9, open = $10, height = $11 WHERE id = $1',
+        [objectId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, o.open, o.height]);
       return o;
     });
   }
@@ -365,7 +377,19 @@ function placeObject(map: MapRow, o: MapObject, input: ObjectInput): MapObject {
     ...o, kind: (input.kind as MapObjectKind | undefined) ?? o.kind, name, w, h, rotation,
     x: cell(input.x ?? o.x, map.cols - w + 1), y: cell(input.y ?? o.y, map.rows - h + 1),
     hidden: input.hidden !== undefined ? !!input.hidden : o.hidden,
+    open: input.open !== undefined ? !!input.open : o.open,
+    height: input.height !== undefined ? (input.height === null ? null : heightFeet(input.height)) : o.height,
   };
+}
+function heightFeet(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 200) throw new TableError(400, 'bad-request', '物件高度要是 0 到 200 呎');
+  return n;
+}
+function elevation(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < -100 || n > 500) throw new TableError(400, 'bad-request', '高度要是 -100 到 500 的整數');
+  return n;
 }
 
 function side(v: unknown, what: string): number {

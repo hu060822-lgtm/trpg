@@ -1,5 +1,7 @@
 import { evaluate, ExprError, parse, references, type Evaluation, type Scope } from './expr';
 import type { Rng } from '../rules/dice';
+import type { PackCombat } from '../encounter/types';
+import { buildCombat } from './combat';
 
 /**
  * A rule pack: everything the table needs to know about one game system, as data. A pack is a zip of JSON files;
@@ -109,6 +111,8 @@ export interface Pack {
   builder: PackStep[];
   /** Rules text players can search: conditions, terms, how a check works. */
   glossary: PackEntry[];
+  /** Weapons, spells, a bestiary and bullet patterns for interactive combat; packs without it roll dice only. */
+  combat?: PackCombat;
 }
 
 export interface PackProblem { file: string; path: string; message: string }
@@ -119,7 +123,7 @@ export class PackError extends Error {
 }
 
 const ID = /^[a-z][a-z0-9_]{0,31}$/;
-const FILES = ['manifest', 'attributes', 'skills', 'sheet', 'actions', 'checks', 'creation', 'builder', 'glossary'] as const;
+const FILES = ['manifest', 'attributes', 'skills', 'sheet', 'actions', 'checks', 'creation', 'builder', 'glossary', 'combat'] as const;
 export type PackFile = (typeof FILES)[number];
 export type PackFiles = Partial<Record<PackFile, unknown>>;
 
@@ -372,7 +376,8 @@ export function buildPack(files: PackFiles): Pack {
     return { id: id(o, 'glossary', p, entryIds), title: str(o, 'title', 'glossary', p, true, 60), text: str(o, 'text', 'glossary', p, true, 4000), ...(tags ? { tags } : {}) };
   });
 
-  const pack: Pack = { manifest, attributes, modifier, skills, inputs, derived, values, flags, texts, actions, checks, creation, builder, glossary };
+  const combat = files.combat !== undefined ? buildCombat(files.combat, attrIds, bad) : undefined;
+  const pack: Pack = { manifest, attributes, modifier, skills, inputs, derived, values, flags, texts, actions, checks, creation, builder, glossary, ...(combat ? { combat } : {}) };
   if (problems.length === 0) checkFormulas(pack, bad);
   if (problems.length) throw new PackError(problems);
   return pack;
@@ -449,6 +454,10 @@ function checkFormulas(pack: Pack, bad: (file: string, path: string, message: st
     if (a.damage) check('actions', `.list[${i}].damage`, a.damage);
     if (a.showIf) check('actions', `.list[${i}].showIf`, a.showIf);
   });
+  // Weapon and monster damage is plain dice; spell damage may read the caster's sheet (cantrips grow with level).
+  pack.combat?.weapons.forEach((w, i) => check('combat', `.weapons[${i}].damage`, w.damage));
+  pack.combat?.spells.forEach((sp, i) => check('combat', `.spells[${i}].damage`, sp.damage));
+  pack.combat?.monsters.forEach((m, i) => m.attacks.forEach((a, j) => check('combat', `.monsters[${i}].attacks[${j}].damage`, a.damage)));
   const sampleAttr = pack.attributes[0]?.id ?? 'x', sampleSkill = pack.skills[0];
   check('checks', '.die', pack.checks.die);
   if (pack.checks.advantage) check('checks', '.advantage', pack.checks.advantage);

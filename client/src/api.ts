@@ -1,6 +1,9 @@
 import type { CharacterData, CheckMode, CheckTarget, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
+import type { Command } from '../../src/encounter/engine';
+import type { CombatPrefs, EncounterEvent, EncounterView, PatternDef, Emitter, StartInput } from '../../src/encounter/types';
 import type { Character, CharacterView, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
 
+export type { Command, CombatPrefs, EncounterEvent, EncounterView, PatternDef, Emitter, StartInput };
 export type { CharacterData, CharacterView, CheckMode, CheckTarget, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
 
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
@@ -23,8 +26,9 @@ export class ApiError extends Error {
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
 export type MapSettings = Partial<Pick<MapInfo, 'name' | 'cols' | 'rows' | 'cellDistance' | 'unit' | 'showGrid' | 'fogEnabled'>>;
-export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden'>>;
-export type TokenInput = Partial<Pick<Token, 'name' | 'color' | 'x' | 'y' | 'size' | 'characterId' | 'hidden'>>;
+export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden' | 'open'>> & { height?: number | null };
+export type TokenInput = Partial<Pick<Token, 'name' | 'color' | 'x' | 'y' | 'size' | 'characterId' | 'hidden' | 'elevation'>>;
+export interface EncounterBundle { encounter: EncounterView | null; events: EncounterEvent[]; vitals: Record<string, number> }
 
 export class Api {
   constructor(readonly token: () => Promise<string>, private onUnauthorized?: () => void) {}
@@ -90,4 +94,15 @@ export class Api {
   addObject(id: string, mid: string, o: ObjectInput) { return this.call<MapObject>('POST', `/api/rooms/${id}/maps/${mid}/objects`, o); }
   updateObject(id: string, oid: string, o: ObjectInput) { return this.call<MapObject>('PATCH', `/api/rooms/${id}/objects/${oid}`, o); }
   removeObject(id: string, oid: string) { return this.call('DELETE', `/api/rooms/${id}/objects/${oid}`); }
+
+  encounter(id: string, after = 0) { return this.call<EncounterBundle>('GET', `/api/rooms/${id}/encounter?after=${after}`); }
+  startEncounter(id: string, input: StartInput) { return this.call<EncounterBundle>('POST', `/api/rooms/${id}/encounter`, input); }
+  /** Every command carries its own request id, so a resend after a dropped connection does nothing twice. */
+  command(id: string, cmd: Command, requestId = crypto.randomUUID()) { return this.call<EncounterBundle>('POST', `/api/rooms/${id}/encounter/command`, { ...cmd, requestId }); }
+  rest(id: string) { return this.call('POST', `/api/rooms/${id}/encounter/rest`); }
+  patterns(id: string) { return this.call<PatternDef[]>('GET', `/api/rooms/${id}/patterns`); }
+  savePattern(id: string, p: { id?: string; name: string; emitters: Emitter[] }) { return this.call<PatternDef>('POST', `/api/rooms/${id}/patterns`, p); }
+  removePattern(id: string, pid: string) { return this.call('DELETE', `/api/rooms/${id}/patterns/${pid}`); }
+  combatPrefs() { return this.call<CombatPrefs>('GET', '/api/combat-prefs'); }
+  setCombatPrefs(p: Partial<CombatPrefs>) { return this.call<CombatPrefs>('PUT', '/api/combat-prefs', p); }
 }

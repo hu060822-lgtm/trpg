@@ -5,6 +5,7 @@ import { CharacterBuilder } from '../parts/CharacterBuilder';
 import { CharacterForm } from '../parts/CharacterForm';
 import { LogView } from '../parts/LogView';
 import { MapPanel } from '../parts/MapPanel';
+import { useEncounter } from '../combat/state';
 import { SheetPanel } from '../parts/SheetPanel';
 import { Bars, ErrorNote } from '../parts/ui';
 
@@ -40,7 +41,9 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
     if (e.type === 'log') { void log.pull(); if (tab !== 'log' && tab !== 'map') { unread.current++; bump((n) => n + 1); } }
     else if (e.type === 'room' || e.type === 'maps') void view.reload();
     if (e.type === 'map' || e.type === 'maps') setMapVersion((v) => v + 1);
+    if (e.type === 'encounter') setFightVersion((v) => v + 1);
   });
+  const [fightVersion, setFightVersion] = useState(0);
   // With live updates the polls are only a safety net; without them they keep the table fresh on their own.
   const view = usePoll(() => api.room(roomId), live ? 30000 : 8000, [roomId, live]);
   const [pack, setPack] = useState<Pack | null>(null);
@@ -54,6 +57,7 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
   const [picked, setPicked] = useState<string | null>(null);
   const [mapVersion, setMapVersion] = useState(0);
   const unread = useRef(0);
+  const combat = useEncounter(api, roomId, fightVersion, live);
   const [, bump] = useState(0);
 
   const activeMapId = view.data?.room.activeMapId ?? null;
@@ -76,7 +80,7 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
     <div className="table">
       <section className={`side${tab === 'sheet' ? ' shown' : ''}`}>{!medium && characters}</section>
       <section className={`stage-col${tab === 'map' ? ' shown' : ''}`}>
-        <MapPanel api={api} view={view.data} mapId={shownMap} version={mapVersion} onChat={() => { choose('log'); setSide('log'); }} onMaps={(id) => { setPicked(id); setMapVersion((v) => v + 1); void view.reload(); }} />
+        <MapPanel api={api} view={view.data} pack={pack} combat={combat} mapId={shownMap} version={mapVersion} onChat={() => { choose('log'); setSide('log'); }} onMaps={(id) => { setPicked(id); setMapVersion((v) => v + 1); void view.reload(); }} />
       </section>
       <section className={`scene${tab === 'log' || tab === 'table' ? ' shown' : ''}`}>
         <div className="place">

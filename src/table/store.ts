@@ -285,6 +285,20 @@ export class TableStore {
     });
   }
 
+  /** A line written by the table itself, not by a member: the combat tracker's results. */
+  async system(roomId: string, words: string, now = new Date(), author = '戰鬥'): Promise<LogEntry> {
+    return this.db.tx(async () => this.append(roomId, 'system', author, 'system', { text: words.slice(0, MAX_TEXT) }, now));
+  }
+
+  /** What the combat tracker needs from a room: its pack, every character with a worked-out sheet, and the members. */
+  async combatContext(roomId: string) {
+    const pack = await this.packOfRoom(roomId);
+    const characters = await this.characters(roomId);
+    const members = (await this.db.query<{ user_id: string; name: string; role: Role }>('SELECT user_id, name, role FROM room_members WHERE room_id = $1', [roomId]))
+      .map((m): Member => ({ userId: m.user_id, name: m.name, role: m.role }));
+    return { pack, members, characters: characters.map((c) => ({ ...c, sheet: computeSheet(pack, c.data) })) };
+  }
+
   // ---------- characters ----------
 
   async createCharacter(roomId: string, userId: string, name: string, data: CharacterData, now = new Date()): Promise<Character> {
