@@ -2,7 +2,12 @@
 
 可自定義的跑團工具。GM 開房間、選一套規則，玩家用代碼加入，在同一個地方聊天、擲骰、管理角色卡。遊戲規則寫成「規則包」（一個放 JSON 的 zip），要加新的系統或內容時匯入規則包就好，不用改程式。
 
-目前在第一階段：房間、聊天、`/r` 擲骰、規則包匯入與驗證、照規則包自動計算的角色卡。之後依序加入地圖（格線、拖放代幣、量尺、戰爭迷霧、手機操作）、D&D 5E SRD 規則包與角色建立器、新手引導工具，最後把 FATEWEAVE 自己的規則做成規則包。
+目前完成兩個階段：
+
+1. 房間、聊天、`/r` 擲骰、規則包匯入與驗證、照規則包自動計算的角色卡；
+2. 地圖：底圖、格線、拖放代幣、量尺、手動戰爭迷霧、即時同步，手機可以雙指縮放。
+
+接下來是 D&D 5E SRD 規則包與角色建立器、新手引導工具，最後把 FATEWEAVE 自己的規則做成規則包。
 
 網頁版與伺服器放在 Render，資料存在 Supabase 的 PostgreSQL，玩家用名字＋密碼登入。上線步驟見 `docs/deploy.md`。
 
@@ -12,8 +17,8 @@
 |---|---|
 | `packs/` | 內建規則包。`simple-d20` 是最精簡的 d20 規則，也是寫規則包的範本 |
 | `src/pack/` | 規則包：算式與骰子語言（`expr.ts`）、格式驗證與角色卡計算（`pack.ts`）、zip 讀取（`zip.ts`） |
-| `src/table/` | 房間：成員與 GM、只增不改的聊天與擲骰紀錄、角色卡 |
-| `src/server/` | 遊戲伺服器：HTTP API、帳號密碼登入（見 `docs/server.md`） |
+| `src/table/` | 房間：成員與 GM、只增不改的聊天與擲骰紀錄、角色卡（`store.ts`）；地圖、代幣與迷霧（`maps.ts`） |
+| `src/server/` | 遊戲伺服器：HTTP API、帳號密碼登入、WebSocket 即時通知（見 `docs/server.md`） |
 | `src/persistence/` | PostgreSQL 連線（正式用 Supabase，本機與測試用 PGlite） |
 | `client/` | 網頁版（React） |
 | `src/rules/`、`src/character/`、`src/combat/`、`src/sim/`、`config/` | FATEWEAVE v0.3 的規則引擎、創角、戰鬥與機率模擬。目前沒有接到伺服器，之後做 FATEWEAVE 規則包時再用 |

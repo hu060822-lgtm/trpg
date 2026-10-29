@@ -8,6 +8,8 @@ import type { Database } from '../src/persistence/db';
 import { createApp } from '../src/server/app';
 import type { Auth } from '../src/server/auth';
 import { openGame } from '../src/server/boot';
+import { attachRealtime, RoomHub } from '../src/server/realtime';
+import WebSocket from 'ws';
 import { freshDatabaseUrl } from './helpers/db';
 
 const T0 = new Date('2026-10-28T12:00:00Z');
@@ -22,14 +24,17 @@ let tok: Record<'p1' | 'p2' | 'gm' | 'bot', string>;
 beforeEach(async () => {
   let url: string;
   let table;
+  let maps;
   ({ url, cleanup } = await freshDatabaseUrl());
-  ({ db, table, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }));
+  ({ db, table, maps, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }));
   tok = {
     p1: await auth.issue('user:1', 'user'), p2: await auth.issue('user:2', 'user'),
     gm: await auth.issue('user:gm', 'user'), bot: await auth.issue('service:bot', 'service'),
   };
   // Every die shows 10, so totals are predictable.
-  server = createApp({ table, auth, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
+  const hub = new RoomHub();
+  server = createApp({ table, maps, auth, hub, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
+  attachRealtime(server, auth, table, hub);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -255,5 +260,105 @@ describe('rooms', () => {
     expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/members/user:gm`, { role: 'player' })).body.error).toBe('last-gm');
     expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/members/user:1`, { role: 'gm' })).status).toBe(200);
     expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body.me.role).toBe('gm');
+  });
+});
+
+describe('maps', () => {
+  /** The GM's map with player 1's character token on it and a hidden goblin. */
+  async function mapTable() {
+    const t = await table3();
+    await call(tok.p2, 'POST', '/api/rooms/join', { code: t.room.code });
+    const map = await call(tok.gm, 'POST', `/api/rooms/${t.room.id}/maps`, { name: '地窖', cols: 10, rows: 8 });
+    expect(map.status).toBe(201);
+    return { ...t, map: map.body, url: `/api/rooms/${t.room.id}/maps/${map.body.id}` };
+  }
+
+  it('only GMs make maps; the first map opens itself and players see only the open map', async () => {
+    const { room, map, url } = await mapTable();
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/maps`, { name: '偷做' })).status).toBe(403);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}`)).body.room.activeMapId).toBe(map.id);
+    const second = (await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps`, { name: '森林', cols: 5, rows: 5 })).body;
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}/maps`)).body.maps.map((m: any) => m.name)).toEqual(['地窖']);
+    expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}/maps`)).body.maps).toHaveLength(2);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}/maps/${second.id}`)).status).toBe(403);
+    await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps/${second.id}/activate`);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}/maps/${second.id}`)).status).toBe(200);
+    expect((await call(tok.p1, 'GET', url)).status).toBe(403);
+    expect((await call(tok.p1, 'GET', `/api/rooms/${room.id}/log`)).body.at(-1).body.text).toBe('GM 打開了地圖「森林」');
+  });
+
+  it('players place and move only their own character tokens, inside the grid', async () => {
+    const { room, hero, url } = await mapTable();
+    expect((await call(tok.p1, 'POST', `${url}/tokens`, { name: '路人', x: 1, y: 1 })).status).toBe(403);
+    const mine = await call(tok.p1, 'POST', `${url}/tokens`, { characterId: hero.id, x: 2, y: 3 });
+    expect(mine).toMatchObject({ status: 201, body: { name: '灰鴉', x: 2, y: 3, ownerUserId: 'user:1', hidden: false } });
+    expect((await call(tok.p1, 'POST', `${url}/tokens`, { characterId: hero.id })).status).toBe(409);
+    const moved = await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${mine.body.id}`, { x: 99, y: -4 });
+    expect(moved.body).toMatchObject({ x: 9, y: 0 });
+    expect((await call(tok.p2, 'PATCH', `/api/rooms/${room.id}/tokens/${mine.body.id}`, { x: 1 })).status).toBe(403);
+    expect((await call(tok.p1, 'PATCH', `/api/rooms/${room.id}/tokens/${mine.body.id}`, { hidden: true })).status).toBe(403);
+    expect((await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/tokens/${mine.body.id}`, { x: 4, y: 4, size: 2 })).body).toMatchObject({ x: 4, y: 4, size: 2 });
+  });
+
+  it('players never receive hidden tokens or tokens under fog; GMs see everything', async () => {
+    const { url } = await mapTable();
+    await call(tok.gm, 'POST', `${url}/tokens`, { name: '哥布林', x: 1, y: 1, hidden: true, color: '#d4505e' });
+    await call(tok.gm, 'POST', `${url}/tokens`, { name: '石像', x: 5, y: 5 });
+    expect((await call(tok.p2, 'GET', url)).body.tokens.map((t: any) => t.name)).toEqual(['石像']);
+    await call(tok.gm, 'PATCH', url, { fogEnabled: true });
+    expect((await call(tok.p2, 'GET', url)).body.tokens).toEqual([]);
+    const revealed = await call(tok.gm, 'POST', `${url}/fog`, { cells: [5 * 10 + 5], covered: false });
+    expect(revealed.body.fog[55]).toBe('0');
+    expect((await call(tok.p2, 'GET', url)).body.tokens.map((t: any) => t.name)).toEqual(['石像']);
+    expect((await call(tok.p2, 'POST', `${url}/fog`, { cells: 'all', covered: false })).status).toBe(403);
+    expect((await call(tok.gm, 'GET', url)).body.tokens).toHaveLength(2);
+  });
+
+  it('keeps fog where a resized grid overlaps and clamps tokens back onto it', async () => {
+    const { url } = await mapTable();
+    await call(tok.gm, 'POST', `${url}/fog`, { cells: 'all', covered: false });
+    const goblin = (await call(tok.gm, 'POST', `${url}/tokens`, { name: '哥布林', x: 9, y: 7 })).body;
+    const small = (await call(tok.gm, 'PATCH', url, { cols: 4, rows: 3, cellDistance: 1.5, unit: '公尺' })).body;
+    expect(small).toMatchObject({ cols: 4, rows: 3, cellDistance: 1.5, unit: '公尺', fog: '0'.repeat(12) });
+    const grown = (await call(tok.gm, 'PATCH', url, { cols: 5 })).body;
+    expect(grown.fog).toBe('00001'.repeat(3));
+    expect((await call(tok.gm, 'GET', url)).body.tokens.find((t: any) => t.id === goblin.id)).toMatchObject({ x: 3, y: 2 });
+    expect((await call(tok.gm, 'PATCH', url, { cols: 101 })).status).toBe(400);
+  });
+
+  it('stores a picture for the map and serves it only to those who may see the map', async () => {
+    const { room, url } = await mapTable();
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const up = await fetch(base + `${url}/image`, { method: 'PUT', headers: { authorization: `Bearer ${tok.gm}`, 'content-type': 'image/png' }, body: png });
+    expect((await up.json() as any).imageVersion).toBe(1);
+    const got = await fetch(base + `${url}/image`, { headers: { authorization: `Bearer ${tok.p1}` } });
+    expect(got.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await got.arrayBuffer())).toEqual(png);
+    const bad = await fetch(base + `${url}/image`, { method: 'PUT', headers: { authorization: `Bearer ${tok.gm}`, 'content-type': 'text/html' }, body: '<script>' });
+    expect(bad.status).toBe(400);
+    const outsider = await fetch(base + `${url}/image`, { headers: { authorization: `Bearer ${tok.bot}` } });
+    expect(outsider.status).toBe(403);
+    expect((await call(tok.gm, 'DELETE', url)).status).toBe(200);
+    expect((await call(tok.gm, 'GET', `/api/rooms/${room.id}`)).body.room.activeMapId).toBeNull();
+  });
+
+  it('tells members watching the room what changed, over a WebSocket', async () => {
+    const { room, url } = await mapTable();
+    const ws = new WebSocket(base.replace('http', 'ws') + '/ws');
+    const got: any[] = [];
+    await new Promise((resolve) => ws.on('open', resolve));
+    ws.on('message', (m) => got.push(JSON.parse(String(m))));
+    ws.send(JSON.stringify({ token: tok.p1, room: room.id }));
+    await expect.poll(() => got).toContainEqual({ type: 'ready' });
+    await call(tok.gm, 'POST', `${url}/tokens`, { name: '石像', x: 5, y: 5 });
+    await call(tok.gm, 'POST', `/api/rooms/${room.id}/chat`, { text: '/r 1d20', requestId: rid() });
+    await expect.poll(() => got.map((e) => e.type)).toEqual(['ready', 'map', 'log']);
+    ws.close();
+
+    const stranger = new WebSocket(base.replace('http', 'ws') + '/ws');
+    await new Promise((resolve) => stranger.on('open', resolve));
+    const closed = new Promise<number>((resolve) => stranger.on('close', (code) => resolve(code)));
+    stranger.send(JSON.stringify({ token: tok.bot, room: room.id }));
+    expect(await closed).toBe(4001);
   });
 });

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hasSheet, type Api, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
-import { useAction, usePoll } from '../hooks';
+import { API_URL, hasSheet, type Api, type CheckMode, type LogEntry, type Pack, type RollTarget, type RoomView } from '../api';
+import { useAction, usePoll, useRoomEvents } from '../hooks';
 import { CharacterForm } from '../parts/CharacterForm';
 import { LogView } from '../parts/LogView';
+import { MapPanel } from '../parts/MapPanel';
 import { SheetPanel } from '../parts/SheetPanel';
 
 const DICE = [4, 6, 8, 10, 12, 20, 100];
 
 /** Keeps the room's log in step with the server: everything after the last entry seen, every few seconds. */
-function useLog(api: Api, roomId: string) {
+function useLog(api: Api, roomId: string, every: number) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [firstLoad, setFirstLoad] = useState(0);
   const last = useRef(0);
@@ -21,41 +22,78 @@ function useLog(api: Api, roomId: string) {
       if (page.length < 200) return;
     }
   }, [api, roomId]);
+  useEffect(() => { void pull().then(() => setFirstLoad(last.current)).catch(() => {}); }, [pull]);
   useEffect(() => {
-    let live = true;
-    void pull().then(() => { if (live) setFirstLoad(last.current); }).catch(() => {});
-    const t = setInterval(() => { if (document.visibilityState === 'visible') void pull().catch(() => {}); }, 3000);
-    return () => { live = false; clearInterval(t); };
-  }, [pull]);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void pull().catch(() => {}); }, every);
+    return () => clearInterval(t);
+  }, [pull, every]);
   return { entries, pull, firstLoad };
 }
 
+type Tab = 'map' | 'log' | 'sheet' | 'table';
+
 export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: (path: string) => void }) {
-  const view = usePoll(() => api.room(roomId), 8000, [roomId]);
+  // Events call into `view` and `log` below; they only fire after this render has set both up.
+  const live = useRoomEvents(api, API_URL, roomId, (e) => {
+    if (e.type === 'log') { void log.pull(); if (tab !== 'log' && tab !== 'map') { unread.current++; bump((n) => n + 1); } }
+    else if (e.type === 'room' || e.type === 'maps') void view.reload();
+    if (e.type === 'map' || e.type === 'maps') setMapVersion((v) => v + 1);
+  });
+  // With live updates the polls are only a safety net; without them they keep the table fresh on their own.
+  const view = usePoll(() => api.room(roomId), live ? 30000 : 8000, [roomId, live]);
   const [pack, setPack] = useState<Pack | null>(null);
   const packKey = view.data?.room.packKey;
   useEffect(() => { if (packKey) void api.pack(packKey).then(setPack); }, [api, packKey]);
-  const log = useLog(api, roomId);
-  const [tab, setTab] = useState<'log' | 'sheet' | 'table'>('log');
+  const log = useLog(api, roomId, live ? 20000 : 3000);
+  const [tab, setTab] = useState<Tab>('map');
+  const [side, setSide] = useState<'log' | 'table'>('log');
+  const [picked, setPicked] = useState<string | null>(null);
+  const [mapVersion, setMapVersion] = useState(0);
+  const unread = useRef(0);
+  const [, bump] = useState(0);
+
+  const activeMapId = view.data?.room.activeMapId ?? null;
+  const gm = view.data?.me.role === 'gm';
+  const shownMap = gm ? picked ?? activeMapId : activeMapId;
+
 
   if (view.error && !view.data) return <main className="page"><p className="error">{view.error}</p><button onClick={() => go('')}>回到大廳</button></main>;
   if (!view.data || !pack) return <main className="page"><p className="muted">載入房間中…</p></main>;
+  const choose = (t: Tab) => { setTab(t); if (t === 'log') unread.current = 0; };
+  const logPanel = (
+    <>
+      <LogView entries={log.entries} freshFrom={log.firstLoad} visible={tab === 'log' || tab === 'map'} />
+      <Compose api={api} roomId={roomId} pull={log.pull} />
+    </>
+  );
   return (
     <div className="table">
       <section className={`side${tab === 'sheet' ? ' shown' : ''}`}><Characters api={api} view={view.data} pack={pack} reload={view.reload} pull={log.pull} /></section>
-      <section className={`scene${tab === 'log' ? ' shown' : ''}`}>
-        <div className="place">
-          <h1>{view.data.room.name}</h1>
-          <p className="small muted">{pack.manifest.name}・{view.data.me.role === 'gm' ? '你是 GM' : '你是玩家'}</p>
-        </div>
-        <LogView entries={log.entries} freshFrom={log.firstLoad} visible={tab === 'log'} />
-        <Compose api={api} roomId={roomId} pull={log.pull} />
+      <section className={`stage-col${tab === 'map' ? ' shown' : ''}`}>
+        <MapPanel api={api} view={view.data} mapId={shownMap} version={mapVersion} onMaps={(id) => { setPicked(id); setMapVersion((v) => v + 1); void view.reload(); }} />
       </section>
-      <section className={`side${tab === 'table' ? ' shown' : ''}`}><TableSide api={api} view={view.data} pack={pack} reload={view.reload} /></section>
+      <section className={`scene${tab === 'log' || tab === 'table' ? ' shown' : ''}`}>
+        <div className="place">
+          <div className="row">
+            <h1>{view.data.room.name}</h1>
+            <span className={`live${live ? ' on' : ''}`} title={live ? '即時同步中' : '連線中斷，改用定時更新'}>{live ? '即時' : '更新中'}</span>
+          </div>
+          <p className="small muted">{pack.manifest.name}・{view.data.me.role === 'gm' ? '你是 GM' : '你是玩家'}</p>
+          <div className="switch side-switch">
+            <button aria-selected={side === 'log'} onClick={() => setSide('log')}>紀錄</button>
+            <button aria-selected={side === 'table'} onClick={() => setSide('table')}>桌邊</button>
+          </div>
+        </div>
+        <div className={`side-pane log-pane${(tab === 'table' ? 'table' : tab === 'log' ? 'log' : side) === 'log' ? ' on' : ''}`}>{logPanel}</div>
+        <div className={`side-pane table-pane${(tab === 'table' ? 'table' : tab === 'log' ? 'log' : side) === 'table' ? ' on' : ''}`}>
+          <TableSide api={api} view={view.data} pack={pack} reload={view.reload} />
+        </div>
+      </section>
       <nav className="tabs">
-        <button aria-pressed={tab === 'sheet'} onClick={() => setTab('sheet')}>角色</button>
-        <button aria-pressed={tab === 'log'} onClick={() => setTab('log')}>紀錄</button>
-        <button aria-pressed={tab === 'table'} onClick={() => setTab('table')}>桌邊</button>
+        <button aria-pressed={tab === 'map'} onClick={() => choose('map')}>地圖</button>
+        <button aria-pressed={tab === 'log'} onClick={() => choose('log')}>紀錄{unread.current > 0 && <span className="dot">{unread.current}</span>}</button>
+        <button aria-pressed={tab === 'sheet'} onClick={() => choose('sheet')}>角色</button>
+        <button aria-pressed={tab === 'table'} onClick={() => choose('table')}>桌邊</button>
       </nav>
     </div>
   );

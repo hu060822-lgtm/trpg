@@ -1,7 +1,7 @@
 import type { CharacterData, CheckMode, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
-import type { Character, LogEntry, Member, PackSummary, Role, Room } from '../../src/table/types';
+import type { Character, LogEntry, MapInfo, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
 
-export type { CharacterData, CheckMode, LogEntry, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue };
+export type { CharacterData, CheckMode, LogEntry, MapInfo, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
 
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -24,8 +24,11 @@ export class ApiError extends Error {
 }
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
+export type MapSettings = Partial<Pick<MapInfo, 'name' | 'cols' | 'rows' | 'cellDistance' | 'unit' | 'showGrid' | 'fogEnabled'>>;
+export type TokenInput = Partial<Pick<Token, 'name' | 'color' | 'x' | 'y' | 'size' | 'characterId' | 'hidden'>>;
+
 export class Api {
-  constructor(private token: () => Promise<string>, private onUnauthorized?: () => void) {}
+  constructor(readonly token: () => Promise<string>, private onUnauthorized?: () => void) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const raw = body instanceof Blob;
@@ -35,13 +38,14 @@ export class Api {
         method,
         headers: {
           authorization: `Bearer ${await this.token()}`,
-          ...(body === undefined ? {} : { 'content-type': raw ? 'application/zip' : 'application/json' }),
+          ...(body === undefined ? {} : { 'content-type': raw ? (body.type || 'application/zip') : 'application/json' }),
         },
         body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       });
     } catch {
       throw new ApiError(0, 'offline', '連不上伺服器。伺服器閒置時會休眠，請等半分鐘再試一次。');
     }
+    if (res.ok && res.headers.get('content-type')?.startsWith('image/')) return await res.blob() as T;
     const data = await res.json().catch(() => ({}));
     if (res.status === 401) this.onUnauthorized?.();
     if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `伺服器回應 ${res.status}`, data.problems);
@@ -66,4 +70,17 @@ export class Api {
   updateCharacter(id: string, cid: string, version: number, change: { name?: string; data?: CharacterData }) {
     return this.call<Character>('PATCH', `/api/rooms/${id}/characters/${cid}`, { version, ...change });
   }
+
+  maps(id: string) { return this.call<{ activeMapId: string | null; maps: MapSummary[] }>('GET', `/api/rooms/${id}/maps`); }
+  createMap(id: string, s: MapSettings) { return this.call<MapInfo>('POST', `/api/rooms/${id}/maps`, s); }
+  map(id: string, mid: string) { return this.call<MapView>('GET', `/api/rooms/${id}/maps/${mid}`); }
+  updateMap(id: string, mid: string, s: MapSettings) { return this.call<MapInfo>('PATCH', `/api/rooms/${id}/maps/${mid}`, s); }
+  deleteMap(id: string, mid: string) { return this.call('DELETE', `/api/rooms/${id}/maps/${mid}`); }
+  activateMap(id: string, mid: string) { return this.call<MapInfo>('POST', `/api/rooms/${id}/maps/${mid}/activate`); }
+  uploadMapImage(id: string, mid: string, image: Blob) { return this.call<MapInfo>('PUT', `/api/rooms/${id}/maps/${mid}/image`, image); }
+  mapImage(id: string, mid: string) { return this.call<Blob>('GET', `/api/rooms/${id}/maps/${mid}/image`); }
+  fog(id: string, mid: string, cells: number[] | 'all', covered: boolean) { return this.call<MapInfo>('POST', `/api/rooms/${id}/maps/${mid}/fog`, { cells, covered }); }
+  addToken(id: string, mid: string, t: TokenInput) { return this.call<Token>('POST', `/api/rooms/${id}/maps/${mid}/tokens`, t); }
+  updateToken(id: string, tid: string, t: TokenInput) { return this.call<Token>('PATCH', `/api/rooms/${id}/tokens/${tid}`, t); }
+  removeToken(id: string, tid: string) { return this.call('DELETE', `/api/rooms/${id}/tokens/${tid}`); }
 }

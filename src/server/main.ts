@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { createApp } from './app';
 import { openGame } from './boot';
+import { attachRealtime, RoomHub } from './realtime';
 
 /**
  * Starts the game server. Env:
@@ -16,11 +17,13 @@ const env = process.env;
 const url = env.DATABASE_URL ?? './data/pglite';
 if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 
-const { table, auth } = await openGame(url, {
+const { table, maps, auth } = await openGame(url, {
   supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, supabaseAnonKey: env.SUPABASE_ANON_KEY, dev: env.AUTH_DEV === '1',
 });
 
-createApp({
-  table, auth,
+const hub = new RoomHub();
+const server = createApp({
+  table, maps, auth, hub,
   corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
 }).listen(Number(env.PORT ?? 3000), () => console.log(`FATEWEAVE server on :${env.PORT ?? 3000}, database ${url.replace(/:[^:@/]+@/, ':***@')}`));
+attachRealtime(server, auth, table, hub);

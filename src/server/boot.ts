@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../persistence/drivers';
 import { readPackDir } from '../pack/zip';
+import { MapStore } from '../table/maps';
 import { TableStore } from '../table/store';
 import { Auth, type AuthOptions } from './auth';
 
@@ -17,5 +18,5 @@ export async function openGame(url: string, auth: AuthOptions = {}) {
       if (dir.isDirectory()) await table.savePack(readPackDir(join(PACKS_DIR, dir.name)), 'system', true);
     }
   }
-  return { db, table, auth: await Auth.open(db, auth) };
+  return { db, table, maps: await MapStore.open(db, table), auth: await Auth.open(db, auth) };
 }

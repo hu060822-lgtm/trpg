@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS room_requests (
   seq INTEGER NOT NULL,
   PRIMARY KEY (room_id, request_id)
 );
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS active_map_id TEXT;
 CREATE OR REPLACE TRIGGER room_log_append_only BEFORE UPDATE OR DELETE ON room_log
 FOR EACH ROW EXECUTE FUNCTION fw_forbid('the room log is append-only');
 `;
@@ -143,7 +144,7 @@ export class TableStore {
     name = text(name, 40, '房間名稱');
     await this.pack(packKey);
     return this.db.tx(async () => {
-      const room: Room = { id: randomUUID(), name, packKey, code: roomCode(), createdBy: userId, createdAt: now.toISOString() };
+      const room: Room = { id: randomUUID(), name, packKey, code: roomCode(), createdBy: userId, createdAt: now.toISOString(), activeMapId: null };
       await this.db.run('INSERT INTO rooms (id, name, pack_key, code, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
         [room.id, room.name, room.packKey, room.code, userId, room.createdAt]);
       await this.db.run('INSERT INTO room_members (room_id, user_id, name, role, joined_at) VALUES ($1, $2, $3, $4, $5)', [room.id, userId, userName, 'gm', room.createdAt]);
@@ -264,6 +265,14 @@ export class TableStore {
     });
   }
 
+  /** A line from the table itself in the log, e.g. "the GM opened the map 「Crypt」". */
+  async note(roomId: string, userId: string, words: string, now = new Date()): Promise<LogEntry> {
+    return this.db.tx(async () => {
+      const me = await this.requireRole(roomId, userId, 'player');
+      return this.append(roomId, userId, me.name, 'system', { text: words }, now);
+    });
+  }
+
   // ---------- characters ----------
 
   async createCharacter(roomId: string, userId: string, name: string, data: CharacterData, now = new Date()): Promise<Character> {
@@ -318,7 +327,8 @@ export class TableStore {
     return m && { userId: m.user_id, name: m.name, role: m.role };
   }
 
-  private async requireRole(roomId: string, userId: string, role: Role): Promise<Member> {
+  /** The caller's membership, or a 403/404 when they are not a member or lack the role. */
+  async requireRole(roomId: string, userId: string, role: Role): Promise<Member> {
     const m = await this.member(roomId, userId);
     if (!m) {
       const exists = await this.db.one('SELECT 1 FROM rooms WHERE id = $1', [roomId]);
@@ -354,10 +364,10 @@ export class TableStore {
   }
 }
 
-interface RoomRow { id: string; name: string; pack_key: string; code: string; created_by: string; created_at: string }
+interface RoomRow { id: string; name: string; pack_key: string; code: string; created_by: string; created_at: string; active_map_id: string | null }
 interface CharacterRow { id: string; owner_user_id: string; name: string; data: string; version: number }
 
-const roomOf = (r: RoomRow): Room => ({ id: r.id, name: r.name, packKey: r.pack_key, code: r.code, createdBy: r.created_by, createdAt: r.created_at });
+const roomOf = (r: RoomRow): Room => ({ id: r.id, name: r.name, packKey: r.pack_key, code: r.code, createdBy: r.created_by, createdAt: r.created_at, activeMapId: r.active_map_id ?? null });
 
 function roomCode() {
   return [...randomBytes(6)].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
