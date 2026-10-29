@@ -61,6 +61,15 @@ ALTER ROLE fateweave SET search_path = fateweave;
 3. 到 **Actions → Deploy web client → Run workflow**（之後每次推到 `main` 都會自動部署）。
 4. 網址是 `https://hu060822-lgtm.github.io/trpg/`。
 
+### 不用 Pages 的替代做法：Render 靜態網站
+
+GitHub Pages 還沒開時，網頁版也可以放在 Render 的免費靜態網站：
+- Build command：`npm ci && npm --prefix client ci && npm --prefix client run build`；
+- Publish directory：`client/dist`；
+- 環境變數：上面三個 `VITE_` 變數。
+
+記得把它的網址加進伺服器的 `CORS_ORIGINS`，以及 Supabase 的 Redirect URLs。
+
 ## 4. 讓自己成為主 GM
 
 1. 打開網頁版並登入，大廳會顯示你的使用者 ID（`sb:` 開頭）。

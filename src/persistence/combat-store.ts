@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS combat_events (
   PRIMARY KEY (combat_id, seq)
 );
 -- Raises the message given to the trigger: used to make rows append-only or irreversible.
-CREATE OR REPLACE FUNCTION fw_forbid() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION fw_forbid() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN RAISE EXCEPTION '%', TG_ARGV[0]; END $$;
 -- A dead character can never be set back to alive, whatever code path tries it.
 CREATE OR REPLACE TRIGGER no_resurrection
