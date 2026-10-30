@@ -16,29 +16,41 @@ export interface Cell { x: number; y: number }
 export const OBJECT_HEIGHT: Record<MapObjectKind, number> = {
   wall: 10, door: 8, window: 8, pillar: 10, stairs: 0, rubble: 1, table: 3, chair: 2, bed: 2, chest: 2, barrel: 3, crate: 3,
   bookshelf: 7, altar: 3, statue: 8, tree: 15, bush: 3, rock: 4, water: 0, fire: 0, trap: 0, label: 0,
+  cracked_wall: 10, gate: 10, fence: 4, cliff: 15, ladder: 0, bridge: 0, pit: 0, tent: 8, well: 3,
+  throne: 5, cage: 8, cart: 4, brazier: 3, anvil: 3, weapon_rack: 5, sack: 2, treasure: 1,
+  log: 2, stalagmite: 6, crystal: 6, mushroom: 1, mud: 0, ice: 0, lava: 0, tall_grass: 3, web: 0,
+  lever: 0, rope: 0, spikes: 0, rune_circle: 0, barricade: 4,
 };
-const BLOCKS_SIGHT = new Set<MapObjectKind>(['wall', 'door', 'pillar', 'bookshelf', 'statue', 'tree', 'rock']);
-const BLOCKS_MOVE = new Set<MapObjectKind>(['wall', 'door', 'window', 'pillar', 'bookshelf', 'statue', 'tree', 'rock', 'crate', 'barrel', 'altar']);
+const BLOCKS_SIGHT = new Set<MapObjectKind>(['wall', 'door', 'pillar', 'bookshelf', 'statue', 'tree', 'rock', 'cracked_wall', 'cliff', 'tent', 'stalagmite', 'crystal']);
+const BLOCKS_MOVE = new Set<MapObjectKind>([
+  'wall', 'door', 'window', 'pillar', 'bookshelf', 'statue', 'tree', 'rock', 'crate', 'barrel', 'altar',
+  'cracked_wall', 'gate', 'fence', 'cliff', 'pit', 'tent', 'well', 'throne', 'cage', 'cart', 'brazier', 'anvil', 'weapon_rack',
+  'stalagmite', 'crystal', 'barricade',
+]);
+/** Walking into these costs double (5E difficult terrain). */
+const DIFFICULT = new Set<MapObjectKind>(['rubble', 'water', 'log', 'mud', 'ice', 'tall_grass', 'web', 'spikes', 'bush']);
 
-export type Blocker = Pick<MapObject, 'kind' | 'x' | 'y' | 'w' | 'h'> & { open?: boolean; height?: number | null };
+export type Blocker = Pick<MapObject, 'kind' | 'x' | 'y' | 'w' | 'h'> & { open?: boolean; height?: number | null; props?: { difficult?: boolean } | null };
 export const heightOf = (o: Blocker) => o.height ?? OBJECT_HEIGHT[o.kind];
-/** Open doors and windows let everything through. */
+/** Open doors and windows, broken walls and open gates let everything through. */
 export const blocksSight = (o: Blocker) => BLOCKS_SIGHT.has(o.kind) && !o.open;
 export const blocksMove = (o: Blocker) => BLOCKS_MOVE.has(o.kind) && !o.open;
+export const isDifficult = (o: Blocker) => o.props?.difficult ?? DIFFICULT.has(o.kind);
 
-/** A per-square lookup of the tallest blocking object, for sight and for movement. */
+/** A per-square lookup of the tallest blocking object, for sight; of blocked squares, for movement; and of what walking in costs. */
 export function blockMap(grid: Grid, objects: Blocker[]) {
-  const sight = new Int16Array(grid.cols * grid.rows), move = new Uint8Array(grid.cols * grid.rows);
+  const sight = new Int16Array(grid.cols * grid.rows), move = new Uint8Array(grid.cols * grid.rows), cost = new Uint8Array(grid.cols * grid.rows).fill(1);
   for (const o of objects) {
-    const s = blocksSight(o), m = blocksMove(o);
-    if (!s && !m) continue;
+    const s = blocksSight(o), m = blocksMove(o), d = isDifficult(o);
+    if (!s && !m && !d) continue;
     for (let y = o.y; y < Math.min(o.y + o.h, grid.rows); y++) for (let x = o.x; x < Math.min(o.x + o.w, grid.cols); x++) {
       const i = y * grid.cols + x;
       if (s) sight[i] = Math.max(sight[i], heightOf(o));
       if (m) move[i] = 1;
+      if (d) cost[i] = 2;
     }
   }
-  return { sight, move };
+  return { sight, move, cost };
 }
 export type BlockMap = ReturnType<typeof blockMap>;
 
@@ -132,7 +144,9 @@ export function walkCosts(grid: Grid, blocks: BlockMap, from: Footprint, occupie
         const diagonal = dx !== 0 && dy !== 0;
         // No squeezing between two blocked squares on a diagonal.
         if (diagonal && !free(x + dx, y) && !free(x, y + dy)) continue;
-        const step = diagonal && grid.rule === 'alternate' ? (odd ? 2 : 1) : 1;
+        let step = diagonal && grid.rule === 'alternate' ? (odd ? 2 : 1) : 1;
+        // Difficult terrain under any square of the footprint doubles the step.
+        if (blocks.cost) { let rough = false; for (let j = ny; j < ny + size && !rough; j++) for (let i = nx; i < nx + size; i++) if (blocks.cost[j * cols + i] > 1) { rough = true; break; } if (rough) step *= 2; }
         const nOdd = diagonal && grid.rule === 'alternate' ? odd ^ 1 : odd;
         const next = ((ny * cols + nx) << 1) | nOdd, c = cost + step;
         if (c > limit || (best[next] !== -1 && best[next] <= c)) continue;

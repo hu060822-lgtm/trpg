@@ -17,13 +17,13 @@ const env = process.env;
 const url = env.DATABASE_URL ?? './data/pglite';
 if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 
-const { table, maps, encounters, auth } = await openGame(url, {
+const { table, maps, encounters, field, auth } = await openGame(url, {
   supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, supabaseAnonKey: env.SUPABASE_ANON_KEY, dev: env.AUTH_DEV === '1',
 });
 
 const hub = new RoomHub();
 const server = createApp({
-  table, maps, encounters, auth, hub,
+  table, maps, encounters, field, auth, hub,
   corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
 }).listen(Number(env.PORT ?? 3000), () => console.log(`FATEWEAVE server on :${env.PORT ?? 3000}, database ${url.replace(/:[^:@/]+@/, ':***@')}`));
 attachRealtime(server, auth, table, hub);

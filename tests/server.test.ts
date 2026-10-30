@@ -6,6 +6,7 @@ import { SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../src/persistence/db';
 import { createApp } from '../src/server/app';
+import { throwDie } from '../src/dice/physics';
 import type { Auth } from '../src/server/auth';
 import { openGame } from '../src/server/boot';
 import { attachRealtime, RoomHub } from '../src/server/realtime';
@@ -19,7 +20,7 @@ let db: Database;
 let auth: Auth;
 let server: Server;
 let base: string;
-let encounters: any;
+let encounters: any, field: any;
 let tok: Record<'p1' | 'p2' | 'gm' | 'bot', string>;
 
 beforeEach(async () => {
@@ -27,14 +28,14 @@ beforeEach(async () => {
   let table;
   let maps;
   ({ url, cleanup } = await freshDatabaseUrl());
-  ({ db, table, maps, encounters, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }, () => 10));
+  ({ db, table, maps, encounters, field, auth } = await openGame(url, { supabaseJwtSecret: JWT_SECRET, dev: true }, () => 10));
   tok = {
     p1: await auth.issue('user:1', 'user'), p2: await auth.issue('user:2', 'user'),
     gm: await auth.issue('user:gm', 'user'), bot: await auth.issue('service:bot', 'service'),
   };
   // Every die shows 10, so totals are predictable.
   const hub = new RoomHub();
-  server = createApp({ table, maps, encounters, auth, hub, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
+  server = createApp({ table, maps, encounters, field, auth, hub, rng: () => 10, now: () => T0, corsOrigins: ['https://luz.github.io'] }).listen(0);
   attachRealtime(server, auth, table, hub);
   await new Promise((r) => server.once('listening', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -384,6 +385,43 @@ describe('maps', () => {
     expect((await call(tok.gm, 'GET', url)).body.objects.map((o: any) => o.name)).toEqual(['落穴']);
   });
 
+  it('object settings: GMs set DC, locks and traps; players never see the GM note or an armed trap\'s numbers', async () => {
+    const { room, url } = await mapTable();
+    const trap = await call(tok.gm, 'POST', `${url}/objects`, { kind: 'trap', x: 4, y: 4, props: { dc: 17, damage: '3d6', note: '毒針' } });
+    expect(trap.body.props).toEqual({ dc: 17, damage: '3d6', note: '毒針' });
+    expect((await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/objects/${trap.body.id}`, { props: { damage: '3d' } })).status).toBe(400);
+    expect((await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/objects/${trap.body.id}`, { props: { dc: 99 } })).status).toBe(400);
+    expect((await call(tok.p1, 'GET', url)).body.objects[0].props).toEqual({});
+    await call(tok.gm, 'PATCH', `/api/rooms/${room.id}/objects/${trap.body.id}`, { props: { armed: false, note: null } });
+    expect((await call(tok.p1, 'GET', url)).body.objects[0].props).toEqual({ dc: 17, damage: '3d6', armed: false });
+  });
+
+  it('field actions: dice first, then the gesture, then the DC — a broken wall turns to rubble, a picked lock opens', async () => {
+    const { room, hero, url } = await mapTable();
+    const me = (await call(tok.p1, 'POST', `${url}/tokens`, { characterId: hero.id, x: 2, y: 3 })).body;
+    const wall = (await call(tok.gm, 'POST', `${url}/objects`, { kind: 'cracked_wall', x: 3, y: 3, w: 1, h: 1, props: { dc: 5 } })).body;
+    const far = (await call(tok.gm, 'POST', `${url}/objects`, { kind: 'chest', x: 8, y: 8, props: { locked: true } })).body;
+    // Too far away, a wrong action, someone else's token.
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/field`, { objectId: far.id, tokenId: me.id, action: 'pick' })).status).toBe(400);
+    expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/field`, { objectId: wall.id, tokenId: me.id, action: 'pick' })).status).toBe(400);
+    expect((await call(tok.p2, 'POST', `/api/rooms/${room.id}/field`, { objectId: wall.id, tokenId: me.id, action: 'break' })).status).toBe(403);
+    const start = await call(tok.p1, 'POST', `/api/rooms/${room.id}/field`, { objectId: wall.id, tokenId: me.id, action: 'break', launch: { hand: [-3, 0], v: [12, 1] } });
+    expect(start.status).toBe(201);
+    expect(start.body).toMatchObject({ action: 'break', dc: 5 });
+    expect(start.body.roll.dice[0].toss.launch).toEqual({ hand: [-3, 0], v: [12, 1] });
+    let result = start.body.result;
+    if (!result) {
+      expect(start.body.gesture).toBe('smash');
+      result = (await call(tok.p1, 'POST', `/api/rooms/${room.id}/field/${start.body.id}/finish`, { input: { kind: 'keys', presses: [] } })).body;
+      expect((await call(tok.p1, 'POST', `/api/rooms/${room.id}/field/${start.body.id}/finish`, { input: null })).status).toBe(409);
+    }
+    const kinds = (await call(tok.gm, 'GET', url)).body.objects.map((o: any) => o.kind);
+    if (result.success) expect(kinds).toContain('rubble');
+    else expect(start.body.roll.natural).toBe(1);
+    const log = (await call(tok.p1, 'GET', `/api/rooms/${room.id}/log`)).body;
+    expect(log.some((e: any) => e.kind === 'roll' && e.body.label.includes('破壞'))).toBe(true);
+  });
+
   it('keeps fog where a resized grid overlaps and clamps tokens back onto it', async () => {
     const { url } = await mapTable();
     await call(tok.gm, 'POST', `${url}/fog`, { cells: 'all', covered: false });
@@ -496,9 +534,11 @@ describe('interactive combat', () => {
     const requestId = rid();
     const rolled = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
     expect(rolled.body.encounter.status).toBe('active');
-    // The roll carries the die as it landed, so the dice tray can land on the same face.
+    // The roll is a real throw: the event carries it, and replaying it lands on the very number used.
     const init = rolled.body.events.find((e: any) => e.kind === 'initiative' && e.text.startsWith('索林'));
-    expect(init.data.dice).toEqual([{ sides: 20, value: 10, kept: true }]);
+    expect(init.data.dice).toHaveLength(1);
+    expect(init.data.dice[0]).toMatchObject({ sides: 20, kept: true });
+    expect(throwDie(20, init.data.dice[0].toss)).toBe(init.data.dice[0].value);
     // A resend changes nothing.
     const again = await call(tok.p1, 'POST', `${url}/command`, { requestId, type: 'release', stepId: mine.encounter.step.id });
     expect(again.body.encounter.seq).toBe(rolled.body.encounter.seq);

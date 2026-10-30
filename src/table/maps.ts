@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../persistence/db';
 import { TableError, type TableStore } from './store';
-import { MAP_OBJECT_KINDS, type MapInfo, type MapObject, type MapObjectKind, type MapSummary, type MapView, type Token } from './types';
+import { evaluate } from '../pack/expr';
+import { MAP_OBJECT_KINDS, type MapInfo, type MapObject, type MapObjectKind, type MapSummary, type MapView, type ObjectProps, type Token } from './types';
 
 /**
  * Battle maps for a room: a square grid, an optional picture under it, tokens on it and fog over it. GMs build and
@@ -61,6 +62,7 @@ ALTER TABLE map_tokens ADD COLUMN IF NOT EXISTS elevation INTEGER NOT NULL DEFAU
 ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS open BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS height INTEGER;
 ALTER TABLE map_tokens ADD COLUMN IF NOT EXISTS image_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE map_objects ADD COLUMN IF NOT EXISTS props TEXT NOT NULL DEFAULT '{}';
 CREATE TABLE IF NOT EXISTS token_images (
   token_id TEXT PRIMARY KEY REFERENCES map_tokens(id) ON DELETE CASCADE,
   type TEXT NOT NULL,
@@ -78,11 +80,14 @@ interface MapRow {
 }
 interface TokenRow { id: string; map_id: string; name: string; color: string; x: number; y: number; size: number; character_id: string | null; owner_user_id: string; hidden: boolean; elevation: number; image_version: number }
 
-interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean; open: boolean; height: number | null }
+interface ObjectRow { id: string; map_id: string; kind: string; name: string; x: number; y: number; w: number; h: number; rotation: number; hidden: boolean; open: boolean; height: number | null; props?: string | null }
 const objectOf = (r: ObjectRow): MapObject => ({
   id: r.id, mapId: r.map_id, kind: r.kind as MapObjectKind, name: r.name, x: r.x, y: r.y, w: r.w, h: r.h, rotation: r.rotation, hidden: r.hidden,
-  open: !!r.open, height: r.height ?? null,
+  open: !!r.open, height: r.height ?? null, props: parseProps(r.props),
 });
+function parseProps(raw: string | null | undefined): ObjectProps {
+  try { const p = JSON.parse(raw || '{}'); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
+}
 
 const mapOf = (r: MapRow): MapInfo => ({
   id: r.id, name: r.name, cols: r.cols, rows: r.rows, cellDistance: Number(r.cell_distance), unit: r.unit,
@@ -94,7 +99,7 @@ const tokenOf = (r: TokenRow): Token => ({
 });
 
 export interface MapSettings { name?: string; cols?: number; rows?: number; cellDistance?: number; unit?: string; showGrid?: boolean; fogEnabled?: boolean }
-export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean; open?: boolean; height?: number | null }
+export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean; open?: boolean; height?: number | null; props?: Partial<Record<keyof ObjectProps, unknown>> | null }
 export interface TokenInput { name?: string; color?: string; x?: number; y?: number; size?: number; characterId?: string | null; hidden?: boolean; elevation?: number }
 
 export class MapStore {
@@ -144,7 +149,8 @@ export class MapStore {
     return {
       map: mapOf(row),
       tokens: tokens.filter((t) => t.ownerUserId === userId || (!t.hidden && !covered(t.x, t.y))),
-      objects: objects.filter((o) => !o.hidden && !fogged(o)),
+      // The GM's notes stay with the GM; an armed trap's numbers too, so the table cannot read where the danger is.
+      objects: objects.filter((o) => !o.hidden && !fogged(o)).map((o) => ({ ...o, props: playerProps(o) })),
     };
   }
 
@@ -344,9 +350,9 @@ export class MapStore {
     const count = await this.db.one<{ n: number }>('SELECT COUNT(*)::int AS n FROM map_objects WHERE map_id = $1', [mapId]);
     if (Number(count?.n) >= MAP_LIMITS.objects) throw new TableError(400, 'bad-request', `一張地圖最多 ${MAP_LIMITS.objects} 個物件`);
     if (!MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
-    const o = placeObject(row, { id: randomUUID(), mapId, kind: input.kind as MapObjectKind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, open: false, height: null }, input);
-    await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at, open, height) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [o.id, mapId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, now.toISOString(), o.open, o.height]);
+    const o = placeObject(row, { id: randomUUID(), mapId, kind: input.kind as MapObjectKind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, open: false, height: null, props: {} }, input);
+    await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at, open, height, props) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [o.id, mapId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, now.toISOString(), o.open, o.height, JSON.stringify(o.props)]);
     return o;
   }
 
@@ -356,8 +362,8 @@ export class MapStore {
       const { object, map } = await this.objectWithMap(roomId, objectId, true);
       if (input.kind !== undefined && !MAP_OBJECT_KINDS.includes(input.kind as MapObjectKind)) throw new TableError(400, 'bad-request', '沒有這種物件');
       const o = placeObject(map, objectOf(object), input);
-      await this.db.run('UPDATE map_objects SET kind = $2, name = $3, x = $4, y = $5, w = $6, h = $7, rotation = $8, hidden = $9, open = $10, height = $11 WHERE id = $1',
-        [objectId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, o.open, o.height]);
+      await this.db.run('UPDATE map_objects SET kind = $2, name = $3, x = $4, y = $5, w = $6, h = $7, rotation = $8, hidden = $9, open = $10, height = $11, props = $12 WHERE id = $1',
+        [objectId, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, o.open, o.height, JSON.stringify(o.props)]);
       return o;
     });
   }
@@ -417,7 +423,50 @@ function placeObject(map: MapRow, o: MapObject, input: ObjectInput): MapObject {
     hidden: input.hidden !== undefined ? !!input.hidden : o.hidden,
     open: input.open !== undefined ? !!input.open : o.open,
     height: input.height !== undefined ? (input.height === null ? null : heightFeet(input.height)) : o.height,
+    props: input.props !== undefined ? mergeProps(o.props, input.props) : o.props,
   };
+}
+
+/** Applies a change to an object's settings: a field set to null goes back to the kind's default. */
+export function mergeProps(old: ObjectProps, change: Partial<Record<keyof ObjectProps, unknown>> | null): ObjectProps {
+  if (change === null) return {};
+  if (typeof change !== 'object') throw new TableError(400, 'bad-request', '物件設定格式不對');
+  const out: ObjectProps = { ...old };
+  const flag = (k: 'locked' | 'armed' | 'difficult') => {
+    if (!(k in change)) return;
+    if (change[k] === null) delete out[k]; else out[k] = !!change[k];
+  };
+  if ('dc' in change) {
+    if (change.dc === null) delete out.dc;
+    else {
+      const n = Number(change.dc);
+      if (!Number.isInteger(n) || n < 1 || n > 40) throw new TableError(400, 'bad-request', 'DC 要是 1 到 40 的整數');
+      out.dc = n;
+    }
+  }
+  flag('locked'); flag('armed'); flag('difficult');
+  if ('damage' in change) {
+    const d = typeof change.damage === 'string' ? change.damage.trim() : '';
+    if (!d || change.damage === null) delete out.damage;
+    else {
+      if (d.length > 40) throw new TableError(400, 'bad-request', '傷害公式最多 40 字');
+      try { evaluate(d, () => undefined, () => 1); } catch { throw new TableError(400, 'bad-request', `傷害公式看不懂：${d}`); }
+      out.damage = d;
+    }
+  }
+  if ('note' in change) {
+    const n = typeof change.note === 'string' ? change.note.trim() : '';
+    if (n.length > 200) throw new TableError(400, 'bad-request', 'GM 備註最多 200 字');
+    if (n) out.note = n; else delete out.note;
+  }
+  return out;
+}
+
+/** What players get to see of an object's settings. */
+function playerProps(o: MapObject): ObjectProps {
+  const { note: _note, ...rest } = o.props;
+  if ((o.kind === 'trap' || o.kind === 'spikes') && rest.armed !== false) { delete rest.dc; delete rest.damage; }
+  return rest;
 }
 function heightFeet(v: unknown): number {
   const n = Number(v);

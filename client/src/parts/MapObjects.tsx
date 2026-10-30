@@ -84,8 +84,126 @@ export const KINDS: Record<MapObjectKind, Kind> = {
     <path d="M34 66L42 40L50 66L58 40L66 66" stroke="#d4505e" strokeWidth="6" fill="none" strokeLinejoin="round" />
   </> },
   label: { label: '文字標籤', group: '機關', w: 3, h: 1, art: null },
+  cracked_wall: { label: '裂開的牆', group: '建築', w: 3, h: 1, stretch: true, art: <>
+    <rect x="0" y="8" width="100" height="84" fill={STONE} stroke={STONE_DARK} strokeWidth="6" />
+    <path d="M30 8L42 34L34 52L48 70L40 92M62 8L56 30L68 50" stroke="#2a241e" strokeWidth="4" fill="none" />
+  </> },
+  gate: { label: '鐵柵門', group: '建築', w: 2, h: 1, stretch: true, art: <>
+    <rect x="2" y="40" width="96" height="20" fill="none" stroke="#4a4f55" strokeWidth="6" />
+    {[12, 28, 44, 60, 76, 92].map((x) => <path key={x} d={`M${x} 30V70`} stroke="#6b7177" strokeWidth="6" />)}
+  </> },
+  fence: { label: '柵欄', group: '建築', w: 3, h: 1, stretch: true, art: <>
+    <path d="M0 42H100M0 58H100" stroke={WOOD} strokeWidth="7" />
+    {[8, 30, 52, 74, 94].map((x) => <rect key={x} x={x - 4} y="30" width="8" height="40" fill={WOOD_DARK} />)}
+  </> },
+  cliff: { label: '懸崖／高台', group: '建築', w: 3, h: 2, stretch: true, art: <>
+    <rect x="0" y="0" width="100" height="100" fill="#7a6f5f" />
+    <path d="M0 78L14 70L26 80L40 68L54 78L68 66L82 76L100 68V100H0Z" fill="#4e463b" />
+    <path d="M10 20L30 30M50 14L70 26M20 48L44 54M64 44L88 52" stroke="#5e5548" strokeWidth="4" />
+  </> },
+  ladder: { label: '梯子', group: '建築', w: 1, h: 2, stretch: true, art: <>
+    <path d="M28 2V98M72 2V98" stroke={WOOD} strokeWidth="8" />
+    {[12, 30, 48, 66, 84].map((y) => <path key={y} d={`M28 ${y}H72`} stroke={WOOD_DARK} strokeWidth="6" />)}
+  </> },
+  bridge: { label: '橋', group: '建築', w: 3, h: 1, stretch: true, art: <>
+    <rect x="0" y="20" width="100" height="60" fill={WOOD} stroke={WOOD_DARK} strokeWidth="4" />
+    {[12, 26, 40, 54, 68, 82].map((x) => <path key={x} d={`M${x} 20V80`} stroke={WOOD_DARK} strokeWidth="3" />)}
+    <path d="M0 16H100M0 84H100" stroke="#3b2a1a" strokeWidth="5" />
+  </> },
+  pit: { label: '坑洞', group: '建築', w: 2, h: 2, art: <>
+    <ellipse cx="50" cy="50" rx="44" ry="40" fill="#120d0a" stroke={STONE_DARK} strokeWidth="6" />
+    <ellipse cx="50" cy="44" rx="30" ry="22" fill="#000" opacity="0.7" />
+  </> },
+  tent: { label: '帳篷', group: '建築', w: 2, h: 2, art: <>
+    <path d="M50 6L94 90H6Z" fill="#b59a6a" stroke="#6e5a38" strokeWidth="5" /><path d="M50 6V90M50 90L38 60H62Z" stroke="#6e5a38" strokeWidth="4" fill="#3b2f20" />
+  </> },
+  well: { label: '水井', group: '建築', w: 1, h: 1, art: <>
+    <circle cx="50" cy="50" r="40" fill={STONE} stroke={STONE_DARK} strokeWidth="6" /><circle cx="50" cy="50" r="24" fill="#1f4f66" />
+    <path d="M10 50H90" stroke={WOOD_DARK} strokeWidth="6" />
+  </> },
+  throne: { label: '王座', group: '家具', w: 1, h: 1, art: <>
+    <rect x="22" y="10" width="56" height="30" rx="6" fill="#7d2f3a" stroke={GOLD} strokeWidth="4" />
+    <rect x="18" y="40" width="64" height="48" rx="5" fill="#a03a48" stroke={GOLD} strokeWidth="4" /><circle cx="50" cy="22" r="6" fill={GOLD} />
+  </> },
+  cage: { label: '籠子', group: '家具', w: 1, h: 1, art: <>
+    <rect x="10" y="10" width="80" height="80" fill="rgba(0,0,0,0.25)" stroke="#5b6066" strokeWidth="6" />
+    {[26, 42, 58, 74].map((x) => <path key={x} d={`M${x} 10V90`} stroke="#5b6066" strokeWidth="4" />)}
+  </> },
+  cart: { label: '推車', group: '家具', w: 2, h: 1, stretch: true, art: <>
+    <rect x="10" y="22" width="80" height="50" fill="#a87a4c" stroke={WOOD_DARK} strokeWidth="5" />
+    <circle cx="26" cy="82" r="12" fill={WOOD_DARK} /><circle cx="74" cy="82" r="12" fill={WOOD_DARK} />
+  </> },
+  brazier: { label: '火盆', group: '家具', w: 1, h: 1, art: <>
+    <circle cx="50" cy="56" r="32" fill="#4a3b2e" stroke="#2b2119" strokeWidth="5" />
+    <path d="M50 22C60 36 66 44 62 56C58 66 42 66 38 56C35 46 44 40 50 22Z" fill="#e2762e" /><circle cx="50" cy="54" r="8" fill={GOLD} />
+  </> },
+  anvil: { label: '鐵砧', group: '家具', w: 1, h: 1, art: <>
+    <path d="M14 34H78L90 26V44L74 50L66 66H34L26 50H14Z" fill="#555a60" stroke="#2e3236" strokeWidth="4" /><rect x="28" y="66" width="44" height="16" fill="#3d4146" />
+  </> },
+  weapon_rack: { label: '武器架', group: '家具', w: 2, h: 1, stretch: true, art: <>
+    <rect x="4" y="60" width="92" height="14" fill={WOOD_DARK} />
+    <path d="M20 14V64M40 18V64M60 14V64M80 20V64" stroke="#b9bec4" strokeWidth="5" /><path d="M14 22H26M34 26H46M54 22H66M74 28H86" stroke={WOOD} strokeWidth="6" />
+  </> },
+  sack: { label: '麻袋', group: '家具', w: 1, h: 1, art: <>
+    <path d="M34 26Q50 18 66 26L80 76Q50 92 20 76Z" fill="#c2a46c" stroke="#7a6238" strokeWidth="5" /><path d="M38 26Q50 34 62 26" stroke="#7a6238" strokeWidth="4" fill="none" />
+  </> },
+  treasure: { label: '財寶', group: '家具', w: 1, h: 1, art: <>
+    {[[30, 66], [50, 60], [70, 68], [40, 48], [60, 46], [50, 34]].map(([x, y]) => <ellipse key={`${x}${y}`} cx={x} cy={y} rx="14" ry="8" fill={GOLD} stroke="#a7772a" strokeWidth="3" />)}
+    <path d="M70 26L76 14L82 26L76 32Z" fill="#6fc3e0" />
+  </> },
+  log: { label: '倒木', group: '自然', w: 3, h: 1, stretch: true, art: <>
+    <rect x="4" y="28" width="92" height="44" rx="20" fill={WOOD} stroke={WOOD_DARK} strokeWidth="5" />
+    <ellipse cx="88" cy="50" rx="8" ry="20" fill="#c49a68" stroke={WOOD_DARK} strokeWidth="3" /><path d="M14 40H60M24 58H72" stroke={WOOD_DARK} strokeWidth="3" />
+  </> },
+  stalagmite: { label: '石筍', group: '自然', w: 1, h: 1, art: <>
+    <path d="M50 8L66 86H34Z" fill="#8a8073" stroke={STONE_DARK} strokeWidth="4" /><path d="M24 90L32 60L40 90ZM62 90L70 54L80 90Z" fill="#6f665b" />
+  </> },
+  crystal: { label: '水晶', group: '自然', w: 1, h: 1, art: <>
+    <path d="M50 6L66 40L50 92L34 40Z" fill="#8fd3f0" stroke="#3e8db0" strokeWidth="4" /><path d="M24 56L32 34L42 60L32 88ZM68 60L76 38L84 62L76 86Z" fill="#b8e6f7" stroke="#3e8db0" strokeWidth="3" />
+  </> },
+  mushroom: { label: '蘑菇', group: '自然', w: 1, h: 1, art: <>
+    <path d="M18 52Q50 8 82 52Z" fill="#b8475a" /><rect x="42" y="50" width="16" height="32" rx="6" fill="#efe6d2" />
+    <circle cx="38" cy="38" r="5" fill="#f2ead8" /><circle cx="60" cy="32" r="4" fill="#f2ead8" />
+  </> },
+  mud: { label: '泥沼', group: '地形', w: 2, h: 2, stretch: true, art: <>
+    <rect x="0" y="0" width="100" height="100" rx="18" fill="#5a4630" opacity="0.9" />
+    <circle cx="30" cy="34" r="8" fill="#6e583d" /><circle cx="66" cy="60" r="10" fill="#6e583d" /><circle cx="40" cy="74" r="5" fill="#6e583d" />
+  </> },
+  ice: { label: '冰面', group: '地形', w: 2, h: 2, stretch: true, art: <>
+    <rect x="0" y="0" width="100" height="100" rx="10" fill="#cbe9f5" opacity="0.85" />
+    <path d="M10 20L40 50L30 80M40 50L80 36M60 70L90 90" stroke="#ffffff" strokeWidth="3" fill="none" />
+  </> },
+  lava: { label: '岩漿', group: '地形', w: 2, h: 2, stretch: true, art: <>
+    <rect x="0" y="0" width="100" height="100" rx="16" fill="#b33a12" />
+    <path d="M8 30Q30 18 50 32T92 30M6 66Q30 54 52 68T94 64" stroke="#f0b552" strokeWidth="6" fill="none" /><circle cx="70" cy="48" r="6" fill="#ffd27a" />
+  </> },
+  tall_grass: { label: '高草', group: '地形', w: 2, h: 2, stretch: true, art: <>
+    <rect x="0" y="0" width="100" height="100" rx="12" fill="#5f8f3e" opacity="0.6" />
+    {[10, 26, 42, 58, 74, 90].map((x, i) => <path key={x} d={`M${x} ${80 - (i % 2) * 30}l-6 -18M${x} ${80 - (i % 2) * 30}l6 -20M${x} ${80 - (i % 2) * 30}v-22`} stroke="#9bcf5c" strokeWidth="3" />)}
+  </> },
+  web: { label: '蛛網', group: '地形', w: 2, h: 2, art: <>
+    <path d="M50 4V96M4 50H96M16 16L84 84M84 16L16 84" stroke="#e8e4da" strokeWidth="2" />
+    {[14, 26, 38].map((r) => <polygon key={r} points={Array.from({ length: 8 }, (_, i) => `${50 + r * Math.cos((i * Math.PI) / 4)},${50 + r * Math.sin((i * Math.PI) / 4)}`).join(' ')} fill="none" stroke="#e8e4da" strokeWidth="2" />)}
+  </> },
+  lever: { label: '拉桿', group: '機關', w: 1, h: 1, art: <>
+    <rect x="30" y="62" width="40" height="22" rx="4" fill="#555a60" stroke="#2e3236" strokeWidth="4" /><path d="M50 66L70 22" stroke="#9a9fa5" strokeWidth="7" /><circle cx="70" cy="22" r="8" fill="#d4505e" />
+  </> },
+  rope: { label: '繩索', group: '機關', w: 1, h: 2, stretch: true, art: <>
+    <path d="M50 2Q40 20 50 36T50 70T50 98" stroke="#c9a66b" strokeWidth="8" fill="none" /><circle cx="50" cy="6" r="6" fill="#6b7177" />
+  </> },
+  spikes: { label: '尖刺地面', group: '機關', w: 1, h: 1, art: <>
+    <rect x="6" y="6" width="88" height="88" fill="rgba(80,70,60,0.5)" />
+    {[[22, 30], [50, 24], [78, 30], [36, 60], [64, 60], [22, 86], [50, 82], [78, 86]].map(([x, y]) => <path key={`${x}${y}`} d={`M${x - 8} ${y}L${x} ${y - 18}L${x + 8} ${y}Z`} fill="#b9bec4" stroke="#4a4f55" strokeWidth="2" />)}
+  </> },
+  rune_circle: { label: '魔法陣', group: '機關', w: 2, h: 2, art: <>
+    <circle cx="50" cy="50" r="44" fill="rgba(185,138,224,0.12)" stroke="#b98ae0" strokeWidth="3" /><circle cx="50" cy="50" r="32" fill="none" stroke="#b98ae0" strokeWidth="2" strokeDasharray="6 5" />
+    <polygon points="50,18 69,76 19,40 81,40 31,76" fill="none" stroke="#b98ae0" strokeWidth="3" />
+  </> },
+  barricade: { label: '路障', group: '機關', w: 2, h: 1, stretch: true, art: <>
+    <path d="M6 80L30 20M30 80L6 20M70 80L94 20M94 80L70 20" stroke={WOOD_DARK} strokeWidth="8" /><path d="M0 50H100" stroke={WOOD} strokeWidth="10" />
+  </> },
 };
-const GROUPS = ['建築', '家具', '自然', '機關'];
+const GROUPS = ['建築', '家具', '自然', '地形', '機關'];
 
 /** An object drawn at its size. Rotation turns the picture inside the squares it covers. */
 export function ObjectArt({ o, cell }: { o: MapObject; cell: number }) {

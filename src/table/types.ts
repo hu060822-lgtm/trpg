@@ -78,6 +78,11 @@ export const MAP_OBJECT_KINDS = [
   'table', 'chair', 'bed', 'chest', 'barrel', 'crate', 'bookshelf', 'altar', 'statue',
   'tree', 'bush', 'rock', 'water', 'fire',
   'trap', 'label',
+  // Round three: more building parts, furniture, terrain and contraptions.
+  'cracked_wall', 'gate', 'fence', 'cliff', 'ladder', 'bridge', 'pit', 'tent', 'well',
+  'throne', 'cage', 'cart', 'brazier', 'anvil', 'weapon_rack', 'sack', 'treasure',
+  'log', 'stalagmite', 'crystal', 'mushroom', 'mud', 'ice', 'lava', 'tall_grass', 'web',
+  'lever', 'rope', 'spikes', 'rune_circle', 'barricade',
 ] as const;
 export type MapObjectKind = (typeof MAP_OBJECT_KINDS)[number];
 /** `w` × `h` squares from (`x`, `y`); `rotation` (0, 90, 180, 270) only turns the picture. */
@@ -96,6 +101,27 @@ export interface MapObject {
   open: boolean;
   /** Feet tall, when the GM changed it from the kind's default. */
   height: number | null;
+  /** The GM's settings for what can be done with it (see ObjectProps). */
+  props: ObjectProps;
+}
+
+/**
+ * What the table can do with an object. Every field is optional; a missing one falls back to the kind's default
+ * (see FIELD in src/table/field.ts). Players never receive `note`, nor the DC of a hidden trap.
+ */
+export interface ObjectProps {
+  /** Difficulty of climbing, breaking, picking, disarming, jumping over it. */
+  dc?: number;
+  /** Doors, gates, chests, cages: shut with a lock until picked or broken. */
+  locked?: boolean;
+  /** Traps and spikes: still dangerous. */
+  armed?: boolean;
+  /** What it does to whoever sets it off or falls in (a dice formula, e.g. "2d6"). */
+  damage?: string;
+  /** Overrides whether walking through it costs double. */
+  difficult?: boolean;
+  /** For the GM only. */
+  note?: string;
 }
 
 export interface MapView { map: MapInfo; tokens: Token[]; objects: MapObject[] }

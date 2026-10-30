@@ -146,6 +146,25 @@ export class EncounterStore {
   }
 
   /**
+   * Called before a field action (climb, break, pick a lock…). In a fight it costs the token's combatant its action,
+   * and only on its turn; outside a fight, or for a token not in it, nothing happens.
+   */
+  async spendAction(roomId: string, userId: string, tokenId: string, label: string, now = new Date()): Promise<boolean> {
+    const me = await this.table.requireRole(roomId, userId, 'player');
+    return this.db.tx(async () => {
+      const row = await this.db.one<Row>(`SELECT * FROM encounters WHERE room_id = $1 AND status <> 'ended' FOR UPDATE`, [roomId]);
+      if (!row) return false;
+      const state = JSON.parse(row.state) as EncounterState;
+      const c = Object.values(state.combatants).find((x) => x.tokenId === tokenId);
+      if (!c) return false;
+      const ctx = await this.context(roomId, row.map_id, now);
+      const out = this.guard(() => runCommand(state, ctx, { userId, gm: me.role === 'gm' }, { type: 'fieldAction', combatantId: c.id, label }));
+      await this.save(out, now);
+      return true;
+    });
+  }
+
+  /**
    * Called before a token moves. During a fight a combatant's token walks by the rules (its turn, its speed, around
    * walls); the engine moves it and this returns true. Tokens outside the fight are left to the map as usual.
    */
@@ -277,8 +296,8 @@ export class EncounterStore {
     if (!map) throw new TableError(404, 'not-found', '戰鬥用的地圖不見了');
     const tokens = await this.db.query<{ id: string; name: string; x: number; y: number; size: number; elevation: number; hidden: boolean; character_id: string | null; owner_user_id: string }>(
       'SELECT id, name, x, y, size, elevation, hidden, character_id, owner_user_id FROM map_tokens WHERE map_id = $1', [mapId]);
-    const objects = await this.db.query<{ kind: MapObjectKind; x: number; y: number; w: number; h: number; open: boolean; height: number | null }>(
-      'SELECT kind, x, y, w, h, open, height FROM map_objects WHERE map_id = $1', [mapId]);
+    const objects = await this.db.query<{ kind: MapObjectKind; x: number; y: number; w: number; h: number; open: boolean; height: number | null; props: string | null }>(
+      'SELECT kind, x, y, w, h, open, height, props FROM map_objects WHERE map_id = $1', [mapId]);
     const prefRows = await this.db.query<{ user_id: string; prefs: string }>('SELECT user_id, prefs FROM combat_prefs WHERE user_id = ANY($1)', [members.map((m) => m.userId)]);
     const prefs = new Map(prefRows.map((r) => [r.user_id, { ...DEFAULT_PREFS, ...JSON.parse(r.prefs) } as CombatPrefs]));
     const combat = pack.combat ?? EMPTY_COMBAT;
@@ -291,7 +310,7 @@ export class EncounterStore {
         return { value: throwDie(sides, toss), toss };
       },
       id: () => randomUUID(), seed: () => randomInt(1, 2 ** 31 - 1), grid,
-      blocks: blockMap(grid, objects.map((o) => ({ ...o, open: !!o.open }))),
+      blocks: blockMap(grid, objects.map((o) => ({ ...o, open: !!o.open, props: safeJson(o.props) }))),
       tokens: new Map(tokens.map((t): [string, TokenInfo] => [t.id, { id: t.id, name: t.name, x: t.x, y: t.y, size: t.size, elevation: t.elevation ?? 0, hidden: t.hidden, characterId: t.character_id, ownerUserId: t.owner_user_id }])),
       sheets: new Map(characters.map((c) => [c.id, c.sheet])),
       prefs: (u) => prefs.get(u) ?? DEFAULT_PREFS,
@@ -354,4 +373,8 @@ export class EncounterStore {
     const rows = await this.db.query<{ id: string; name: string; emitters: string }>('SELECT id, name, emitters FROM room_patterns WHERE room_id = $1 ORDER BY created_at', [roomId]);
     return rows.map((r) => ({ id: r.id, name: r.name, emitters: JSON.parse(r.emitters) }));
   }
+}
+
+function safeJson(raw: string | null): { difficult?: boolean } | null {
+  try { return raw ? JSON.parse(raw) : null; } catch { return null; }
 }

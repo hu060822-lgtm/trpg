@@ -5,6 +5,7 @@ import { openDatabase } from '../persistence/drivers';
 import { buildPack } from '../pack/pack';
 import { readPackDirFiles } from '../pack/zip';
 import { EncounterStore } from '../table/encounters';
+import { FieldStore } from '../table/field';
 import { MapStore } from '../table/maps';
 import { randomRng, type Rng } from '../rules/dice';
 import { TableStore } from '../table/store';
@@ -24,5 +25,6 @@ export async function openGame(url: string, auth: AuthOptions = {}, rng: Rng = r
     }
   }
   const maps = await MapStore.open(db, table);
-  return { db, table, maps, encounters: await EncounterStore.open(db, table, rng), auth: await Auth.open(db, auth) };
+  const encounters = await EncounterStore.open(db, table, rng);
+  return { db, table, maps, encounters, field: await FieldStore.open(db, table, encounters, rng), auth: await Auth.open(db, auth) };
 }

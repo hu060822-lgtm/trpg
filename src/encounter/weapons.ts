@@ -31,12 +31,22 @@ export type Challenge =
   /** Thrown weapons: flick from the hand toward the target — straight and quick. */
   | { kind: 'throw'; hand: Point; target: Point; window: [number, number]; beat: number }
   /** Spells: trace the magic circle, then join the sigil points in their numbered order. */
-  | { kind: 'rune'; centre: Point; r: number; points: Point[]; limit: number; beat: number };
+  | { kind: 'rune'; centre: Point; r: number; points: Point[]; limit: number; beat: number }
+  /** Climbing: reach from hold to hold, bottom to top, in one go. */
+  | { kind: 'climb'; points: Point[]; window: [number, number]; beat: number }
+  /** Picking a lock: hold the pick in the sweet spot as it drifts, until the lock gives. */
+  | { kind: 'pick'; centre: Point; r: number; hold: number; sway: number[]; beat: number }
+  /** Disarming a trap: trace the wire slowly without touching the sides. */
+  | { kind: 'wire'; points: Point[]; window: [number, number]; beat: number };
+
+/** Gestures for things on the map rather than weapons. */
+export type FieldGesture = 'climb' | 'pick' | 'wire';
+export type GestureKind = Exclude<Interaction, 'none'> | FieldGesture;
 
 /** How long a gesture panel stays open before it counts as not done. */
 export const GESTURE_LIMIT_MS = 8000;
 
-export function challengeFor(kind: Interaction, seed: number, runes = 4): Challenge | null {
+export function challengeFor(kind: GestureKind | 'none', seed: number, runes = 4): Challenge | null {
   const r = seeded(seed);
   // The one-key form: a marker sweeps across a bar and comes back; the best moment to press is `beat` ms in.
   const beat = 900 + r.int(900);
@@ -82,9 +92,28 @@ export function challengeFor(kind: Interaction, seed: number, runes = 4): Challe
       const points = Array.from({ length: n }, (_, i) => ring[(i * step) % n]);
       return { kind, centre, r: rr, points, limit: 4000 + n * 700, beat };
     }
+    case 'climb': {
+      const points: Point[] = [];
+      for (let i = 0; i < 6; i++) points.push({ x: (i % 2 ? 560 : 300) + r.int(140), y: 880 - i * 150 });
+      return { kind, points, window: [900, 3200], beat };
+    }
+    case 'pick':
+      return { kind, centre: { x: 360 + r.int(280), y: 360 + r.int(280) }, r: 70, hold: 1600, sway: [r.int(256), r.int(256), 2 + r.int(2), 3 + r.int(2)], beat };
+    case 'wire': {
+      const points: Point[] = [];
+      let x = 120, y = 300 + r.int(400);
+      for (let i = 0; i <= 16; i++) { points.push({ x, y }); x += 48; y = Math.max(120, Math.min(880, y + r.range(-110, 110))); }
+      return { kind, points, window: [1200, 5000], beat };
+    }
     default:
       return null;
   }
+}
+
+/** Where the sweet spot of a lock sits `t` ms into the hold: it drifts slowly in a small loop. */
+export function pickSpot(c: Extract<Challenge, { kind: 'pick' }>, t: number): Point {
+  const off = swayAt(c, t, 60);
+  return { x: c.centre.x + Math.trunc(off.x / 2), y: c.centre.y + Math.trunc(off.y / 2) };
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -294,7 +323,36 @@ export function scoreGesture(c: Challenge, input: GestureInput): number {
       while (right < touched.length && touched[right] === right) right++;
       return round2(0.4 * circle + 0.6 * (right / c.points.length));
     }
+    case 'climb': {
+      if (s.length < 2) return 0;
+      // Holds reached in order, from the bottom; reaching past one you skipped ends the climb.
+      let got = 0;
+      for (const p of s) if (got < c.points.length && dist2(p, c.points[got]) <= 75 * 75) got++;
+      return round2((got / c.points.length) * timing(span, c.window, 0.6));
+    }
+    case 'pick': {
+      if (s.length < 2) return 0;
+      let inside = 0, total = 0;
+      for (const p of s) { if (p.t - s[0].t > c.hold) break; total++; if (dist2(p, pickSpot(c, p.t - s[0].t)) <= c.r * c.r) inside++; }
+      return round2((inside / Math.max(1, total)) * clamp01(span / c.hold));
+    }
+    case 'wire': {
+      if (s.length < 2) return 0;
+      // Narrow: every wobble off the wire costs.
+      return round2(coverage(c.points, s, 32) * straightness2(s, c.points) * timing(span, c.window, 0.6));
+    }
   }
+}
+
+/** 1 when every sample of the stroke stays within 45 of the wire, less for each that strays. */
+function straightness2(s: Point[], wire: Point[]) {
+  let off = 0;
+  for (const p of s) {
+    let best = Infinity;
+    for (let i = 1; i < wire.length; i++) best = Math.min(best, segDist2(p, wire[i - 1], wire[i]));
+    if (best > 45 * 45) off++;
+  }
+  return clamp01(1 - (off / s.length) * 2);
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -324,7 +382,7 @@ export function wellFormed(input: unknown): input is GestureInput {
 }
 
 /** What each gesture is called on screen, and the one-line instruction under it. */
-export const GESTURE_TEXT: Record<Exclude<Interaction, 'none'>, { name: string; how: string; key: string }> = {
+export const GESTURE_TEXT: Record<GestureKind, { name: string; how: string; key: string }> = {
   slash: { name: '斬擊', how: '一筆畫過發光的弱點線，畫得準、畫得俐落加值越高。', key: '游標掃到中間時按空白鍵（或點一下）。' },
   thrust: { name: '突刺', how: '從護手圈往目標點一戳：直、短、快。', key: '游標掃到中間時按空白鍵（或點一下）。' },
   sweep: { name: '橫掃', how: '沿著弧線一口氣拖過去。', key: '游標掃到中間時按空白鍵（或點一下）。' },
@@ -334,4 +392,7 @@ export const GESTURE_TEXT: Record<Exclude<Interaction, 'none'>, { name: string; 
   aim: { name: '瞄準', how: '按住拖動準星，壓住晃動對準靶心，放開就射。', key: '游標掃到中間時按空白鍵（或點一下）。' },
   throw: { name: '投擲', how: '從手邊往目標快速一甩，方向對準就好。', key: '游標掃到中間時按空白鍵（或點一下）。' },
   rune: { name: '魔法陣', how: '先沿著外圈畫一圈魔法陣，再照數字順序連起符文點。', key: '依序按數字鍵 1、2、3…（或依序點）。' },
+  climb: { name: '攀爬', how: '從最下面的手點開始，一筆依序往上摸過每個手點。', key: '游標掃到中間時按空白鍵（或點一下）。' },
+  pick: { name: '開鎖', how: '按住鎖芯裡的亮點，跟著它慢慢移動，撐到鎖打開。', key: '游標掃到中間時按空白鍵（或點一下）。' },
+  wire: { name: '拆除', how: '沿著引線慢慢描到另一端，偏離引線就會失敗。', key: '游標掃到中間時按空白鍵（或點一下）。' },
 };

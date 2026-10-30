@@ -311,6 +311,14 @@ export class TableStore {
     });
   }
 
+  /** A roll the table made for a member (a check to climb, break, pick a lock…), written to the log in their name. */
+  async rollFor(roomId: string, userId: string, body: RollBody, now = new Date()): Promise<LogEntry> {
+    return this.db.tx(async () => {
+      const me = await this.requireRole(roomId, userId, 'player');
+      return this.append(roomId, userId, me.name, 'roll', body, now);
+    });
+  }
+
   /** A line written by the table itself, not by a member: the combat tracker's results. */
   async system(roomId: string, words: string, now = new Date(), author = '戰鬥'): Promise<LogEntry> {
     return this.db.tx(async () => this.append(roomId, 'system', author, 'system', { text: words.slice(0, MAX_TEXT) }, now));

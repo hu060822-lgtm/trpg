@@ -3,6 +3,7 @@ import { buildPack, mergePackFiles, PackError } from '../pack/pack';
 import { readPackZipFiles } from '../pack/zip';
 import type { Rng } from '../rules/dice';
 import type { EncounterStore } from '../table/encounters';
+import type { FieldStore } from '../table/field';
 import { MAP_LIMITS, type MapStore } from '../table/maps';
 import { TableError, type RollRequest, type TableStore } from '../table/store';
 import type { Principal } from './auth';
@@ -14,7 +15,7 @@ type Req = Request & { caller?: { userId: string; principal: Principal } };
  * The rooms API: packs, rooms, members, the log, chat, dice and character sheets. Mounted behind the sign-in check,
  * so every handler has a caller.
  */
-export function tableRoutes({ table, maps, encounters, hub, rng, now }: { table: TableStore; maps: MapStore; encounters: EncounterStore; hub: RoomHub; rng: Rng; now: () => Date }) {
+export function tableRoutes({ table, maps, encounters, field, hub, rng, now }: { table: TableStore; maps: MapStore; encounters: EncounterStore; field: FieldStore; hub: RoomHub; rng: Rng; now: () => Date }) {
   const r = express.Router();
   const room = (req: Request) => String(req.params.id);
   const who = (req: Req) => req.caller!;
@@ -177,6 +178,23 @@ export function tableRoutes({ table, maps, encounters, hub, rng, now }: { table:
   r.delete('/rooms/:id/objects/:oid', async (req: Req, res) => {
     changed(req, await maps.removeObject(room(req), who(req).userId, String(req.params.oid)));
     res.json({ ok: true });
+  });
+
+  // ---------- doing things to the map: climb, break, pick, disarm, jump, swim, pull ----------
+  const acted = (req: Request, mapId?: string) => {
+    hub.publish(room(req), { type: 'log' });
+    hub.publish(room(req), { type: 'encounter' });
+    if (mapId) changed(req, mapId);
+  };
+  r.post('/rooms/:id/field', async (req: Req, res) => {
+    const out = await field.start(room(req), who(req).userId, req.body ?? {}, now());
+    acted(req, out.result?.mapId);
+    res.status(201).json(out);
+  });
+  r.post('/rooms/:id/field/:fid/finish', async (req: Req, res) => {
+    const out = await field.finish(room(req), who(req).userId, String(req.params.fid), (req.body ?? {}).input ?? null, now());
+    acted(req, out.mapId);
+    res.json(out);
   });
 
   // ---------- interactive combat ----------

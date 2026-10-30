@@ -154,6 +154,7 @@ export type Command =
   | { type: 'dash'; combatantId: string }
   | { type: 'dodgeAction'; combatantId: string }
   | { type: 'endTurn'; combatantId: string }
+  | { type: 'fieldAction'; combatantId: string; label: string }
   | { type: 'gm'; op: GmOp; reason?: string };
 
 export type GmOp =
@@ -370,6 +371,14 @@ class Engine {
         this.useAction(c);
         this.s.turn!.dashed = true;
         this.say('dash', `${c.name} 衝刺，移動距離加倍`, { gmOnly: c.hidden });
+        return;
+      }
+      case 'fieldAction': {
+        // Climbing, breaking, picking a lock… on the map: it takes the creature's action for the turn.
+        const c = this.myTurn(who, cmd.combatantId);
+        if (this.s.step && this.s.step.kind !== 'npcPending') throw new CombatError(409, 'busy', '還有步驟沒完成');
+        this.useAction(c);
+        this.say('field', `${c.name} ${String(cmd.label).slice(0, 40)}`, { gmOnly: c.hidden });
         return;
       }
       case 'dodgeAction': {
