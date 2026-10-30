@@ -1,7 +1,10 @@
 import type { CharacterData, CheckMode, CheckTarget, Pack, PackProblem, SheetValue } from '../../src/pack/pack';
 import type { Command } from '../../src/encounter/engine';
 import type { CombatPrefs, EncounterEvent, EncounterView, PatternDef, Emitter, StartInput } from '../../src/encounter/types';
-import type { Character, CharacterView, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, PackSummary, Role, Room, Token } from '../../src/table/types';
+import type { Character, CharacterView, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, ObjectProps, PackSummary, Role, Room, Token } from '../../src/table/types';
+import type { FieldResult, FieldStart } from '../../src/table/fieldRules';
+import type { Launch } from '../../src/dice/physics';
+import type { GestureInput } from '../../src/encounter/types';
 
 export type { Command, CombatPrefs, EncounterEvent, EncounterView, PatternDef, Emitter, StartInput };
 export type { CharacterData, CharacterView, CheckMode, CheckTarget, LogEntry, MapInfo, MapObject, MapObjectKind, MapSummary, MapView, Member, Pack, PackProblem, PackSummary, Role, Room, SheetValue, Token };
@@ -26,7 +29,8 @@ export class ApiError extends Error {
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
 export type MapSettings = Partial<Pick<MapInfo, 'name' | 'cols' | 'rows' | 'cellDistance' | 'unit' | 'showGrid' | 'fogEnabled'>>;
-export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden' | 'open'>> & { height?: number | null };
+export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden' | 'open'>> & { height?: number | null; props?: { [K in keyof ObjectProps]?: ObjectProps[K] | null } | null };
+export type { FieldResult, FieldStart } from '../../src/table/fieldRules';
 export type TokenInput = Partial<Pick<Token, 'name' | 'color' | 'x' | 'y' | 'size' | 'characterId' | 'hidden' | 'elevation'>>;
 export interface EncounterBundle { encounter: EncounterView | null; events: EncounterEvent[]; vitals: Record<string, number> }
 
@@ -100,6 +104,8 @@ export class Api {
   removeObject(id: string, oid: string) { return this.call('DELETE', `/api/rooms/${id}/objects/${oid}`); }
 
   encounter(id: string, after = 0) { return this.call<EncounterBundle>('GET', `/api/rooms/${id}/encounter?after=${after}`); }
+  fieldStart(id: string, input: { objectId: string; tokenId: string; action: string; launch?: Launch }) { return this.call<FieldStart>('POST', `/api/rooms/${id}/field`, input); }
+  fieldFinish(id: string, fid: string, input: GestureInput | null) { return this.call<FieldResult>('POST', `/api/rooms/${id}/field/${fid}/finish`, { input }); }
   startEncounter(id: string, input: StartInput) { return this.call<EncounterBundle>('POST', `/api/rooms/${id}/encounter`, input); }
   /** Every command carries its own request id, so a resend after a dropped connection does nothing twice. */
   command(id: string, cmd: Command, requestId = crypto.randomUUID()) { return this.call<EncounterBundle>('POST', `/api/rooms/${id}/encounter/command`, { ...cmd, requestId }); }

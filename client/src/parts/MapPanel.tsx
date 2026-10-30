@@ -7,6 +7,8 @@ import { useAction } from '../hooks';
 import { MapManager } from './MapManager';
 import { shrinkImage, useTokenImages } from './tokenImages';
 import { defaultsFor, ObjectArt, ObjectCard, ObjectPalette } from './MapObjects';
+import { FieldCard } from './FieldAction';
+import { fieldActions } from '../../../src/table/fieldRules';
 import { Bars, Confirm, ErrorNote, IconButton } from './ui';
 
 /** Pixels per square at zoom 1. */
@@ -82,6 +84,7 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
   const [adding, setAdding] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [selectedObj, setSelectedObj] = useState<string | null>(null);
+  const [fielding, setFielding] = useState(false);
   const [objDrag, setObjDrag] = useState<{ id: string; x: number; y: number } | null>(null);
   const [tilted, setTilted] = useState(() => { try { return localStorage.getItem('fateweave:tilted') === '1'; } catch { return false; } });
   const act = useAction();
@@ -155,8 +158,8 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
   const pictures = useTokenImages(api, roomId, tokens);
   const sel = tokens.find((t) => t.id === selected) ?? null;
   const objects = data?.objects ?? [];
-  const selObj = gm ? objects.find((o) => o.id === selectedObj) ?? null : null;
-  const pick = (token: string | null, object: string | null) => { setSelected(token); setSelectedObj(object); };
+  const selObj = objects.find((o) => o.id === selectedObj) ?? null;
+  const pick = (token: string | null, object: string | null) => { setSelected(token); setSelectedObj(object); if (object !== selectedObj) setFielding(false); };
 
   // ---------- pointer handling ----------
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -207,10 +210,12 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
       }
     }
     // Scenery sits under the tokens and only GMs can grab it; for players it is part of the board.
-    const objectEl = gm && !tokenEl ? (e.target as HTMLElement).closest<HTMLElement>('[data-object]') : null;
+    const objectEl = !tokenEl ? (e.target as HTMLElement).closest<HTMLElement>('[data-object]') : null;
     if (tool === 'move' && objectEl) {
       const o = objects.find((x) => x.id === objectEl.dataset.object);
-      if (o) { pick(null, o.id); gesture.current = { kind: 'object', id: o.id, grab: { x: c.x - o.x, y: c.y - o.y }, moved: false }; return; }
+      if (o && gm) { pick(null, o.id); gesture.current = { kind: 'object', id: o.id, grab: { x: c.x - o.x, y: c.y - o.y }, moved: false }; return; }
+      // Players tap a thing to see what they can do with it, and can still pan the map from there.
+      if (o && fieldActions(o).length) { pick(null, o.id); gesture.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, cam, moved: false }; return; }
     }
     if (tool === 'ruler') { gesture.current = { kind: 'ruler' }; setRuler({ a: c, b: c }); return; }
     if ((tool === 'reveal' || tool === 'cover') && gm) { gesture.current = { kind: 'fog' }; setBrush(new Set()); paint(c); return; }
@@ -415,7 +420,7 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
             return (
               <div key={o.id} data-object={o.id} {...(gm ? { role: 'button', tabIndex: 0, 'aria-label': `${o.name || o.kind}，第 ${o.x + 1} 欄第 ${o.y + 1} 列，方向鍵移動`, 'aria-pressed': o.id === selectedObj,
                 onFocus: () => pick(null, o.id), onKeyDown: (e: React.KeyboardEvent) => nudgeObject(e, o) } : { 'aria-hidden': true })}
-                className={`object kind-${o.kind}${o.id === selectedObj ? ' selected' : ''}${o.hidden ? ' hidden' : ''}${gm ? ' movable' : ''}${objDrag?.id === o.id ? ' dragging' : ''}`}
+                className={`object kind-${o.kind}${o.id === selectedObj ? ' selected' : ''}${o.hidden ? ' hidden' : ''}${gm ? ' movable' : fieldActions(o).length ? ' usable' : ''}${objDrag?.id === o.id ? ' dragging' : ''}`}
                 style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: o.w * CELL, height: o.h * CELL }}>
                 <ObjectArt o={o} cell={CELL} />
                 {gm && o.name && o.kind !== 'label' && <span className="tag">{o.name}</span>}
@@ -458,7 +463,11 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
 
       <ErrorNote of={act} className="map-toast" />
       {sel && <TokenCard api={api} roomId={roomId} token={sel} gm={gm} canEdit={canMove(sel)} mine={mine.has(sel.characterId ?? '')} onClose={() => setSelected(null)} onChanged={load} />}
-      {selObj && <ObjectCard key={selObj.id} api={api} roomId={roomId} object={selObj} onClose={() => setSelectedObj(null)} onChanged={load} onCopy={() => placeObject(selObj.kind, selObj)} />}
+      {selObj && gm && !fielding && <ObjectCard key={selObj.id} api={api} roomId={roomId} object={selObj} onClose={() => setSelectedObj(null)} onChanged={load} onCopy={() => placeObject(selObj.kind, selObj)} onField={fieldActions(selObj).length ? () => setFielding(true) : undefined} />}
+      {selObj && (!gm || fielding) && (
+        <FieldCard key={`f${selObj.id}`} api={api} roomId={roomId} object={selObj} tokens={tokens} mine={(t) => mine.has(t.characterId ?? '')} gm={gm}
+          oneKey={combat.prefs.oneKey} contrast={combat.prefs.highContrast} onClose={() => { setFielding(false); if (!gm) setSelectedObj(null); }} onChanged={load} />
+      )}
       {placing && gm && !selObj && <ObjectPalette busy={act.busy} onPick={(k) => placeObject(k)} onClose={() => setPlacing(false)} />}
       {adding && gm && <AddToken api={api} roomId={roomId} mapId={map.id} where={centre} onDone={async (id) => { setAdding(false); setSelected(id); await load(); }} />}
       {managing && gm && (

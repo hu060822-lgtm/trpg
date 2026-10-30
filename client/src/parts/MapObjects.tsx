@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react';
 import type { Api, MapObject, MapObjectKind } from '../api';
 import { useAction } from '../hooks';
 import { Confirm, ErrorNote, IconButton } from './ui';
+import { DEFAULT_DAMAGE, fieldActions, FIELD_ACTIONS, isLockable, isTrap } from '../../../src/table/fieldRules';
+import { isDifficult } from '../../../src/encounter/geometry';
 
 interface Kind { label: string; group: string; w: number; h: number; stretch?: boolean; art: ReactNode }
 
@@ -254,8 +256,10 @@ export function defaultsFor(kind: MapObjectKind) {
 }
 
 /** Edits the selected object: name, size, turn, hide from players, copy or remove. */
-export function ObjectCard({ api, roomId, object: o, onClose, onChanged, onCopy }: {
+export function ObjectCard({ api, roomId, object: o, onClose, onChanged, onCopy, onField }: {
   api: Api; roomId: string; object: MapObject; onClose: () => void; onChanged: () => Promise<void>; onCopy: () => void;
+  /** Opens the climb / break / pick card for this object, when it offers any. */
+  onField?: () => void;
 }) {
   const act = useAction();
   const [asking, setAsking] = useState(false);
@@ -293,11 +297,65 @@ export function ObjectCard({ api, roomId, object: o, onClose, onChanged, onCopy 
         <button disabled={act.busy} onClick={onCopy}>複製一個</button>
         <button className="danger" disabled={act.busy} onClick={() => setAsking(true)}>移除物件</button>
       </div>
+      <ObjectSettings o={o} busy={act.busy} save={save} />
+      {onField && <div className="row"><button className="primary" onClick={onField}>在這裡做動作（攀爬、破壞…）</button></div>}
       <ErrorNote of={act} />
       {asking && (
         <Confirm title={`移除「${o.name || k.label}」？`} action="移除物件" body="物件會從這張地圖拿掉，位置和設定不會保留。" onClose={() => setAsking(false)}
           onConfirm={() => void act.run(async () => { await api.removeObject(roomId, o.id); onClose(); await onChanged(); })} />
       )}
     </div>
+  );
+}
+
+/**
+ * The GM's settings for what an object does at the table: its DC, a lock, whether a trap is still armed and how much
+ * it hurts, whether it slows walkers down, and a private note. Empty fields fall back to the kind's defaults.
+ */
+function ObjectSettings({ o, busy, save }: { o: MapObject; busy: boolean; save: (change: Parameters<Api['updateObject']>[2]) => void }) {
+  const offers = fieldActions({ ...o, open: false, props: { ...o.props, locked: true, armed: true } });
+  const trap = isTrap(o.kind) || o.kind === 'pit' || o.kind === 'lava' || o.kind === 'fire';
+  const [dc, setDc] = useState(o.props.dc?.toString() ?? '');
+  const [damage, setDamage] = useState(o.props.damage ?? '');
+  const [note, setNote] = useState(o.props.note ?? '');
+  const naturallySlow = isDifficult({ ...o, props: {} });
+  const rolled = offers.filter((x) => x.dc > 0);
+  if (o.kind === 'label') return null;
+  const blurOnEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); };
+  return (
+    <details className="object-settings" open={!!(o.props.dc || o.props.locked || o.props.note)}>
+      <summary>互動設定</summary>
+      {rolled.length > 0 && (
+        <p className="small muted">玩家可以：{rolled.map((x) => `${FIELD_ACTIONS[x.action].label}（預設 DC ${x.dc}）`).join('、')}</p>
+      )}
+      <div className="row wrap">
+        {rolled.length > 0 && (
+          <label className="narrow">DC
+            <input inputMode="numeric" value={dc} placeholder="預設" disabled={busy} onChange={(e) => setDc(e.target.value.replace(/\D/g, ''))} onKeyDown={blurOnEnter}
+              onBlur={() => { const v = dc ? Number(dc) : null; if (v !== (o.props.dc ?? null)) save({ props: { dc: v } }); }} />
+          </label>
+        )}
+        {isLockable(o.kind) && <label className="tick"><input type="checkbox" checked={!!o.props.locked} disabled={busy} onChange={(e) => save({ props: { locked: e.target.checked } })} />上鎖</label>}
+        {isTrap(o.kind) && <label className="tick"><input type="checkbox" checked={o.props.armed !== false} disabled={busy} onChange={(e) => save({ props: { armed: e.target.checked } })} />陷阱啟動中</label>}
+        {trap && (
+          <label className="narrow">失敗傷害
+            <input value={damage} placeholder={DEFAULT_DAMAGE[o.kind] ?? '1d6'} maxLength={40} disabled={busy} onChange={(e) => setDamage(e.target.value)} onKeyDown={blurOnEnter}
+              onBlur={() => { if (damage.trim() !== (o.props.damage ?? '')) save({ props: { damage: damage.trim() || null } }); }} />
+          </label>
+        )}
+        <label className="tick">難行地形
+          <select value={o.props.difficult === undefined ? '' : o.props.difficult ? 'yes' : 'no'} disabled={busy}
+            onChange={(e) => save({ props: { difficult: e.target.value === '' ? null : e.target.value === 'yes' } })}>
+            <option value="">預設（{naturallySlow ? '是' : '否'}）</option>
+            <option value="yes">是，移動耗兩倍</option>
+            <option value="no">否</option>
+          </select>
+        </label>
+      </div>
+      <label>GM 備註（玩家看不到）
+        <input value={note} maxLength={200} placeholder="例如：門後有兩隻哥布林" disabled={busy} onChange={(e) => setNote(e.target.value)} onKeyDown={blurOnEnter}
+          onBlur={() => { if (note.trim() !== (o.props.note ?? '')) save({ props: { note: note.trim() || null } }); }} />
+      </label>
+    </details>
   );
 }

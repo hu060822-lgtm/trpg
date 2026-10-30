@@ -374,6 +374,8 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
 .object { position: absolute; left: 0; top: 0; pointer-events: none; transition: transform var(--motion-200) var(--ease-out); }
 .object > svg { position: absolute; left: 50%; top: 50%; overflow: visible; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); }
 .object.movable { pointer-events: auto; cursor: grab; }
+.object.usable { pointer-events: auto; cursor: pointer; }
+.object.usable:hover { outline: 1px dashed var(--jade); outline-offset: 2px; border-radius: 4px; }
 .object.dragging { transition: none; z-index: 1; opacity: 0.85; }
 .object.selected { outline: 2px solid var(--jade); outline-offset: 2px; border-radius: 4px; }
 .object:focus-visible { outline: 3px solid var(--jade); outline-offset: 2px; }
@@ -804,3 +806,15 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
 }
 .danger-zone { border-top: 1px solid var(--garnet-soft); }
 .danger-zone h3 { color: var(--garnet-text); }
+
+/* Field actions: climbing, breaking, picking a lock on the map */
+.field-card { max-height: calc(100% - 24px); overflow: auto; }
+.field-card .dice-tray { max-width: 100%; }
+.field-result { display: grid; gap: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--seam); }
+.field-result > b { font-size: var(--fs-2); }
+.field-result.ok { border-color: var(--jade); }
+.field-result.ok > b { color: var(--jade); }
+.field-result.bad > b { color: var(--garnet); }
+.object-settings { border-top: 1px solid var(--seam); padding-top: 8px; }
+.object-settings summary { cursor: pointer; min-height: var(--hit); display: flex; align-items: center; }
+.object-settings label.narrow input { width: 7em; }

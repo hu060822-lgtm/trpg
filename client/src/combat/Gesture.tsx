@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { bowState, challengeFor, GESTURE_LIMIT_MS, GESTURE_TEXT, ringPoints, scoreGesture, sightAt, sweepPoints, throwLanding, type Challenge, type Point } from '../../../src/encounter/weapons';
-import type { GestureInput, InputSample, Interaction } from '../../../src/encounter/types';
+import { bowState, challengeFor, GESTURE_LIMIT_MS, GESTURE_TEXT, ringPoints, scoreGesture, sightAt, sweepPoints, throwLanding, type Challenge, type GestureKind, type Point } from '../../../src/encounter/weapons';
+import type { GestureInput, InputSample } from '../../../src/encounter/types';
 
 /**
  * The weapon gesture, after the attack roll is already on the table. The pad shows the same challenge the server
@@ -8,13 +8,13 @@ import type { GestureInput, InputSample, Interaction } from '../../../src/encoun
  * score here is only a courtesy.
  */
 export function GesturePad({ kind, seed, runes = 4, oneKey, contrast, onDone }: {
-  kind: Exclude<Interaction, 'none'>; seed: number; runes?: number; oneKey: boolean; contrast: boolean; onDone: (input: GestureInput, preview: number) => void;
+  kind: GestureKind; seed: number; runes?: number; oneKey: boolean; contrast: boolean; onDone: (input: GestureInput, preview: number) => void;
 }) {
   const c = challengeFor(kind, seed, runes)!;
   return oneKey ? <OneKey c={c} kind={kind} onDone={onDone} /> : <Pointer c={c} kind={kind} contrast={contrast} onDone={onDone} />;
 }
 
-function Pointer({ c, kind, contrast, onDone }: { c: Challenge; kind: Exclude<Interaction, 'none'>; contrast: boolean; onDone: (input: GestureInput, preview: number) => void }) {
+function Pointer({ c, kind, contrast, onDone }: { c: Challenge; kind: GestureKind; contrast: boolean; onDone: (input: GestureInput, preview: number) => void }) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [px, setPx] = useState(300);
@@ -271,7 +271,7 @@ function strokesOf(samples: InputSample[]): InputSample[][] {
 }
 
 /** The one-key form: a marker sweeps along a bar; press Space (or tap the bar) when it reaches the middle. */
-function OneKey({ c, kind, onDone }: { c: Challenge; kind: Exclude<Interaction, 'none'>; onDone: (input: GestureInput, preview: number) => void }) {
+function OneKey({ c, kind, onDone }: { c: Challenge; kind: GestureKind; onDone: (input: GestureInput, preview: number) => void }) {
   const start = useRef(performance.now());
   const presses = useRef<{ t: number; key: string }[]>([]);
   const finished = useRef(false);

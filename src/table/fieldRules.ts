@@ -1,3 +1,4 @@
+import type { DieFace } from '../encounter/types';
 import type { GestureKind } from '../encounter/weapons';
 import type { MapObject, MapObjectKind } from './types';
 
@@ -79,3 +80,20 @@ export function gapTo(t: { x: number; y: number; size: number }, o: { x: number;
   const gy = Math.max(0, o.y - (t.y + t.size - 1), t.y - (o.y + o.h - 1));
   return Math.max(gx, gy);
 }
+
+export interface FieldRoll { total: number; text: string; natural: number; dice: DieFace[] }
+export interface FieldResult { success: boolean; total: number; bonus: number; quality: number | null; dc: number; text: string; mapId: string }
+/** What starting an action gives back: the roll (a real throw), then the gesture to do, or the result straight away. */
+export interface FieldStart {
+  id: string;
+  action: FieldAction;
+  label: string;
+  target: string;
+  dc: number;
+  roll: FieldRoll | null;
+  /** The gesture to do next, or null when the dice settled it (a natural 1 or 20, or no roll at all). */
+  gesture: GestureKind | null;
+  seed: number;
+  result: FieldResult | null;
+}
+

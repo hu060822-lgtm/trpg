@@ -9,7 +9,8 @@ import { checkFormula, rollOnSheet } from '../pack/pack';
 import type { Database } from '../persistence/db';
 import type { Rng } from '../rules/dice';
 import type { EncounterStore } from './encounters';
-import { damageOf, FIELD_ACTIONS, fieldActions, gapTo, isTrap, type FieldAction } from './fieldRules';
+import { damageOf, FIELD_ACTIONS, fieldActions, gapTo, isTrap, type FieldAction, type FieldResult, type FieldRoll, type FieldStart } from './fieldRules';
+export type { FieldResult, FieldStart } from './fieldRules';
 import { mergeProps } from './maps';
 import { TableError, type TableStore } from './store';
 import type { MapObject, MapObjectKind, ObjectProps } from './types';
@@ -43,21 +44,6 @@ CREATE INDEX IF NOT EXISTS field_actions_room ON field_actions(room_id);
 const PENDING_MS = 3 * 60 * 1000;
 
 export interface FieldStartInput { objectId?: unknown; tokenId?: unknown; action?: unknown; launch?: unknown }
-export interface FieldRoll { total: number; text: string; natural: number; dice: DieFace[] }
-export interface FieldResult { success: boolean; total: number; bonus: number; quality: number | null; dc: number; text: string; mapId: string }
-export interface FieldStart {
-  id: string;
-  action: FieldAction;
-  label: string;
-  target: string;
-  dc: number;
-  roll: FieldRoll | null;
-  /** The gesture to do next, or null when the dice settled it (a natural 1 or 20, or no roll at all). */
-  gesture: GestureKind | null;
-  seed: number;
-  result: FieldResult | null;
-}
-
 interface ObjectRow { id: string; map_id: string; kind: MapObjectKind; name: string; x: number; y: number; w: number; h: number; hidden: boolean; open: boolean; height: number | null; props: string | null }
 interface TokenRow { id: string; map_id: string; name: string; x: number; y: number; size: number; elevation: number; character_id: string | null; owner_user_id: string }
 interface PendingRow { id: string; room_id: string; user_id: string; token_id: string; object_id: string; action: FieldAction; total: number; nat: number; dc: number; seed: number; done: boolean; created_at: string }
