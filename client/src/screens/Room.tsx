@@ -39,8 +39,10 @@ export function RoomScreen({ api, roomId, go }: { api: Api; roomId: string; go: 
   // Events call into `view` and `log` below; they only fire after this render has set both up.
   const live = useRoomEvents(api, API_URL, roomId, (e) => {
     if (e.type === 'log') { void log.pull(); if (tab !== 'log' && tab !== 'map') { unread.current++; bump((n) => n + 1); } }
-    else if (e.type === 'room' || e.type === 'maps') void view.reload();
-    if (e.type === 'map' || e.type === 'maps') setMapVersion((v) => v + 1);
+    else if (e.type === 'room') void view.reload();
+    // A different map may have been opened: learn which before reloading, or players ask for the old one and are refused.
+    else if (e.type === 'maps') void view.reload().then(() => setMapVersion((v) => v + 1));
+    if (e.type === 'map') setMapVersion((v) => v + 1);
     if (e.type === 'encounter') setFightVersion((v) => v + 1);
   });
   const [fightVersion, setFightVersion] = useState(0);

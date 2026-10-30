@@ -20,8 +20,9 @@
 |---|---|
 | `packs/` | 內建規則包。`simple-d20` 是最精簡的 d20 規則，也是寫規則包的範本；`srd-5e` 是 D&D 5E 基本規則（SRD 5.2，CC-BY-4.0），附角色建立器 |
 | `src/pack/` | 規則包：算式與骰子語言（`expr.ts`）、格式驗證與角色卡計算（`pack.ts`）、zip 讀取（`zip.ts`） |
-| `src/table/` | 房間：成員與 GM、只增不改的聊天與擲骰紀錄、角色卡（`store.ts`）；地圖、代幣與迷霧（`maps.ts`）；戰鬥的儲存與倒數（`encounters.ts`） |
-| `src/encounter/` | 互動戰鬥引擎：回合、攻擊與豁免流程、閃避模擬（`dodge.ts`，瀏覽器和伺服器共用）、模型 B 局勢 |
+| `src/table/` | 房間：成員與 GM、只增不改的聊天與擲骰紀錄、角色卡（`store.ts`）；地圖、代幣與迷霧（`maps.ts`）；地圖範本（`templates.ts`）；場地動作（`field.ts`、`fieldRules.ts`）；戰鬥的儲存與倒數（`encounters.ts`） |
+| `src/encounter/` | 互動戰鬥引擎：回合、攻擊與豁免流程、陣營與勝負（`teams.ts`）、武器操作（`weapons.ts`）、閃避模擬（`dodge.ts`，瀏覽器和伺服器共用）、模型 B 局勢 |
+| `src/dice/` | 實體骰子物理（`physics.ts`，瀏覽器和伺服器共用；哪一面朝上就是結果） |
 | `src/server/` | 遊戲伺服器：HTTP API、帳號密碼登入、WebSocket 即時通知（見 `docs/server.md`） |
 | `src/persistence/` | PostgreSQL 連線（正式用 Supabase，本機與測試用 PGlite） |
 | `client/` | 網頁版（React） |

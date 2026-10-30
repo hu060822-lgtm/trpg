@@ -5,6 +5,7 @@ import type { Rng } from '../rules/dice';
 import type { EncounterStore } from '../table/encounters';
 import type { FieldStore } from '../table/field';
 import { MAP_LIMITS, type MapStore } from '../table/maps';
+import { templateList } from '../table/templates';
 import { TableError, type RollRequest, type TableStore } from '../table/store';
 import type { Principal } from './auth';
 import type { RoomHub } from './realtime';
@@ -85,6 +86,7 @@ export function tableRoutes({ table, maps, encounters, field, hub, rng, now }: {
   // ---------- maps ----------
   const mapId = (req: Request) => String(req.params.mid);
   const changed = (req: Request, id: string) => hub.publish(room(req), { type: 'map', mapId: id });
+  r.get('/map-templates', (_req, res) => { res.json(templateList()); });
   r.get('/rooms/:id/maps', async (req: Req, res) => { res.json(await maps.list(room(req), who(req).userId)); });
   r.post('/rooms/:id/maps', async (req: Req, res) => {
     const m = await maps.create(room(req), who(req).userId, req.body ?? {}, now());

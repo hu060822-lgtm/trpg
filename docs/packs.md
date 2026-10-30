@@ -77,7 +77,7 @@ id 一律用小寫英文字母開頭，只含小寫英數字與底線，最多 3
 | 欄位 | 內容 |
 |---|---|
 | `rules` | `distance`（斜走怎麼算：`chebyshev` 一律 5 呎，或 `alternate` 5／10 呎交替）、`tiers`（模型 B 的局勢：`id`、`label`、`min` 差距下限、`duration` 毫秒、`density`、`speed`、`arena` 倍率，由有利排到不利）、`factors`（被打中 0、1、2、3、4 次以上的傷害倍率）、`bonus`（`[品質門檻, 加值]`，例如 `[[0.9, 2], [0.6, 1]]`）、`shortDodgeMs`（一般敵人閃避最長幾毫秒） |
-| `weapons` | `id`、`label`、`ability`（`str`、`dex` 或 `finesse`）、`damage`（算式）、`damageType`、`interaction`（`slash`、`thrust`、`sweep`、`draw`、`rune`、`none`），選填 `range`、`long`、`reach` |
+| `weapons` | `id`、`label`、`ability`（`str`、`dex` 或 `finesse`）、`damage`（算式）、`damageType`、`interaction`（`slash` 斬擊、`thrust` 突刺、`sweep` 橫掃、`smash` 重擊、`lash` 鞭甩、`draw` 拉弓、`aim` 瞄準、`throw` 投擲、`rune` 魔法陣、`none` 不用操作），選填 `range`、`long`、`reach` |
 | `spells` | 戲法：`id`、`label`、`level`（目前只用 0）、`attack: true` 或 `save: { attr, half }`、`damage`（可以用 `@level`）、`damageType`、`range`，選填 `area: { kind, size }`、`description` |
 | `monsters` | `id`、`name`、`size`（格數）、`ac`、`hp`、`speed`、`dex`、`tier`（`minion`、`elite`、`boss`）、`attacks`（`id`、`label`、`bonus` 或 `save: { attr, dc, half }`、`damage`、`damageType`，選填 `reach`、`range`、`area`、`pattern`），選填 `multiattack`、`saves`、`patterns`、`phases`（`below` 生命百分比、換的 `patterns`、`say` 台詞） |
 | `patterns` | 閃避彈幕：`id`、`name`、`emitters`。每個發射器有 `at`（第幾毫秒開始）、`kind`（`fan`、`ring`、`aimed`、`rain`、`laser`、`spiral`、`wall`）、`count`、`speed`，選填 `repeat`、`every`、`size`、`spread` 等 |

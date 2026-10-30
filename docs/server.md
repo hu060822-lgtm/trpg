@@ -60,7 +60,8 @@ npm run admin                    # 管理指令：規則包、發 token
 | POST | `/api/rooms/:id/characters` | 建立角色（`{ name, data: { scores, ranks, inputs, method?, choices?, picks? } }`；`choices` 是每一步選的選項，`picks` 的 key 是 `步驟.細項`；`texts` 是規則包文字欄位寫的內容）。回傳的角色卡另外有 `features`（到目前等級為止的特性）和 `hiddenActions` |
 | PATCH | `/api/rooms/:id/characters/:cid` | 修改角色（`{ version, name?, data? }`） |
 | GET | `/api/rooms/:id/maps` | 地圖列表和玩家目前看到的地圖（玩家只拿到打開的那張） |
-| POST | `/api/rooms/:id/maps` | 限 GM：新地圖（`{ name, cols, rows }`，最多 100×100 格）；房間的第一張地圖會自動打開 |
+| GET | `/api/map-templates` | 地圖範本列表（`id`、`name`、`blurb`、`group`、`cols`、`rows`），目前 24 種 |
+| POST | `/api/rooms/:id/maps` | 限 GM：新地圖（`{ name, cols, rows }`，最多 100×100 格），或從範本建立（`{ template, seed?, name? }`，格數照範本；同一個 `seed` 擺出一樣的地圖，不給就每次不同；範本裡的陷阱預設對玩家隱藏）；房間的第一張地圖會自動打開 |
 | GET | `/api/rooms/:id/maps/:mid` | 地圖、迷霧、代幣和場景物件。玩家拿不到隱藏代幣和站在迷霧裡的代幣（自己的除外） |
 | PATCH | `/api/rooms/:id/maps/:mid` | 限 GM：名稱、格數、每格距離與單位、格線、迷霧開關。改格數時重疊部分的迷霧保留 |
 | DELETE | `/api/rooms/:id/maps/:mid` | 限 GM：刪除地圖與上面的代幣 |
@@ -70,11 +71,13 @@ npm run admin                    # 管理指令：規則包、發 token
 | POST | `/api/rooms/:id/maps/:mid/tokens` | 放代幣。GM 可以放任何代幣（可隱藏）；玩家只能放自己的角色，每張地圖一次 |
 | PATCH | `/api/rooms/:id/tokens/:tid` | 移動或修改代幣。擁有者可以移動、改名、改顏色；只有 GM 能改大小和隱藏 |
 | DELETE | `/api/rooms/:id/tokens/:tid` | 擁有者或 GM 移除代幣 |
-| POST | `/api/rooms/:id/maps/:mid/objects` | 限 GM：放場景物件（`{ kind, x, y, w?, h?, rotation?, name?, hidden? }`）。`kind` 是 `wall`、`door`、`window`、`pillar`、`stairs`、`rubble`、`table`、`chair`、`bed`、`chest`、`barrel`、`crate`、`bookshelf`、`altar`、`statue`、`tree`、`bush`、`rock`、`water`、`fire`、`trap`、`label` 之一；一張地圖最多 500 個。玩家拿不到隱藏的物件，和整個都在迷霧裡的物件 |
+| POST | `/api/rooms/:id/maps/:mid/objects` | 限 GM：放場景物件（`{ kind, x, y, w?, h?, rotation?, name?, hidden?, open?, height?, props? }`）。`kind` 共 53 種，清單在 `src/table/types.ts` 的 `MAP_OBJECT_KINDS`。`props` 是互動設定：`dc`（1–40）、`locked`、`armed`、`damage`（骰子算式）、`difficult`、`note`（只有 GM 拿得到）；欄位設成 `null` 就回到預設。一張地圖最多 500 個。玩家拿不到隱藏的物件、整個都在迷霧裡的物件、備註，以及還沒解除的陷阱的 DC 和傷害 |
 | DELETE | `/api/rooms/:id` | 限 GM：刪除整個房間（`{ confirm: 房間名稱 }`，名稱要完全一樣）。成員、角色卡、紀錄、地圖、代幣圖片、戰鬥全部刪除，救不回來 |
 | PUT / DELETE | `/api/rooms/:id/tokens/:tid/image` | 代幣圖片：代幣的主人或 GM 上傳（PNG、JPEG、WebP、GIF，512 KB 以內；網頁版會先裁成 256×256）或拿掉。代幣的 `imageVersion` 每換一次加一，0 是沒有圖片 |
 | GET | `/api/rooms/:id/tokens/:tid/image` | 看得到這個代幣的人才拿得到圖片（隱藏或在迷霧裡的代幣，玩家拿不到） |
-| PATCH / DELETE | `/api/rooms/:id/objects/:oid` | 限 GM：移動、改大小、旋轉（0／90／180／270）、改名、隱藏，或移除物件 |
+| PATCH / DELETE | `/api/rooms/:id/objects/:oid` | 限 GM：移動、改大小、旋轉（0／90／180／270）、改名、隱藏、開關、高度、互動設定，或移除物件 |
+| POST | `/api/rooms/:id/field` | 場地動作第一步（`{ objectId, tokenId, action, launch? }`，`action` 是 `climb`、`break`、`pick`、`disarm`、`jump`、`swim`、`pull`）：代幣要在物件旁邊一格內、是自己的代幣（GM 可以替任何代幣做）；伺服器用 `launch` 實體擲 d20，回傳點數和接下來要做的操作，骰出 1、20 或不用擲的動作直接回傳結果。戰鬥中只能在自己的回合，會用掉動作 |
+| POST | `/api/rooms/:id/field/:fid/finish` | 場地動作第二步：送出操作紀錄，伺服器評分、加上操作加值、比 DC，改變地圖（裂牆變瓦礫、門打開、代幣爬上去…），結果寫進紀錄 |
 | GET | `/api/rooms/:id/encounter` | 目前的戰鬥（玩家看不到隱藏的生物和敵人的確切生命）、戰鬥紀錄和帶到下一場的生命值 |
 | POST | `/api/rooms/:id/encounter` | 限 GM：開始戰鬥（`{ entries?, template?: { id, x, y }, mode?, autoNpc?, showFoeHp? }`）。一個房間同時只有一場 |
 | POST | `/api/rooms/:id/encounter/command` | 戰鬥指令（`{ requestId, type, … }`）：擲骰、操作結果、閃避的方向紀錄、攻擊、移動、結束回合，以及 GM 的調整。同一個 `requestId` 重送只算一次 |

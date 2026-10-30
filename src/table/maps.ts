@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import type { Database } from '../persistence/db';
 import { TableError, type TableStore } from './store';
 import { evaluate } from '../pack/expr';
+import { buildTemplate, templateById } from './templates';
 import { MAP_OBJECT_KINDS, type MapInfo, type MapObject, type MapObjectKind, type MapSummary, type MapView, type ObjectProps, type Token } from './types';
 
 /**
@@ -99,6 +100,8 @@ const tokenOf = (r: TokenRow): Token => ({
 });
 
 export interface MapSettings { name?: string; cols?: number; rows?: number; cellDistance?: number; unit?: string; showGrid?: boolean; fogEnabled?: boolean }
+/** Creating a map can start from a template (see src/table/templates.ts); the seed picks one variation of it. */
+export interface NewMap extends MapSettings { template?: string; seed?: number }
 export interface ObjectInput { kind?: string; name?: string; x?: number; y?: number; w?: number; h?: number; rotation?: number; hidden?: boolean; open?: boolean; height?: number | null; props?: Partial<Record<keyof ObjectProps, unknown>> | null }
 export interface TokenInput { name?: string; color?: string; x?: number; y?: number; size?: number; characterId?: string | null; hidden?: boolean; elevation?: number }
 
@@ -119,16 +122,33 @@ export class MapStore {
     return { activeMapId: active, maps };
   }
 
-  async create(roomId: string, userId: string, input: MapSettings, now = new Date()): Promise<MapInfo> {
+  async create(roomId: string, userId: string, input: NewMap, now = new Date()): Promise<MapInfo> {
     await this.table.requireRole(roomId, userId, 'gm');
-    const cols = side(input.cols ?? 20, '寬度'), rows = side(input.rows ?? 15, '高度');
+    const { template: templateId, seed, ...settings } = input;
+    const template = templateId !== undefined && templateId !== null ? templateById(String(templateId)) : undefined;
+    if (templateId && !template) throw new TableError(400, 'bad-request', '沒有這個地圖範本');
+    const built = template ? buildTemplate(template, Number.isInteger(seed) ? Number(seed) : randomInt(2 ** 31)) : null;
+    const cols = side(built?.cols ?? settings.cols ?? 20, '寬度'), rows = side(built?.rows ?? settings.rows ?? 15, '高度');
     const id = randomUUID();
     await this.db.tx(async () => {
       await this.db.run(`INSERT INTO room_maps (id, room_id, name, cols, rows, fog, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [id, roomId, words(input.name ?? '新地圖', 40, '地圖名稱'), cols, rows, '1'.repeat(cols * rows), now.toISOString()]);
+        [id, roomId, words(settings.name ?? template?.name ?? '新地圖', 40, '地圖名稱'), cols, rows, '1'.repeat(cols * rows), now.toISOString()]);
       if (!(await this.activeId(roomId))) await this.db.run('UPDATE rooms SET active_map_id = $2 WHERE id = $1', [roomId, id]);
+      if (built) {
+        const row = await this.row(roomId, id);
+        // A few milliseconds apart, so the objects keep the template's drawing order (ground first, then things on it).
+        // One insert for the lot; a few milliseconds apart so the template's drawing order (ground first) survives.
+        const values: unknown[] = [], rowsSql: string[] = [];
+        built.objects.slice(0, MAP_LIMITS.objects).forEach((input, i) => {
+          const o = placeObject(row, { id: randomUUID(), mapId: id, kind: input.kind, name: '', x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, open: false, height: null, props: {} }, input);
+          const b = values.length;
+          rowsSql.push(`(${Array.from({ length: 14 }, (_, k) => `$${b + k + 1}`).join(', ')})`);
+          values.push(o.id, id, o.kind, o.name, o.x, o.y, o.w, o.h, o.rotation, o.hidden, new Date(now.getTime() + i).toISOString(), o.open, o.height, JSON.stringify(o.props));
+        });
+        if (rowsSql.length) await this.db.run(`INSERT INTO map_objects (id, map_id, kind, name, x, y, w, h, rotation, hidden, created_at, open, height, props) VALUES ${rowsSql.join(', ')}`, values);
+      }
     });
-    if (Object.keys(input).some((k) => !['name', 'cols', 'rows'].includes(k))) return this.update(roomId, userId, id, input);
+    if (Object.keys(settings).some((k) => !['name', 'cols', 'rows'].includes(k))) return this.update(roomId, userId, id, settings);
     return (await this.view(roomId, userId, id)).map;
   }
 

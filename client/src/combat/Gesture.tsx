@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { bowState, challengeFor, GESTURE_LIMIT_MS, GESTURE_TEXT, ringPoints, scoreGesture, sightAt, sweepPoints, throwLanding, type Challenge, type GestureKind, type Point } from '../../../src/encounter/weapons';
+import { bowState, challengeFor, GESTURE_LIMIT_MS, GESTURE_TEXT, ringPoints, scoreGesture, pickSpot, sightAt, sweepPoints, throwLanding, type Challenge, type GestureKind, type Point } from '../../../src/encounter/weapons';
 import type { GestureInput, InputSample } from '../../../src/encounter/types';
 
 /**
@@ -241,6 +241,48 @@ function paint(g: CanvasRenderingContext2D, c: Challenge, px: number, samples: I
         const land = throwLanding(c, cur);
         if (land) { path([c.hand, land], k.soft, 3, [14, 14]); ring(land, 24, k.ink, 5); }
       }
+      break;
+    }
+    case 'climb': {
+      // Handholds up a rock face, numbered from the bottom.
+      path(c.points, k.soft, 20, [18, 22]);
+      c.points.forEach((p, i) => {
+        ring(p, 75, 'rgba(240,181,82,0.3)', 3);
+        dot(p, 34, i === 0 ? k.guide : '#8a7a62');
+        label(String(i + 1), p, '#0b0908', 30);
+      });
+      label('頂', { x: c.points.at(-1)!.x, y: c.points.at(-1)!.y - 100 }, k.guide, 28);
+      all.forEach((st) => trail(st));
+      break;
+    }
+    case 'pick': {
+      // The lock: a keyhole with the sweet spot drifting inside it; a ring fills while the pick is held in it.
+      ring(c.centre, 230, '#8a7a62', 10);
+      ring(c.centre, 200, 'rgba(242,234,216,0.15)', 3);
+      const held = pressed && cur.length ? Math.max(0, _t - cur[0].t) : 0;
+      const spot = pickSpot(c, held);
+      dot(spot, c.r, k.soft);
+      ring(spot, c.r, k.guide, 5);
+      dot(spot, 12, k.guide);
+      const tip = cur.at(-1);
+      const inside = !!(pressed && tip && (tip.x - spot.x) ** 2 + (tip.y - spot.y) ** 2 <= c.r * c.r);
+      if (held > 0) {
+        g.strokeStyle = inside ? k.ink : k.target; g.lineWidth = 14 * s; g.beginPath();
+        g.arc(c.centre.x * s, c.centre.y * s, 260 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, held / c.hold)); g.stroke();
+      }
+      if (tip && pressed) { path([{ x: tip.x, y: 1000 }, tip], k.core, 6); dot(tip, 10, inside ? k.ink : k.target); }
+      if (!pressed) label('按住亮圈，跟著它移動', { x: 500, y: 930 }, k.guide, 26);
+      else if (held >= c.hold) label('鎖開了，放開', { x: 500, y: 930 }, k.ink, 30);
+      break;
+    }
+    case 'wire': {
+      // A thin tripwire between two pins; the stroke must stay on it.
+      path(c.points, 'rgba(212,80,94,0.18)', 64);
+      path(c.points, k.target, 4);
+      dot(c.points[0], 22, k.guide);
+      dot(c.points.at(-1)!, 22, k.target);
+      label('起', { x: c.points[0].x, y: c.points[0].y - 50 }, k.guide, 26);
+      all.forEach((st) => trail(st));
       break;
     }
     case 'rune': {

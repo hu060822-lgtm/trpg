@@ -28,6 +28,7 @@ export class ApiError extends Error {
 }
 
 /** Every call carries the signed-in player's token; the server decides what they may see and do. */
+export interface MapTemplateInfo { id: string; name: string; blurb: string; group: string; cols: number; rows: number }
 export type MapSettings = Partial<Pick<MapInfo, 'name' | 'cols' | 'rows' | 'cellDistance' | 'unit' | 'showGrid' | 'fogEnabled'>>;
 export type ObjectInput = Partial<Pick<MapObject, 'kind' | 'name' | 'x' | 'y' | 'w' | 'h' | 'rotation' | 'hidden' | 'open'>> & { height?: number | null; props?: { [K in keyof ObjectProps]?: ObjectProps[K] | null } | null };
 export type { FieldResult, FieldStart } from '../../src/table/fieldRules';
@@ -85,7 +86,8 @@ export class Api {
   }
 
   maps(id: string) { return this.call<{ activeMapId: string | null; maps: MapSummary[] }>('GET', `/api/rooms/${id}/maps`); }
-  createMap(id: string, s: MapSettings) { return this.call<MapInfo>('POST', `/api/rooms/${id}/maps`, s); }
+  createMap(id: string, s: MapSettings & { template?: string; seed?: number }) { return this.call<MapInfo>('POST', `/api/rooms/${id}/maps`, s); }
+  mapTemplates() { return this.call<MapTemplateInfo[]>('GET', '/api/map-templates'); }
   map(id: string, mid: string) { return this.call<MapView>('GET', `/api/rooms/${id}/maps/${mid}`); }
   updateMap(id: string, mid: string, s: MapSettings) { return this.call<MapInfo>('PATCH', `/api/rooms/${id}/maps/${mid}`, s); }
   deleteMap(id: string, mid: string) { return this.call('DELETE', `/api/rooms/${id}/maps/${mid}`); }

@@ -422,6 +422,25 @@ describe('maps', () => {
     expect(log.some((e: any) => e.kind === 'roll' && e.body.label.includes('破壞'))).toBe(true);
   });
 
+  it('starts a map from one of the ready-made templates; the same seed lays out the same map, traps stay hidden', async () => {
+    const { room } = await mapTable();
+    const list = (await call(tok.p1, 'GET', '/api/map-templates')).body;
+    expect(list.length).toBeGreaterThanOrEqual(20);
+    expect(list.map((t: any) => t.id)).toEqual(expect.arrayContaining(['mine', 'town_square', 'grassland', 'goblin_lair']));
+    const made = await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps`, { template: 'goblin_lair', seed: 42 });
+    expect(made.status).toBe(201);
+    expect(made.body).toMatchObject({ name: '哥布林巢穴', cols: 26, rows: 20 });
+    const again = (await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps`, { template: 'goblin_lair', seed: 42, name: '第二個巢穴' })).body;
+    const shape = async (id: string) => (await call(tok.gm, 'GET', `/api/rooms/${room.id}/maps/${id}`)).body.objects.map((o: any) => [o.kind, o.x, o.y, o.w, o.h]);
+    const objects = await shape(made.body.id);
+    expect(objects.length).toBeGreaterThan(20);
+    expect(await shape(again.id)).toEqual(objects);
+    const view = (await call(tok.gm, 'GET', `/api/rooms/${room.id}/maps/${made.body.id}`)).body;
+    expect(view.objects.filter((o: any) => o.kind === 'trap').every((o: any) => o.hidden)).toBe(true);
+    expect(view.objects.find((o: any) => o.kind === 'cage').props.locked).toBe(true);
+    expect((await call(tok.gm, 'POST', `/api/rooms/${room.id}/maps`, { template: 'nope' })).status).toBe(400);
+  });
+
   it('keeps fog where a resized grid overlaps and clamps tokens back onto it', async () => {
     const { url } = await mapTable();
     await call(tok.gm, 'POST', `${url}/fog`, { cells: 'all', covered: false });

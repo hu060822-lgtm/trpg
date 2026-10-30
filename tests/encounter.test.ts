@@ -439,3 +439,25 @@ describe('physical dice in a fight', () => {
     expect(throwDie(20, faces[0].toss as never)).toBe(faces[0].value);
   });
 });
+
+describe('map templates', () => {
+  it('every template fits its grid, stays under the object limit and keeps doors out of walls, for many seeds', async () => {
+    const { MAP_TEMPLATES, buildTemplate } = await import('../src/table/templates');
+    const { MAP_LIMITS } = await import('../src/table/maps');
+    const { MAP_OBJECT_KINDS } = await import('../src/table/types');
+    expect(MAP_TEMPLATES.length).toBeGreaterThanOrEqual(20);
+    expect(new Set(MAP_TEMPLATES.map((t) => t.id)).size).toBe(MAP_TEMPLATES.length);
+    for (const t of MAP_TEMPLATES) for (const seed of [1, 2, 3, 99, 12345]) {
+      const b = buildTemplate(t, seed);
+      expect(b.objects.length, t.id).toBeLessThanOrEqual(MAP_LIMITS.objects);
+      for (const o of b.objects) {
+        expect(MAP_OBJECT_KINDS).toContain(o.kind);
+        expect(o.x >= 0 && o.y >= 0 && o.x + o.w <= b.cols && o.y + o.h <= b.rows, `${t.id} ${o.kind}`).toBe(true);
+      }
+      const walls = b.objects.filter((o) => o.kind === 'wall' || o.kind === 'fence');
+      for (const d of b.objects.filter((o) => o.kind === 'door' || o.kind === 'gate')) {
+        expect(walls.some((w) => d.x < w.x + w.w && w.x < d.x + d.w && d.y < w.y + w.h && w.y < d.y + d.h), `${t.id} door at ${d.x},${d.y}`).toBe(false);
+      }
+    }
+  });
+});

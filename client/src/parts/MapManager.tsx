@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Api, MapInfo, MapSummary } from '../api';
+import type { Api, MapInfo, MapSummary, MapTemplateInfo } from '../api';
 import { useAction } from '../hooks';
 import { Confirm, ErrorNote } from './ui';
 
@@ -27,22 +27,41 @@ export function MapManager({ api, roomId, map, activeMapId, onDone, compact }: {
   const [name, setName] = useState('');
   const [cols, setCols] = useState(20);
   const [rows, setRows] = useState(15);
+  const [templates, setTemplates] = useState<MapTemplateInfo[]>([]);
+  const [template, setTemplate] = useState('');
   const act = useAction();
   const [asking, setAsking] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  useEffect(() => { void api.mapTemplates().then(setTemplates).catch(() => {}); }, [api]);
+  const chosen = templates.find((t) => t.id === template);
+  const groups = [...new Set(templates.map((t) => t.group))];
   useEffect(() => { if (!compact) void api.maps(roomId).then((r) => setList(r.maps)).catch(() => {}); }, [api, roomId, compact, map?.version]);
 
   const create = (
     <form className="stack" onSubmit={(e) => {
       e.preventDefault();
-      void act.run(async () => { const m = await api.createMap(roomId, { name: name.trim() || '新地圖', cols, rows }); setName(''); onDone(m.id); });
+      void act.run(async () => {
+        const m = await api.createMap(roomId, chosen ? { name: name.trim() || chosen.name, template: chosen.id } : { name: name.trim() || '新地圖', cols, rows });
+        setName(''); onDone(m.id);
+      });
     }}>
-      <label>地圖名稱<input maxLength={40} value={name} onChange={(e) => setName(e.target.value)} placeholder="例如 廢棄礦坑" /></label>
-      <div className="row">
-        <label>寬（格）<input type="number" inputMode="numeric" min={1} max={100} value={cols} onChange={(e) => setCols(Number(e.target.value))} /></label>
-        <label>高（格）<input type="number" inputMode="numeric" min={1} max={100} value={rows} onChange={(e) => setRows(Number(e.target.value))} /></label>
-      </div>
-      <button className="primary" disabled={act.busy}>建立地圖</button>
+      {templates.length > 0 && (
+        <label>從範本開始
+          <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+            <option value="">空白地圖</option>
+            {groups.map((g) => <optgroup key={g} label={g}>{templates.filter((t) => t.group === g).map((t) => <option key={t.id} value={t.id}>{t.name}（{t.cols}×{t.rows}）</option>)}</optgroup>)}
+          </select>
+        </label>
+      )}
+      {chosen && <p className="small muted">{chosen.blurb}每次建立的擺設都會有點不同，建好之後每個物件都可以再移動、修改或刪除。陷阱預設對玩家隱藏。</p>}
+      <label>地圖名稱<input maxLength={40} value={name} onChange={(e) => setName(e.target.value)} placeholder={chosen?.name ?? '例如 廢棄礦坑'} /></label>
+      {!chosen && (
+        <div className="row">
+          <label>寬（格）<input type="number" inputMode="numeric" min={1} max={100} value={cols} onChange={(e) => setCols(Number(e.target.value))} /></label>
+          <label>高（格）<input type="number" inputMode="numeric" min={1} max={100} value={rows} onChange={(e) => setRows(Number(e.target.value))} /></label>
+        </div>
+      )}
+      <button className="primary" disabled={act.busy}>{chosen ? `用「${chosen.name}」建立地圖` : '建立地圖'}</button>
     </form>
   );
   if (compact || !map) return <>{create}<ErrorNote of={act} /></>;

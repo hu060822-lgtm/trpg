@@ -149,7 +149,7 @@ export class FieldStore {
     const success = a.dc === 0 || a.natural === 20 || (a.natural !== 1 && final >= a.dc);
     const name = o.name || KIND_NAME[o.kind] || '物件';
     const lines: string[] = [];
-    const roll = a.dc === 0 ? '' : `（${a.total}${a.bonus ? ` + 操作 ${a.bonus}` : ''} = ${final}，DC ${a.dc}）`;
+    const roll = a.dc === 0 ? '' : a.bonus ? `（${a.total} + 操作 ${a.bonus} = ${final}，DC ${a.dc}）` : `（${final}，DC ${a.dc}）`;
     const harm = (formula: string) => evaluate(formula, () => undefined, this.rng);
     await this.db.tx(async () => {
       const p = props(o);
