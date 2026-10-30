@@ -11,7 +11,7 @@ import type {
 type Bad = (file: string, path: string, message: string) => void;
 
 const ID = /^[a-z][a-z0-9_-]{0,47}$/;
-const INTERACTIONS: Interaction[] = ['slash', 'thrust', 'sweep', 'draw', 'rune', 'none'];
+const INTERACTIONS: Interaction[] = ['slash', 'thrust', 'sweep', 'smash', 'lash', 'draw', 'aim', 'throw', 'rune', 'none'];
 const TIERS: Tier[] = ['minion', 'elite', 'boss'];
 const EMITTERS: Emitter['kind'][] = ['fan', 'ring', 'aimed', 'rain', 'laser', 'spiral', 'wall'];
 const SIDES = ['top', 'bottom', 'left', 'right', 'center'];

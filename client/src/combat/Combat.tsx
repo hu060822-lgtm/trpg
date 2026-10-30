@@ -141,6 +141,8 @@ export function CombatDock({ combat, view, pack, data }: { combat: Combat; view:
   const instant = combat.prefs.skipAnimations || reducedMotion();
   // The step panels wait while the player's dice are still rolling.
   const rolling = !!(frozen ?? aim);
+  // While the player is drawing a weapon move or dodging, nothing covers the panel.
+  const busyHands = !!(running && enc.step && enc.step.awaiting.includes(view.me.userId) && ['attackInteract', 'dodge'].includes(enc.step.kind));
 
   return (
     <>
@@ -156,8 +158,8 @@ export function CombatDock({ combat, view, pack, data }: { combat: Combat; view:
       {running && <DiceStage combat={combat} aim={aim} frozen={frozen} setFrozen={setFrozen} own={own} />}
       {running && !rolling && <StepPanel combat={combat} enc={enc} view={view} pack={pack} />}
       {running && !rolling && <TurnPanel combat={combat} enc={enc} view={view} pack={pack} />}
-      {splash.splash && !rolling && <SplashCard splash={splash.splash} onDone={splash.clear} />}
-      {toasts.current && !rolling && <RollToastView toast={toasts.current} instant={instant} onDone={toasts.next} />}
+      {splash.splash && !rolling && !busyHands && <SplashCard splash={splash.splash} onDone={splash.clear} />}
+      {toasts.current && !rolling && !busyHands && <RollToastView toast={toasts.current} instant={instant} onDone={toasts.next} />}
       {feed && running && <EventFeed events={combat.events} gm={gm} onReplay={replay.open} onClose={() => setFeed(false)} />}
       {prefsOpen && <PrefsPanel combat={combat} onClose={() => setPrefsOpen(false)} />}
       {console && gm && enc && <GmConsole combat={combat} enc={enc} pack={pack} view={view} data={data} onClose={() => setConsole(false)} />}

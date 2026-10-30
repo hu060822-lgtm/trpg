@@ -74,7 +74,7 @@
       "ability": "str",
       "damage": "1",
       "damageType": "鈍擊",
-      "interaction": "slash"
+      "interaction": "thrust"
     },
     {
       "id": "club",
@@ -82,7 +82,7 @@
       "ability": "str",
       "damage": "1d4",
       "damageType": "鈍擊",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "dagger",
@@ -114,7 +114,7 @@
       "ability": "str",
       "damage": "1d6",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "throw",
       "range": [
         30,
         120
@@ -126,7 +126,7 @@
       "ability": "str",
       "damage": "1d6",
       "damageType": "鈍擊",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "quarterstaff",
@@ -150,7 +150,7 @@
       "ability": "dex",
       "damage": "1d8",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "aim",
       "range": [
         80,
         320
@@ -182,7 +182,7 @@
       "ability": "str",
       "damage": "1d8",
       "damageType": "鈍擊",
-      "interaction": "sweep"
+      "interaction": "lash"
     },
     {
       "id": "glaive",
@@ -241,7 +241,7 @@
       "ability": "str",
       "damage": "2d6",
       "damageType": "鈍擊",
-      "interaction": "sweep"
+      "interaction": "smash"
     },
     {
       "id": "morningstar",
@@ -249,7 +249,7 @@
       "ability": "str",
       "damage": "1d8",
       "damageType": "穿刺",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "pike",
@@ -298,7 +298,7 @@
       "ability": "str",
       "damage": "1d8",
       "damageType": "鈍擊",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "whip",
@@ -306,7 +306,7 @@
       "ability": "finesse",
       "damage": "1d4",
       "damageType": "揮砍",
-      "interaction": "slash",
+      "interaction": "lash",
       "reach": 10
     },
     {
@@ -315,7 +315,7 @@
       "ability": "dex",
       "damage": "1d6",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "aim",
       "range": [
         30,
         120
@@ -327,7 +327,7 @@
       "ability": "dex",
       "damage": "1d10",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "aim",
       "range": [
         100,
         400
@@ -359,7 +359,7 @@
       "ability": "str",
       "damage": "1d4",
       "damageType": "鈍擊",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "war_pick",
@@ -367,7 +367,7 @@
       "ability": "str",
       "damage": "1d8",
       "damageType": "穿刺",
-      "interaction": "slash"
+      "interaction": "smash"
     },
     {
       "id": "dart",
@@ -375,7 +375,7 @@
       "ability": "finesse",
       "damage": "1d4",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "throw",
       "range": [
         20,
         60
@@ -387,7 +387,7 @@
       "ability": "dex",
       "damage": "1d4",
       "damageType": "鈍擊",
-      "interaction": "draw",
+      "interaction": "throw",
       "range": [
         30,
         120
@@ -399,7 +399,7 @@
       "ability": "dex",
       "damage": "1",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "aim",
       "range": [
         25,
         100
@@ -427,7 +427,7 @@
       "ability": "str",
       "damage": "1d6",
       "damageType": "鈍擊",
-      "interaction": "thrust"
+      "interaction": "smash"
     },
     {
       "id": "kusarigama",
@@ -435,7 +435,7 @@
       "ability": "finesse",
       "damage": "1d4",
       "damageType": "揮砍",
-      "interaction": "sweep",
+      "interaction": "lash",
       "reach": 10
     },
     {
@@ -453,7 +453,7 @@
       "ability": "finesse",
       "damage": "1d4",
       "damageType": "穿刺",
-      "interaction": "draw",
+      "interaction": "throw",
       "range": [
         20,
         60
@@ -465,7 +465,7 @@
       "ability": "dex",
       "damage": "1d6",
       "damageType": "揮砍",
-      "interaction": "draw",
+      "interaction": "throw",
       "range": [
         30,
         120

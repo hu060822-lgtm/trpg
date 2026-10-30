@@ -466,7 +466,8 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
 .arena-canvas:active { cursor: grabbing; }
 .arena-canvas, .gesture-canvas { border-radius: 8px; touch-action: none; background: #0b0908; max-width: 100%; }
 .gesture-canvas { cursor: crosshair; }
-.gesture-how { margin: 0; font-size: var(--fs-2); }
+.gesture-how { margin: 0; font-size: var(--fs-2); max-width: 520px; }
+.gesture-foot { width: 100%; max-width: 520px; }
 .beat-bar { position: relative; width: min(420px, 100%); height: 56px; padding: 0; background: var(--felt); border-color: var(--felt-2); overflow: hidden; }
 .beat-mark { position: absolute; left: calc(50% - 20px); top: 0; bottom: 0; width: 40px; background: var(--amber-soft); border-left: 2px solid var(--amber); border-right: 2px solid var(--amber); }
 .beat-cursor { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--ivory); }

@@ -5,7 +5,7 @@ import { DodgeSim, FINE_ALPHABET, fineChar, runDodge, validMoves, pickPattern } 
 import { createEncounter, runClock, runCommand, runMove, viewFor, CombatError, type Ctx, type TokenInfo, type Outcome, type Command } from '../src/encounter/engine';
 import { areaCells, blockMap, canSee, feetBetween, walkCost, type Grid } from '../src/encounter/geometry';
 import { DEFAULT_RULES, scaledDamage, tierFor, factorFor, bonusFor, healthWords } from '../src/encounter/rules';
-import { challengeFor, scoreGesture, wellFormed } from '../src/encounter/weapons';
+import { challengeFor, scoreGesture, swayAt, wellFormed } from '../src/encounter/weapons';
 import { DEFAULT_PREFS, type DodgeSetup, type EncounterState } from '../src/encounter/types';
 import { iatan2, icos, isin, seeded } from '../src/encounter/rng';
 
@@ -129,6 +129,46 @@ describe('weapon gestures', () => {
     const samples = Array.from({ length: 11 }, (_, i) => ({ t: 100 + i * 40, x: Math.round(c.a.x + ((c.b.x - c.a.x) * i) / 10), y: Math.round(c.a.y + ((c.b.y - c.a.y) * i) / 10), d: 1 as const }));
     expect(scoreGesture(c, { kind: 'pointer', samples })).toBeGreaterThanOrEqual(0.9);
     expect(scoreGesture(c, { kind: 'pointer', samples: [{ t: 0, x: 0, y: 0, d: 1 }, { t: 50, x: 10, y: 990, d: 1 }] })).toBeLessThan(0.3);
+  });
+  const line = (pts: { x: number; y: number }[], t0: number, dt: number) => pts.map((p, i) => ({ t: t0 + i * dt, x: Math.round(p.x), y: Math.round(p.y), d: 1 as const }));
+  const lerp = (a: { x: number; y: number }, b: { x: number; y: number }, n: number) => Array.from({ length: n + 1 }, (_, i) => ({ x: a.x + ((b.x - a.x) * i) / n, y: a.y + ((b.y - a.y) * i) / n }));
+  it('every weapon kind: doing it right scores high, doing it wrong scores low', () => {
+    const good: Record<string, number> = {}, bad: Record<string, number> = {};
+    for (const seed of [3, 8, 21]) {
+      const th = challengeFor('thrust', seed)!; if (th.kind !== 'thrust') throw new Error();
+      good.thrust = scoreGesture(th, { kind: 'pointer', samples: line(lerp(th.from, th.to, 6), 0, 30) });
+      bad.thrust = scoreGesture(th, { kind: 'pointer', samples: line(lerp(th.to, th.from, 6), 0, 30) });
+      const sm = challengeFor('smash', seed)!; if (sm.kind !== 'smash') throw new Error();
+      good.smash = scoreGesture(sm, { kind: 'pointer', samples: [...line(lerp(sm.start, { x: sm.start.x, y: sm.raise - 20 }, 6), 0, 60), ...line(lerp({ x: sm.start.x, y: sm.raise - 20 }, sm.target, 4), 400, 40)] });
+      bad.smash = scoreGesture(sm, { kind: 'pointer', samples: line(lerp(sm.start, sm.target, 4), 0, 40) });
+      const la = challengeFor('lash', seed)!; if (la.kind !== 'lash') throw new Error();
+      good.lash = scoreGesture(la, { kind: 'pointer', samples: line(la.points, 0, 30) });
+      bad.lash = scoreGesture(la, { kind: 'pointer', samples: line(lerp({ x: 100, y: 950 }, { x: 900, y: 950 }, 10), 0, 60) });
+      const dr = challengeFor('draw', seed)!; if (dr.kind !== 'draw') throw new Error();
+      // Grab the string, pull straight away from the target to full draw, let go at once.
+      const away = { x: dr.bow.x - dr.target.x, y: dr.bow.y - dr.target.y }, n = Math.hypot(away.x, away.y);
+      const back = { x: dr.bow.x + (away.x / n) * (dr.full + 10), y: dr.bow.y + (away.y / n) * (dr.full + 10) };
+      good.draw = scoreGesture(dr, { kind: 'pointer', samples: line(lerp(dr.bow, back, 8), 0, 40) });
+      bad.draw = scoreGesture(dr, { kind: 'pointer', samples: line(lerp(dr.bow, { x: dr.bow.x + 40, y: dr.bow.y + 30 }, 3), 0, 40) });
+      const ai = challengeFor('aim', seed)!; if (ai.kind !== 'aim') throw new Error();
+      // A good shot leans against the sway at the moment of release.
+      const sway = swayAt(ai, 250);
+      const shift = { x: ai.target.x - ai.sight.x - sway.x, y: ai.target.y - ai.sight.y - sway.y };
+      good.aim = scoreGesture(ai, { kind: 'pointer', samples: line(lerp({ x: 500, y: 500 }, { x: 500 + shift.x, y: 500 + shift.y }, 5), 0, 50) });
+      bad.aim = scoreGesture(ai, { kind: 'pointer', samples: line([{ x: 500, y: 500 }], 0, 50) });
+      const tw = challengeFor('throw', seed)!; if (tw.kind !== 'throw') throw new Error();
+      good.throw = scoreGesture(tw, { kind: 'pointer', samples: line(lerp(tw.hand, { x: tw.hand.x + (tw.target.x - tw.hand.x) * 0.5, y: tw.hand.y + (tw.target.y - tw.hand.y) * 0.5 }, 5), 0, 25) });
+      bad.throw = scoreGesture(tw, { kind: 'pointer', samples: line(lerp(tw.hand, { x: tw.hand.x + 300, y: tw.hand.y }, 5), 0, 25) });
+      const ru = challengeFor('rune', seed, 5)!; if (ru.kind !== 'rune') throw new Error();
+      const circle = Array.from({ length: 41 }, (_, i) => ({ x: ru.centre.x + Math.cos((i / 40) * Math.PI * 2) * ru.r, y: ru.centre.y + Math.sin((i / 40) * Math.PI * 2) * ru.r }));
+      const sigil = ru.points.flatMap((p, i) => (i ? lerp(ru.points[i - 1], p, 6).slice(1) : [p]));
+      good.rune = scoreGesture(ru, { kind: 'pointer', samples: [...line(circle, 0, 30), { t: 1300, x: 0, y: 0, d: 0 as const }, ...line(sigil, 1400, 30)] });
+      bad.rune = scoreGesture(ru, { kind: 'pointer', samples: line([...ru.points].reverse(), 0, 200) });
+      for (const k of Object.keys(good)) {
+        expect(good[k], `${k} done right (seed ${seed})`).toBeGreaterThanOrEqual(0.85);
+        expect(bad[k], `${k} done wrong (seed ${seed})`).toBeLessThan(0.45);
+      }
+    }
   });
   it('the one-key form scores by timing', () => {
     const c = challengeFor('thrust', 4)!;

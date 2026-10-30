@@ -11,7 +11,7 @@ import type {
 import { CONDITION_LABEL, CONDITIONS, type DieFace, type SetupEntry } from './types';
 export type { SetupEntry } from './types';
 import { cleanTeam, hostileTo, teamOf, teamsIn } from './teams';
-import { challengeFor, scoreGesture } from './weapons';
+import { challengeFor, GESTURE_TEXT, scoreGesture } from './weapons';
 
 /**
  * The combat state machine. Pure: it takes the encounter, a context (the pack, the map, the sheets, a dice roller,
@@ -1272,7 +1272,7 @@ function keptD20(ev: Evaluation): number {
 }
 
 function attrName(pack: Pack, id: string) { return pack.attributes.find((a) => a.id === id)?.name ?? id; }
-function gestureName(i: Interaction) { return { slash: '斬擊', thrust: '突刺', sweep: '橫掃', draw: '拉弓', rune: '符文', none: '攻擊' }[i]; }
+function gestureName(i: Interaction) { return i === 'none' ? '攻擊' : GESTURE_TEXT[i].name; }
 
 export const STEP_NAME: Record<StepKind, string> = {
   initiative: '擲先攻', attackRoll: '攻擊擲骰', attackInteract: '武器操作', saveRoll: '豁免擲骰', dodge: '閃避', deathSave: '死亡豁免', npcPending: 'NPC 自動行動',

@@ -6,7 +6,7 @@
  * after its dice: the attack roll before the weapon gesture, the attack and damage rolls before the dodge.
  */
 
-export type Interaction = 'slash' | 'thrust' | 'sweep' | 'draw' | 'rune' | 'none';
+export type Interaction = 'slash' | 'thrust' | 'sweep' | 'smash' | 'lash' | 'draw' | 'aim' | 'throw' | 'rune' | 'none';
 export type Tier = 'minion' | 'elite' | 'boss';
 export type Side = 'party' | 'ally' | 'foe';
 export type Mode = 'full' | 'quick' | 'custom';
