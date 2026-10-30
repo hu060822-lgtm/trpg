@@ -313,7 +313,8 @@ export interface CombatPrefs {
 export const DEFAULT_PREFS: CombatPrefs = { interaction: 'full', skipAnimations: false, watchReplays: true, highContrast: false, oneKey: false };
 
 /** One die as it landed, so screens can show the same faces the server rolled. `kept` false: dropped (advantage). */
-export interface DieFace { sides: number; value: number; kept: boolean }
+/** One die of a roll. `toss` is the throw it came from, so a browser can replay it and see this face land on top. */
+export interface DieFace { sides: number; value: number; kept: boolean; toss?: { seed: number; lane: number; launch?: { hand: [number, number]; v: [number, number] } } }
 
 export interface EncounterEvent {
   seq: number;

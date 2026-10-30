@@ -8,6 +8,7 @@ import { DEFAULT_RULES, scaledDamage, tierFor, factorFor, bonusFor, healthWords 
 import { challengeFor, scoreGesture, swayAt, wellFormed } from '../src/encounter/weapons';
 import { DEFAULT_PREFS, type DodgeSetup, type EncounterState } from '../src/encounter/types';
 import { iatan2, icos, isin, seeded } from '../src/encounter/rng';
+import { throwDie } from '../src/dice/physics';
 
 const srd = readPackDir('packs/srd-5e');
 const combat = srd.combat!;
@@ -421,5 +422,20 @@ describe('fine dodge input', () => {
     expect(x0 - b.x).toBe(Math.trunc(a.reach / 2));
     expect(fineChar(0, 0, false)).toBe('.');
     expect(fineChar(1, 1, false)).toBe(FINE_ALPHABET[4]);
+  });
+});
+
+describe('physical dice in a fight', () => {
+  it('with the tray physics, every die is a real throw: replaying its toss lands on the number the server used', () => {
+    const ctx = table({ monsters: [{ id: 'goblin', x: 3, y: 5 }] });
+    let n = 0;
+    ctx.toss = (sides, launch, lane) => { const toss = { seed: 9000 + ++n * 31, lane, ...(launch ? { launch } : {}) }; return { value: throwDie(sides, toss), toss }; };
+    let o = createEncounter(ctx, 'r1', 'm1', entries(ctx));
+    o = run(o, ctx, P1, { type: 'release', stepId: o.state.step!.id, launch: { hand: [-3, 1], v: [14, -2] } });
+    const init = o.events.find((e) => e.kind === 'initiative' && (e.data as { combatantId: string }).combatantId === heroId(o.state))!;
+    const faces = (init.data as { dice: { sides: number; value: number; toss?: { seed: number; lane: number; launch?: unknown } }[] }).dice;
+    expect(faces).toHaveLength(1);
+    expect(faces[0].toss?.launch).toEqual({ hand: [-3, 1], v: [14, -2] });
+    expect(throwDie(20, faces[0].toss as never)).toBe(faces[0].value);
   });
 });

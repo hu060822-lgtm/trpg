@@ -1,24 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  body, corners, dot, launch, reading, restingOn, rotate, settleFlat, shapeOf, step, steer, tumble, STEP,
-  type Body, type Tray, type Vec,
-} from './dicePhysics';
+  body, corners, dot, HAND_Z, reading, restingOn, rotate, settle, settleFlat, shapeOf, step, tossBody, tumble, STEP, TRAY,
+  type Body, type Launch, type Vec,
+} from '../../../src/dice/physics';
+import type { DieFace } from '../../../src/encounter/types';
 
 /**
  * A little dice tray drawn in 3D on a canvas. In `throw` mode the player picks the dice up (press on the tray),
- * shakes them (move while pressing) and lets go to throw; the dice fly with the speed of the flick and bounce off
- * the walls. The server rolls at the moment of the throw, and the dice are steered to land on those faces before
- * they stop. In `auto` mode the dice are thrown by themselves onto values already rolled (someone else's roll).
+ * shakes them (move while pressing) and lets go to throw. The flick goes to the server, which throws the dice in the
+ * same physics and reads the faces that land on top; back come the throws, and the tray plays exactly those throws
+ * from the hand — so the face that comes up is the result, nothing is picked by the computer and relabelled. In
+ * `auto` mode the tray plays someone else's throws.
  */
 
 export type Tone = 'ivory' | 'garnet' | 'jade';
 export interface DiceTrayProps {
   dice: { sides: number }[];
   mode: 'throw' | 'auto';
-  /** auto: the faces to land on. */
-  values?: number[];
-  /** throw: sends the throw; resolves to the rolled faces (one per die) or null if it failed. */
-  onThrow?: () => Promise<number[] | null>;
+  /** auto: the dice thrown, each with its throw. */
+  faces?: DieFace[];
+  /** throw: sends the flick; resolves to the thrown dice (each with its throw) or null if it failed. */
+  onThrow?: (launch: Launch) => Promise<DieFace[] | null>;
   /** Called once the dice have stopped on their faces. */
   onSettled?: (values: number[]) => void;
   /** No tumbling: the dice just show their faces (reduced motion, or the player turned animations off). */
@@ -30,9 +32,7 @@ export interface DiceTrayProps {
   small?: boolean;
 }
 
-const TRAY: Tray = { w: 10, d: 6 };
 const WALL = 1.1;
-const HAND_Z = 3;
 const TONES: Record<Tone, { face: [number, number, number]; ink: string; edge: string }> = {
   ivory: { face: [242, 234, 216], ink: '#2a1d14', edge: 'rgba(60,40,25,0.55)' },
   garnet: { face: [196, 72, 86], ink: '#fff4f0', edge: 'rgba(60,10,20,0.6)' },
@@ -193,17 +193,26 @@ function restingRow(dice: { sides: number }[], seed: number): Body[] {
   });
 }
 
-type Phase = 'ready' | 'holding' | 'flying' | 'settling' | 'done';
+/** The dice of a roll at the moment they leave the hand. A die without a throw (a kind the tray cannot shape) just lies showing its number. */
+function thrown(faces: DieFace[]): Body[] {
+  return faces.map((f, i) => {
+    if (f.toss) return tossBody(f.sides, f.toss);
+    const b = body(f.sides, [2 + (i % 3) * 1.4, -1 + Math.floor(i / 3) * 1.4, 1]);
+    restingOn(b, f.value, i * 1.3);
+    return b;
+  });
+}
 
-export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone = 'ivory', kept, label, small }: DiceTrayProps) {
+type Phase = 'ready' | 'holding' | 'sending' | 'flying' | 'settling' | 'done';
+
+export function DiceTray({ dice, mode, faces, onThrow, onSettled, instant, tone = 'ivory', kept, label, small }: DiceTrayProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [phase, setPhase] = useState<Phase>(mode === 'auto' ? 'flying' : 'ready');
   const [result, setResult] = useState<number[] | null>(null);
   const state = useRef({
     bodies: [] as Body[],
+    faces: null as DieFace[] | null,
     phase: (mode === 'auto' ? 'flying' : 'ready') as Phase,
-    want: null as number[] | null,
-    steered: false,
     hand: [0, 0, HAND_Z] as Vec,
     trail: [] as { p: Vec; t: number }[],
     flat: 0,
@@ -212,37 +221,38 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
   const settledRef = useRef(onSettled);
   settledRef.current = onSettled;
   const key = dice.map((d) => d.sides).join(',');
+  const faceKey = (faces ?? []).map((f) => `${f.sides}:${f.value}:${f.toss?.seed ?? ''}`).join(',');
 
   const go = (p: Phase) => { state.current.phase = p; setPhase(p); };
 
-  // Set the dice up: resting in a row for a throw, or already in the air for someone else's roll.
+  /** Plays these throws from the hand (or, with animations off, lands them at once). */
+  const play = (fs: DieFace[]) => {
+    const s = state.current;
+    s.faces = fs;
+    s.bodies = thrown(fs);
+    s.flat = 0;
+    if (instant) { s.bodies.forEach(settle); finish(); return; }
+    go('flying');
+  };
+
+  // Set the dice up: resting in a row for a throw, or someone else's throw already in the air.
   useEffect(() => {
     const s = state.current;
-    const seed = (values ?? []).reduce((a, v, i) => a + v * (i + 3), 7);
-    s.bodies = restingRow(dice, seed);
-    s.want = null; s.steered = false; s.flat = 0; s.failed = false;
+    s.bodies = restingRow(dice, dice.length * 7 + 3);
+    s.faces = null; s.flat = 0; s.failed = false;
     setResult(null);
-    if (mode === 'auto' && values) {
-      if (instant) {
-        s.bodies.forEach((b, i) => restingOn(b, values[i], seed + i));
-        finish(values);
-        return;
-      }
-      s.bodies.forEach((b, i) => {
-        b.p = [-3.8 + (i % 3) * 0.5, -1.5 + (i % 4) * 0.9, 2.4 + (i % 2) * 0.6];
-        b.q = tumble(seed + i * 13);
-        launch(b, [11 + ((seed + i * 5) % 5), 1.5 - ((seed * (i + 1)) % 4), 2], [((seed + i) % 9) - 4, 8, ((seed * 3 + i) % 7) - 3]);
-      });
-      s.want = values;
-      steer(s.bodies, TRAY, values);
-      s.steered = true;
-      go('flying');
-    } else go('ready');
+    if (mode === 'auto' && faces) play(faces);
+    else go('ready');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode, (values ?? []).join(',')]);
+  }, [key, mode, faceKey]);
 
-  function finish(v: number[]) {
-    state.current.phase = 'done';
+  function finish() {
+    const s = state.current;
+    // The number is the face on top: the server read the very same face from the very same throw. (Should some
+    // browser ever compute a hair differently and land elsewhere, the die is laid on the server's face, not relabelled.)
+    s.bodies.forEach((b, i) => { const f = s.faces?.[i]; if (f && reading(b) !== f.value) { const p = [...b.p] as Vec; restingOn(b, f.value, i); b.p[0] = p[0]; b.p[1] = p[1]; } });
+    const v = s.bodies.map((b, i) => s.faces?.[i]?.value ?? reading(b));
+    s.phase = 'done';
     setPhase('done');
     setResult(v);
     const cb = settledRef.current;
@@ -262,7 +272,7 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
       const cam = camera(w, h);
       acc += Math.min(0.1, (now - last) / 1000);
       last = now;
-      if (s.phase === 'holding') {
+      if (s.phase === 'holding' || s.phase === 'sending') {
         // In the hand: the dice gather under the pointer and rattle.
         shake += 1;
         s.bodies.forEach((b, i) => {
@@ -273,19 +283,10 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
         acc = 0;
       } else if (s.phase === 'flying' || s.phase === 'settling') {
         while (acc >= STEP) { step(s.bodies, TRAY); acc -= STEP; }
-        if (s.phase === 'flying' && s.bodies.every((b) => b.asleep)) {
-          if (s.want && s.steered) {
-            go('settling');
-          } else if (s.want && !s.steered) {
-            // The roll came back after the dice stopped: give them a small hop and land them on it.
-            s.bodies.forEach((b, i) => launch(b, [1.5 - i, 0.8, 6], [6, -4 + i, 3]));
-            steer(s.bodies, TRAY, s.want);
-            s.steered = true;
-          }
-        }
+        if (s.phase === 'flying' && s.bodies.every((b) => b.asleep)) go('settling');
         if (s.phase === 'settling') {
           s.bodies.forEach((b) => settleFlat(b, 0.35));
-          if (++s.flat > 10) finish(s.bodies.map(reading));
+          if (++s.flat > 10) finish();
         }
       } else acc = 0;
 
@@ -302,7 +303,7 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
       if (done) {
         for (const { b, i } of order) {
           const at = cam.project([b.p[0], b.p[1], b.p[2] + shapeOf(b.sides).radius + 0.5]);
-          const text = String(reading(b));
+          const text = String(result?.[i] ?? reading(b));
           const size = small ? 14 : 20;
           ctx.font = `600 ${size}px ${uiFont()}`;
           const w = ctx.measureText(text).width + size;
@@ -323,7 +324,7 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [tone, kept, small]);
+  }, [tone, kept, small, result]);
 
   // ---- the throw ----
   const toWorld = (e: React.PointerEvent | PointerEvent): Vec => {
@@ -344,24 +345,12 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
     const now = performance.now();
     const old = s.trail.find((x) => now - x.t < 120) ?? s.trail[0];
     const dt = Math.max(0.016, (now - old.t) / 1000);
-    let vx = (s.hand[0] - old.p[0]) / dt, vy = (s.hand[1] - old.p[1]) / dt;
-    let speed = Math.hypot(vx, vy);
-    if (speed < 3) {
-      // A tap or a still hand: toss toward the middle.
-      vx = -s.hand[0] * 2 + 7 * (s.hand[0] < 1 ? 1 : -1); vy = -s.hand[1] * 2 + 1.5;
-      speed = Math.hypot(vx, vy);
-    }
-    const k = Math.min(1, 22 / speed) * Math.max(1, 7 / speed);
-    vx *= k; vy *= k;
-    const seed = now % 1000;
-    s.bodies.forEach((b, i) => launch(b, [vx + (i - 0.5) * 1.2, vy + ((seed + i * 7) % 3) - 1, 2.5], [-vy * 0.9 + ((seed * (i + 2)) % 7) - 3, vx * 0.9 + ((seed + i) % 5) - 2, ((seed * 3) % 9) - 4]));
-    s.want = null; s.steered = false; s.flat = 0;
-    go('flying');
-    void onThrow?.().then((v) => {
-      if (!v) { s.failed = true; s.bodies = restingRow(dice, seed); go('ready'); return; }
-      s.want = v;
-      if (instant) { s.bodies.forEach((b, i) => restingOn(b, v[i], seed + i)); finish(v); return; }
-      if (!s.bodies.every((b) => b.asleep)) { steer(s.bodies, TRAY, v); s.steered = true; }
+    const launch: Launch = { hand: [s.hand[0], s.hand[1]], v: [(s.hand[0] - old.p[0]) / dt, (s.hand[1] - old.p[1]) / dt] };
+    // The dice stay in the hand until the server has thrown them; then they leave it on exactly that throw.
+    go('sending');
+    void onThrow?.(launch).then((fs) => {
+      if (!fs || fs.length === 0) { s.failed = true; s.bodies = restingRow(dice, 11); go('ready'); return; }
+      play(fs);
     });
   };
   const interactive = mode === 'throw' && (phase === 'ready' || phase === 'holding');
@@ -384,6 +373,7 @@ export function DiceTray({ dice, mode, values, onThrow, onSettled, instant, tone
         onKeyUp={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); const s = state.current; if (s.phase === 'holding') { s.trail = [{ p: [-4.5, -0.5, HAND_Z], t: performance.now() - 80 }]; release(); } } }} />
       {mode === 'throw' && phase === 'ready' && <p className="dice-hint">{state.current.failed ? '沒有送出，再丟一次' : '按住盤子、甩一下放開'}</p>}
       {mode === 'throw' && phase === 'holding' && <p className="dice-hint">放開就丟出</p>}
+      {mode === 'throw' && phase === 'sending' && <p className="dice-hint">出手…</p>}
     </div>
   );
 }

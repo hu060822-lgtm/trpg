@@ -203,16 +203,16 @@ export function DiceStage({ combat, aim, frozen, setFrozen, own }: { combat: Com
     <div className="dice-stage" role="dialog" aria-label={t.title}>
       <div className="dice-stage-head"><b>{t.title}</b>{t.hint && <span>{t.hint}</span>}</div>
       <DiceTray key={t.stepId} mode="throw" dice={Array.from({ length: t.count }, () => ({ sides: 20 }))} label={t.title} instant={instant} kept={kept}
-        onThrow={async () => {
+        onThrow={async (launch) => {
           setFrozen(t);
-          const events = await combat.send({ type: 'release', stepId: t.stepId });
+          const events = await combat.send({ type: 'release', stepId: t.stepId, launch });
           if (!events) { setFrozen(null); return null; }
           for (const e of events) own.current.add(e.seq);
           const faces = facesIn(events, ROLL_KINDS).filter((f) => f.sides === 20);
           setKept(faces.map((f) => f.kept));
           // Said only once the dice stop, so the tray keeps its moment.
           pending.current = outcomeOf(events);
-          return Array.from({ length: t.count }, (_, i) => faces[i]?.value ?? faces[0]?.value ?? 1);
+          return faces;
         }}
         onSettled={() => { setOutcome(pending.current); setTimeout(() => setFrozen(null), instant ? 1200 : 1500); }} />
       {outcome && <p className="dice-outcome">{outcome}</p>}
@@ -273,7 +273,7 @@ export function useRollToasts(combat: Combat, view: RoomView, own: React.Mutable
 export function RollToastView({ toast, instant, onDone }: { toast: RollToast; instant: boolean; onDone: () => void }) {
   return (
     <div className="roll-toast" role="status" aria-label={toast.caption}>
-      <DiceTray key={toast.key} small mode="auto" dice={toast.faces.map((f) => ({ sides: f.sides }))} values={toast.faces.map((f) => f.value)}
+      <DiceTray key={toast.key} small mode="auto" dice={toast.faces.map((f) => ({ sides: f.sides }))} faces={toast.faces}
         kept={toast.faces.map((f) => f.kept)} tone={toast.tone} instant={instant} label={toast.caption}
         onSettled={() => setTimeout(onDone, instant ? 1800 : 1200)} />
       <p>{toast.caption}{toast.more ? `（另外 ${toast.more} 顆）` : ''}</p>

@@ -1,8 +1,12 @@
+import { seeded } from '../encounter/rng';
+
 /**
- * Dice that tumble in a tray: polyhedra, a small rigid-body step and a way to make them land on the faces the
- * server rolled. The server always rolls; this only animates. The step is deterministic, so the client can run a
- * copy of the dice ahead to see which face each will land on, then swap that face's number with the rolled one
- * before anyone can read it.
+ * Dice that tumble in a tray: polyhedra and a small rigid-body step. A roll is a real throw: the server sets a die
+ * off (from the player's flick, plus its own random spin), runs this step until the die rests, and the face on top
+ * is the result. The browser runs the very same step from the same start and sees the same face come up.
+ *
+ * That only works if both sides compute bit for bit the same, so the step uses nothing but + − × ÷ and square
+ * roots (exact in IEEE arithmetic on every engine): no sin, cos or hypot, whose last bits differ between browsers.
  *
  * Units: a die is about 1 across its corners; the tray floor is z = 0, x across and y away from the viewer.
  */
@@ -15,7 +19,7 @@ const sub = (a: Vec, b: Vec): Vec => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const mul = (a: Vec, k: number): Vec => [a[0] * k, a[1] * k, a[2] * k];
 export const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a: Vec, b: Vec): Vec => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const len = (a: Vec) => Math.hypot(a[0], a[1], a[2]);
+const len = (a: Vec) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
 const unit = (a: Vec): Vec => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 
 function qmul(a: Quat, b: Quat): Quat {
@@ -26,12 +30,13 @@ function qmul(a: Quat, b: Quat): Quat {
     a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
   ];
 }
-function qnorm(q: Quat): Quat { const l = Math.hypot(...q) || 1; return [q[0] / l, q[1] / l, q[2] / l, q[3] / l]; }
+function qnorm(q: Quat): Quat { const l = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]) || 1; return [q[0] / l, q[1] / l, q[2] / l, q[3] / l]; }
 export function rotate(q: Quat, v: Vec): Vec {
   const [w, x, y, z] = q;
   const tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
   return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
 }
+/** Only for drawing (never inside the step): sin and cos may differ in the last bit between engines. */
 function axisAngle(axis: Vec, angle: number): Quat { const a = unit(axis), s = Math.sin(angle / 2); return [Math.cos(angle / 2), a[0] * s, a[1] * s, a[2] * s]; }
 
 // ---------------- shapes ----------------
@@ -86,10 +91,11 @@ function points(sides: number): Vec[] {
     case 10: {
       // Pentagonal trapezohedron: two apexes and two staggered rings; the apex height keeps each kite flat.
       const out: Vec[] = [[0, 0, 0.9472135955], [0, 0, -0.9472135955]];
-      for (let k = 0; k < 5; k++) {
-        const a = (k * 72 * Math.PI) / 180, b = ((k * 72 + 36) * Math.PI) / 180;
-        out.push([Math.cos(a), Math.sin(a), 0.1], [Math.cos(b), Math.sin(b), -0.1]);
-      }
+      // cos and sin of multiples of 36°, in closed form so every engine gets the same bits.
+      const r5 = Math.sqrt(5);
+      const c36 = (1 + r5) / 4, s36 = Math.sqrt(10 - 2 * r5) / 4, c72 = (r5 - 1) / 4, s72 = Math.sqrt(10 + 2 * r5) / 4;
+      const ring: [number, number][] = [[1, 0], [c36, s36], [c72, s72], [-c72, s72], [-c36, s36], [-1, 0], [-c36, -s36], [-c72, -s72], [c72, -s72], [c36, -s36]];
+      for (let k = 0; k < 5; k++) out.push([...ring[2 * k], 0.1], [...ring[2 * k + 1], -0.1]);
       return out;
     }
     case 12: {
@@ -140,7 +146,7 @@ export function shapeOf(sides: number): Shape {
 export interface Tray { w: number; d: number }
 export interface Body {
   sides: number;
-  /** This die's own numbering (a copy of the shape's, so it can be swapped to land on the rolled face). */
+  /** This die's numbering (the shape's). */
   values: number[];
   cornerValues?: number[];
   p: Vec; q: Quat; v: Vec; w: Vec;
@@ -153,7 +159,7 @@ export interface Body {
 
 const G = 70;
 export const STEP = 1 / 240;
-const MAX_STEPS = 240 * 5;
+export const MAX_STEPS = 240 * 5;
 
 export function body(sides: number, p: Vec, q: Quat = [1, 0, 0, 0]): Body {
   const sh = shapeOf(sides);
@@ -185,7 +191,10 @@ function planesOf(t: Tray): { n: Vec; d: number; e: number }[] {
   ];
 }
 
-/** One fixed step for every die: gravity, the tray's floor and walls, a little friction, dice pushing each other. */
+/**
+ * One fixed step for every die: gravity, the tray's floor and walls, a little friction. Dice do not knock into each
+ * other: each one's throw is worked out on its own (so a roll of several dice is several independent throws).
+ */
 export function step(dice: Body[], t: Tray) {
   const planes = planesOf(t);
   for (const b of dice) {
@@ -194,8 +203,12 @@ export function step(dice: Body[], t: Tray) {
     const inv = 1 / (0.4 * sh.radius * sh.radius * 0.8);
     b.v[2] -= G * STEP;
     b.p = add(b.p, mul(b.v, STEP));
-    const wl = len(b.w);
-    if (wl > 1e-9) b.q = qnorm(qmul(axisAngle(b.w, wl * STEP), b.q));
+    // Turn by the spin: q += ½·dt·(ω ⊗ q), then renormalise. No trigonometry, so every engine agrees.
+    const [w0, w1, w2] = b.w;
+    if (w0 !== 0 || w1 !== 0 || w2 !== 0) {
+      const h = STEP / 2, dq = qmul([0, w0, w1, w2], b.q);
+      b.q = qnorm([b.q[0] + dq[0] * h, b.q[1] + dq[1] * h, b.q[2] + dq[2] * h, b.q[3] + dq[3] * h]);
+    }
     let touching = false;
     for (const pl of planes) {
       let deepest = 0;
@@ -234,25 +247,8 @@ export function step(dice: Body[], t: Tray) {
     const still = len(b.v) < 0.25 * loose && len(b.w) < 0.6 * loose;
     b.calm = touching && still ? b.calm + 1 : 0;
   }
-  // Dice bump each other as balls; good enough to keep them apart.
-  for (let i = 0; i < dice.length; i++) for (let j = i + 1; j < dice.length; j++) {
-    const a = dice[i], c = dice[j];
-    const r = (shapeOf(a.sides).radius + shapeOf(c.sides).radius) * 0.82;
-    const dv = sub(c.p, a.p);
-    const dist = len(dv);
-    if (dist >= r || dist < 1e-6) continue;
-    const n = mul(dv, 1 / dist);
-    const push = (r - dist) / 2;
-    a.p = sub(a.p, mul(n, push)); c.p = add(c.p, mul(n, push));
-    const rel = dot(sub(c.v, a.v), n);
-    if (rel < 0) {
-      const j2 = -(1 + 0.4) * rel / 2;
-      a.v = sub(a.v, mul(n, j2)); c.v = add(c.v, mul(n, j2));
-      // Only a real knock wakes a die; two dice leaning on each other may rest.
-      if (rel < -0.8) { a.asleep = false; c.asleep = false; a.calm = 0; c.calm = 0; }
-    }
-  }
-  for (const b of dice) if (!b.asleep && b.calm > 36) b.asleep = true;
+  // At rest, or out of time: either way the die is read as it lies.
+  for (const b of dice) if (!b.asleep && (b.calm > 36 || b.age >= MAX_STEPS)) b.asleep = true;
 }
 
 /** The face (index) pointing most nearly up; for a d4, the corner (index) that is highest. */
@@ -274,31 +270,6 @@ export function reading(b: Body): number {
   return b.sides === 4 ? b.cornerValues![i] : b.values[i];
 }
 
-/** Runs copies of the dice until they all rest (or time runs out) and returns where each one stops. */
-export function predict(dice: Body[], t: Tray): number[] {
-  const copy = dice.map(clone);
-  for (let i = 0; i < MAX_STEPS && copy.some((b) => !b.asleep); i++) step(copy, t);
-  return copy.map(upIndex);
-}
-
-/**
- * Renumbers each die so that it will land on `want` (one value per die; null leaves a die alone). Only two numbers
- * swap places on each die, and before it stops, so nobody sees a face change.
- */
-export function steer(dice: Body[], t: Tray, want: (number | null)[]) {
-  const ends = predict(dice, t);
-  dice.forEach((b, k) => {
-    const v = want[k];
-    if (v === null || v === undefined) return;
-    const labels = b.sides === 4 ? b.cornerValues! : b.values;
-    const target = Math.min(Math.max(1, Math.round(v)), b.sides === 4 ? 4 : labels.length);
-    const from = labels.indexOf(target);
-    const to = ends[k];
-    if (from < 0 || from === to) return;
-    [labels[from], labels[to]] = [labels[to], labels[from]];
-  });
-}
-
 /** Turns a resting die the last little bit so its top face lies flat (it can come to rest a hair off). */
 export function settleFlat(b: Body, k: number) {
   const sh = shapeOf(b.sides);
@@ -315,8 +286,15 @@ export function settleFlat(b: Body, k: number) {
 
 /** A random-looking orientation from a number, so each throw starts differently. */
 export function tumble(seed: number): Quat {
-  const r = (n: number) => { const x = Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453; return x - Math.floor(x); };
-  return qnorm([r(1) - 0.5, r(2) - 0.5, r(3) - 0.5, r(4) - 0.5]);
+  const r = seeded(Math.floor(seed * 1000) ^ 0x5bd1e995);
+  // Uniform over all orientations: a random point inside the 4-ball, pushed out to its surface.
+  const f = () => r.int(2_000_001) / 1_000_000 - 1;
+  for (let i = 0; i < 32; i++) {
+    const q: Quat = [f(), f(), f(), f()];
+    const n = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+    if (n > 0.01 && n <= 1) return qnorm(q);
+  }
+  return [1, 0, 0, 0];
 }
 
 /** An orientation that rests the die showing `value` on top, turned by `yaw` around the vertical. */
@@ -333,4 +311,66 @@ export function restingOn(b: Body, value: number, yaw: number) {
   b.p[2] = 0;
   b.p[2] = -Math.min(...corners(b).map((c) => c[2]));
   b.v = [0, 0, 0]; b.w = [0, 0, 0]; b.asleep = true;
+}
+
+// ---------------- throws ----------------
+
+/** The tray every throw happens in. */
+export const TRAY: Tray = { w: 10, d: 6 };
+export const HAND_Z = 3;
+
+/** How the player threw: where the hand was over the tray, and the flick's speed across it. */
+export interface Launch { hand: [number, number]; v: [number, number] }
+/** One die's throw, as the server made it and sends it on, so a browser can play the very same throw. */
+export interface Toss { seed: number; lane: number; launch?: Launch }
+
+/** Keeps a launch from the client inside the tray and at a sane speed. */
+export function cleanLaunch(raw: unknown): Launch | undefined {
+  const l = raw as Launch | undefined;
+  const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  if (!l || !Array.isArray(l.hand) || !Array.isArray(l.v) || !l.hand.every(num) || !l.v.every(num) || l.hand.length !== 2 || l.v.length !== 2) return undefined;
+  const hand: [number, number] = [Math.max(-TRAY.w / 2 + 1, Math.min(TRAY.w / 2 - 1, l.hand[0])), Math.max(-TRAY.d / 2 + 1, Math.min(TRAY.d / 2 - 1, l.hand[1]))];
+  let [vx, vy] = l.v;
+  const speed = Math.sqrt(vx * vx + vy * vy);
+  if (speed < 3) return { hand, v: [0, 0] };
+  const k = Math.min(1, 22 / speed) * Math.max(1, 7 / speed);
+  vx *= k; vy *= k;
+  // Rounded so the numbers sent back and forth are short and exact.
+  const r = (v: number) => Math.round(v * 1000) / 1000;
+  return { hand: [r(hand[0]), r(hand[1])], v: [r(vx), r(vy)] };
+}
+
+/**
+ * A die at the moment it leaves the hand. The flick (if any) sets where and how fast; the seed adds the spin, the
+ * tilt and a little wobble the player cannot control. `lane` spreads several dice apart.
+ */
+export function tossBody(sides: number, t: Toss): Body {
+  const r = seeded(t.seed);
+  const u = (lo: number, hi: number) => lo + (r.int(1_000_001) / 1_000_000) * (hi - lo);
+  const col = (t.lane % 3) - 1, row = Math.floor(t.lane / 3) % 3 - 1;
+  const l = t.launch;
+  const moving = l && (l.v[0] !== 0 || l.v[1] !== 0);
+  const hand: [number, number] = l ? l.hand : [-3.8, 0];
+  const p: Vec = [
+    Math.max(-TRAY.w / 2 + 1, Math.min(TRAY.w / 2 - 1, hand[0] + col * 1.3)),
+    Math.max(-TRAY.d / 2 + 1, Math.min(TRAY.d / 2 - 1, hand[1] + row * 1.3)),
+    HAND_Z - 0.3 + u(0, 0.6),
+  ];
+  const b = body(sides, p, tumble(t.seed / 977 + t.lane));
+  // Without a flick the die is tossed toward the far side of the tray from wherever the hand is.
+  const vx = moving ? l!.v[0] : (p[0] < 1 ? 1 : -1) * u(9, 14) - p[0] * 0.8;
+  const vy = moving ? l!.v[1] : -p[1] * 1.6 + u(-1.5, 1.5);
+  launch(b, [vx + u(-1.2, 1.2), vy + u(-1.2, 1.2), u(1.5, 3.5)], [-vy * 0.9 + u(-10, 10), vx * 0.9 + u(-10, 10), u(-8, 8)]);
+  return b;
+}
+
+/** Runs a body until it rests (or the time runs out). */
+export function settle(b: Body): Body {
+  while (!b.asleep) step([b], TRAY);
+  return b;
+}
+
+/** Throws one die and reads the face that comes up. */
+export function throwDie(sides: number, t: Toss): number {
+  return reading(settle(tossBody(sides, t)));
 }

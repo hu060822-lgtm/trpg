@@ -1,6 +1,7 @@
 import { evaluate, type Evaluation } from '../pack/expr';
 import { checkFormula, rollOnSheet, type Pack, type Sheet } from '../pack/pack';
 import type { Rng } from '../rules/dice';
+import { cleanLaunch, type Launch, type Toss } from '../dice/physics';
 import { pickPattern, runDodge, ticksFor, validMoves } from './dodge';
 import { areaCells, canSee, feetBetween, touches, walkCosts, type BlockMap, type Footprint, type Grid } from './geometry';
 import { bonusFor, factorFor, healthWords, scaledDamage, tierFor } from './rules';
@@ -36,6 +37,8 @@ export interface Ctx {
   /** Pack patterns and the room's own. */
   patterns: PatternDef[];
   rng: Rng;
+  /** Throws one physical die (see src/dice/physics); null for dice the tray has no shape for. Tests leave it out. */
+  toss?: (sides: number, launch: Launch | undefined, lane: number) => { value: number; toss: Toss } | null;
   now: Date;
   id: () => string;
   seed: () => number;
@@ -143,7 +146,7 @@ function facesOf(ev: Evaluation): DieFace[] {
 }
 
 export type Command =
-  | { type: 'release'; stepId: string }
+  | { type: 'release'; stepId: string; launch?: Launch }
   | { type: 'gesture'; stepId: string; input: GestureInput }
   | { type: 'begin'; stepId: string }
   | { type: 'dodge'; stepId: string; moves: string }
@@ -207,6 +210,11 @@ class Engine {
   private moves: Outcome['moves'] = [];
   private reveals: string[] = [];
   private vitals = new Map<string, number>();
+  /** The flick of the throw being released, if the player threw by hand; dice thrown this command use it. */
+  launch?: Launch;
+  private lane = 0;
+  private tossed: { sides: number; value: number; toss: Toss }[] = [];
+  private rollMark = 0;
 
   constructor(private s: EncounterState, private ctx: Ctx) {}
 
@@ -283,7 +291,7 @@ class Engine {
     const ev = this.rollFor(c, c.characterId ? '1d20 + @initiative' : `1d20 + ${c.dex}`);
     c.initiative = ev.total;
     if (this.s.step?.rolled) this.s.step.rolled[c.id] = ev.total;
-    this.say('initiative', `${c.name} 先攻 ${ev.total}（${ev.text}）`, { gmOnly: c.hidden, data: { combatantId: c.id, total: ev.total, text: ev.text, dice: facesOf(ev) } });
+    this.say('initiative', `${c.name} 先攻 ${ev.total}（${ev.text}）`, { gmOnly: c.hidden, data: { combatantId: c.id, total: ev.total, text: ev.text, dice: this.faces(ev) } });
   }
 
   private finishInitiative() {
@@ -352,7 +360,7 @@ class Engine {
     }
     if (this.s.status === 'paused') throw new CombatError(409, 'paused', 'GM 暫停了戰鬥，請稍等');
     switch (cmd.type) {
-      case 'release': return this.release(who, cmd.stepId);
+      case 'release': this.launch = cleanLaunch(cmd.launch); return this.release(who, cmd.stepId);
       case 'gesture': return this.gesture(who, cmd.stepId, cmd.input);
       case 'begin': return this.begin(who, cmd.stepId);
       case 'dodge': return this.dodge(who, cmd.stepId, cmd.moves);
@@ -597,7 +605,7 @@ class Engine {
     const ev = this.rollFor(a, `${die} + ${spec.attack}`);
     const nat = keptD20(ev);
     flow.roll = { total: ev.total, text: ev.text, natural: nat };
-    this.say('attackRoll', `${a.name} 的攻擊擲骰 ${ev.total}（${ev.text}）${nat === 20 ? '，大成功！' : nat === 1 ? '，大失敗' : ''}`, { data: { flowId: flow.id, combatantId: a.id, targets: flow.targets, total: ev.total, natural: nat, text: ev.text, dice: facesOf(ev) } });
+    this.say('attackRoll', `${a.name} 的攻擊擲骰 ${ev.total}（${ev.text}）${nat === 20 ? '，大成功！' : nat === 1 ? '，大失敗' : ''}`, { data: { flowId: flow.id, combatantId: a.id, targets: flow.targets, total: ev.total, natural: nat, text: ev.text, dice: this.faces(ev) } });
     // Interaction after the dice: the gesture can add a little; a natural 1 or 20 is already settled.
     const gesture = flow.interaction !== 'none' && nat !== 1 && nat !== 20 && this.interactive(a, a);
     if (gesture) this.s.step = this.newStep('attackInteract', [a.controller], a.id);
@@ -648,7 +656,8 @@ class Engine {
       ev = this.rollFor(t, formula);
     } else {
       const bonus = t.custom?.saves?.[save.attr] ?? this.monster(t)?.saves?.[save.attr] ?? (save.attr === 'dex' ? t.dex : 0);
-      ev = evaluate(`1d20 + ${bonus}`, () => undefined, this.ctx.rng);
+      this.rollMark = this.tossed.length;
+      ev = evaluate(`1d20 + ${bonus}`, () => undefined, this.rng);
     }
     const success = ev.total >= save.dc;
     r.save = { total: ev.total, text: ev.text, success };
@@ -656,20 +665,22 @@ class Engine {
     r.tier = tierFor(this.ctx.combat.rules, r.margin).id;
     if (success) r.damage = { total: save.half ? Math.floor(r.damage!.total / 2) : 0, text: save.half ? `${r.damage!.text}，豁免成功減半` : '豁免成功，不受傷害', dice: r.damage!.dice };
     r.hit = r.damage!.total > 0;
-    this.say('save', `${t.hidden ? '目標' : t.name} 的豁免 ${ev.total}（${ev.text}）${success ? '成功' : '失敗'}`, { gmOnly: t.hidden, data: { combatantId: t.id, attackerId: a.id, total: ev.total, success, dice: facesOf(ev) } });
+    this.say('save', `${t.hidden ? '目標' : t.name} 的豁免 ${ev.total}（${ev.text}）${success ? '成功' : '失敗'}`, { gmOnly: t.hidden, data: { combatantId: t.id, attackerId: a.id, total: ev.total, success, dice: this.faces(ev) } });
   }
 
   private rollDamage(a: Combatant, formula: string, critical: boolean) {
     const ev = this.rollFor(a, formula);
     let total = ev.total, text = ev.text;
-    const dice = facesOf(ev);
+    const dice = this.faces(ev);
     if (critical) {
       // 5E criticals roll the damage dice twice.
       let extra = 0;
       const parts: string[] = [];
       for (const d of ev.dice) {
-        const again = d.rolls.map(() => this.ctx.rng(d.sides));
-        for (const v of again) dice.push({ sides: d.sides, value: v, kept: true });
+        const mark = this.tossed.length;
+        const again = d.rolls.map(() => this.rng(d.sides));
+        const log = this.tossed.slice(mark);
+        again.forEach((v, i) => dice.push({ sides: d.sides, value: v, kept: true, ...(log[i]?.value === v ? { toss: log[i].toss } : {}) }));
         extra += again.reduce((s, x) => s + x, 0);
         parts.push(`${d.rolls.length}d${d.sides}[${again.join(',')}]`);
       }
@@ -680,11 +691,40 @@ class Engine {
   }
 
   private rollFor(c: Combatant, formula: string): Evaluation {
+    this.rollMark = this.tossed.length;
     if (c.characterId) {
       const sheet = this.ctx.sheets.get(c.characterId);
-      if (sheet) return rollOnSheet(this.ctx.pack, sheet, formula, this.ctx.rng);
+      if (sheet) return rollOnSheet(this.ctx.pack, sheet, formula, this.rng);
     }
-    return evaluate(formula, () => undefined, this.ctx.rng);
+    return evaluate(formula, () => undefined, this.rng);
+  }
+
+  /**
+   * Dice come from real throws when the table has the physics (ctx.toss): each die is thrown in the tray, with the
+   * player's flick when they threw by hand, and the face that lands on top is the number. Otherwise ctx.rng.
+   */
+  private get rng(): Rng {
+    const toss = this.ctx.toss;
+    if (!toss) return this.ctx.rng;
+    return (sides) => {
+      const t = toss(sides, this.launch, this.lane);
+      if (!t) return this.ctx.rng(sides);
+      this.lane++;
+      this.tossed.push({ sides, value: t.value, toss: t.toss });
+      return t.value;
+    };
+  }
+
+  /** The faces of the latest roll, each with the throw it came from. */
+  private faces(ev: Evaluation): DieFace[] {
+    const out = facesOf(ev);
+    const log = this.tossed.slice(this.rollMark);
+    let j = 0;
+    for (const f of out) {
+      while (j < log.length && (log[j].sides !== f.sides || log[j].value !== f.value)) j++;
+      if (j < log.length) f.toss = log[j++].toss;
+    }
+    return out;
   }
 
   /** Walks an attack forward through everything automatic, stopping at the next step a person must take. */
@@ -805,7 +845,7 @@ class Engine {
     } else if (n === 1) { c.dying.failures += 2; text = `${c.name} 的死亡豁免擲出 1，算兩次失敗（${c.dying.failures}/3）`; }
     else if (n >= 10) { c.dying.successes++; text = `${c.name} 的死亡豁免 ${n}，成功（${c.dying.successes}/3）`; }
     else { c.dying.failures++; text = `${c.name} 的死亡豁免 ${n}，失敗（${c.dying.failures}/3）`; }
-    this.say('deathSave', text, { log: true, data: { combatantId: c.id, total: n, dice: facesOf(ev) } });
+    this.say('deathSave', text, { log: true, data: { combatantId: c.id, total: n, dice: this.faces(ev) } });
     if (c.dying && c.dying.failures >= 3) this.die(c, '死亡豁免失敗三次');
     else if (c.dying && c.dying.successes >= 3) { c.stable = true; c.dying = undefined; this.say('stable', `${c.name} 穩定下來了（仍然昏迷）`, { log: true }); }
     this.vital(c);

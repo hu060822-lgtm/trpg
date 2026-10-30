@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { body, launch, reading, restingOn, shapeOf, step, steer, tumble } from '../client/src/combat/dicePhysics';
-
-const TRAY = { w: 10, d: 6 };
+import { body, cleanLaunch, reading, restingOn, settle, shapeOf, throwDie, tossBody } from '../src/dice/physics';
 
 describe('dice tray physics', () => {
   it('builds every die with the right faces, opposite faces adding up as on real dice', () => {
@@ -17,20 +15,26 @@ describe('dice tray physics', () => {
     expect(shapeOf(4).faces).toHaveLength(4);
   });
 
-  it('thrown dice always stop, within a few seconds, on the faces the server rolled', () => {
+  it('a throw always comes to rest within a few seconds, and replaying it lands on the same face', () => {
     for (let k = 0; k < 120; k++) {
       const sides = [4, 6, 8, 10, 12, 20][k % 6];
-      const dice = [body(sides, [-3, 1, 2.5], tumble(k)), body(20, [-3, -1, 2.5], tumble(k + 500))];
-      launch(dice[0], [8 + (k % 7), -2 + (k % 5), 3], [(k % 11) - 5, 9, k % 3]);
-      launch(dice[1], [10, 1, 2], [3, -7, 4]);
-      for (let i = 0; i < 20; i++) step(dice, TRAY);
-      const want = [1 + (k % sides), 1 + ((k * 7) % 20)];
-      steer(dice, TRAY, want);
-      let n = 0;
-      while (dice.some((b) => !b.asleep) && n < 240 * 5) { step(dice, TRAY); n++; }
-      expect(dice.map(reading)).toEqual(want);
-      expect(n).toBeLessThan(240 * 4);
+      const toss = { seed: 1000 + k * 7919, lane: k % 5, ...(k % 2 ? { launch: cleanLaunch({ hand: [-2 + (k % 4), 1 - (k % 3)], v: [12 - (k % 9), (k % 7) - 3] })! } : {}) };
+      const value = throwDie(sides, toss);
+      const b = settle(tossBody(sides, toss));
+      expect(b.asleep).toBe(true);
+      expect(reading(b)).toBe(value);
+      expect(value).toBeGreaterThanOrEqual(1);
+      expect(value).toBeLessThanOrEqual(sides);
     }
+  });
+
+  it('the flick changes the throw, and a doctored flick is clamped to the tray', () => {
+    expect(cleanLaunch({ hand: [99, -99], v: [500, 0] })).toEqual({ hand: [4, -2], v: [22, 0] });
+    expect(cleanLaunch({ hand: [0, 0], v: [NaN, 1] })).toBeUndefined();
+    expect(cleanLaunch('nope')).toBeUndefined();
+    const faces = new Set<number>();
+    for (let k = 0; k < 40; k++) faces.add(throwDie(20, { seed: 5, lane: 0, launch: { hand: [-3, 0], v: [6 + k * 0.4, 0] } }));
+    expect(faces.size).toBeGreaterThan(5);
   });
 
   it('can lay a die down showing a given face', () => {

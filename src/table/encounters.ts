@@ -6,6 +6,7 @@ import {
 import { blockMap, type Grid } from '../encounter/geometry';
 import { BASIC_PATTERNS, DEFAULT_RULES } from '../encounter/rules';
 import { DEFAULT_PREFS, type StartInput, type CombatPrefs, type EncounterEvent, type EncounterState, type EncounterView, type PackCombat, type PatternDef } from '../encounter/types';
+import { throwDie } from '../dice/physics';
 import { emittersOf } from '../pack/combat';
 import type { Database } from '../persistence/db';
 import type { Rng } from '../rules/dice';
@@ -284,6 +285,11 @@ export class EncounterStore {
     const grid: Grid = { cols: map.cols, rows: map.rows, cellDistance: Number(map.cell_distance), rule: combat.rules.distance };
     return {
       pack, combat, patterns: [...combat.patterns, ...(await this.roomPatterns(roomId))], rng: this.rng, now,
+      toss: (sides, launch, lane) => {
+        if (![4, 6, 8, 10, 12, 20].includes(sides)) return null;
+        const toss = { seed: randomInt(1, 2 ** 31 - 1), lane, ...(launch ? { launch } : {}) };
+        return { value: throwDie(sides, toss), toss };
+      },
       id: () => randomUUID(), seed: () => randomInt(1, 2 ** 31 - 1), grid,
       blocks: blockMap(grid, objects.map((o) => ({ ...o, open: !!o.open }))),
       tokens: new Map(tokens.map((t): [string, TokenInfo] => [t.id, { id: t.id, name: t.name, x: t.x, y: t.y, size: t.size, elevation: t.elevation ?? 0, hidden: t.hidden, characterId: t.character_id, ownerUserId: t.owner_user_id }])),
