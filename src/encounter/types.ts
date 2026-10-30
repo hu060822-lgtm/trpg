@@ -144,6 +144,8 @@ export interface Combatant {
   tokenId: string;
   name: string;
   side: Side;
+  /** Faction for fights with more than two sides; anyone on another team is an enemy. Unset: goes by side. */
+  team?: string;
   /** A user id, or 'gm' for creatures the GMs run. */
   controller: string;
   characterId?: string;
@@ -276,6 +278,10 @@ export interface EncounterState {
   autoNpc: boolean;
   /** Players see exact enemy HP instead of words. */
   showFoeHp: boolean;
+  /** End the fight by itself once only one team is still standing (default on). */
+  autoEnd?: boolean;
+  /** How the fight ended, once it has. */
+  outcome?: { winner: string | null; at: number };
   seq: number;
   /** While paused: what it was doing and since when (deadlines move by the pause). */
   pausedFrom?: 'initiative' | 'active';
@@ -328,6 +334,7 @@ export interface DodgeInput { moves: string }
 export interface SetupEntry {
   tokenId: string;
   side?: Side;
+  team?: string;
   monsterId?: string;
   tier?: Tier;
   name?: string;
@@ -349,4 +356,5 @@ export interface StartInput {
   mode?: Mode;
   autoNpc?: boolean;
   showFoeHp?: boolean;
+  autoEnd?: boolean;
 }

@@ -4,10 +4,13 @@
  * floor (someone who does nothing), a random bot is a careless player, and the greedy bot only looks a few ticks
  * ahead. Real players will land somewhere between, so treat this as a sanity check, not a balance proof.
  *
+ * The table uses the fine input players now get (32 directions, faster knot); the bots still pick among eight
+ * directions, mapped onto it. A last section compares the old eight-direction input with the fine one.
+ *
  *   npx tsx scripts/dodge-sim.ts [seeds=30]   → writes reports/dodge-balance.md
  */
 import { writeFileSync } from 'node:fs';
-import { DodgeSim } from '../src/encounter/dodge';
+import { DodgeSim, fineChar } from '../src/encounter/dodge';
 import { DEFAULT_RULES, factorFor } from '../src/encounter/rules';
 import { seeded } from '../src/encounter/rng';
 import type { DodgeSetup, PatternDef } from '../src/encounter/types';
@@ -25,7 +28,7 @@ let held = 0;
 const careless: Bot = (sim, rng) => { if (sim.tick % 20 === 0) held = rng.int(9); return held; };
 /** Looks 8 ticks ahead along straight lines and steps where the nearest needle or beam will be furthest away. */
 const greedy: Bot = (sim) => {
-  const speed = 330 * sim.setup.tier.speed * 1000 / 60;
+  const speed = sim.reach;
   let best = 0, bestScore = -Infinity;
   const { o, side } = sim.box;
   for (let d = 0; d < 9; d++) {
@@ -48,11 +51,15 @@ const greedy: Bot = (sim) => {
   return best;
 };
 
-function play(setup: DodgeSetup, seed: number, bot: Bot) {
-  const sim = new DodgeSim(setup, seed);
+function play(setup: DodgeSetup, seed: number, bot: Bot, fine = true) {
+  const sim = new DodgeSim(setup, seed, fine);
   const rng = seeded(seed * 7 + 1);
   held = 0;
-  while (!sim.done) sim.step(bot(sim, rng));
+  while (!sim.done) {
+    const d = bot(sim, rng);
+    if (fine) sim.stepFine(fineChar(Math.round(DIRS[d][0] * 1000), Math.round(DIRS[d][1] * 1000), false));
+    else sim.step(d);
+  }
   return sim.hits;
 }
 
@@ -83,6 +90,16 @@ for (const p of patterns as PatternDef[]) {
 lines.push('## 全部彈幕平均的傷害倍率', '', `| 局勢 | ${bots.map(([n]) => n).join(' | ')} |`, `|---|${bots.map(() => '---').join('|')}|`);
 for (const tier of rules.tiers) {
   lines.push(`| ${tier.label} | ${bots.map(([n]) => { const v = summary[tier.label][n]; return `×${(v.reduce((a, b) => a + b, 0) / v.length).toFixed(2)}`; }).join(' | ')} |`);
+}
+lines.push('');
+lines.push('## 舊輸入（8 方向、速度 330）對新輸入（32 方向、速度 380）', '', '貪婪閃避機器人在全部彈幕的平均傷害倍率。', '', '| 局勢 | 舊輸入 | 新輸入 |', '|---|---|---|');
+for (const tier of rules.tiers) {
+  const avg = (fine: boolean) => {
+    let f = 0, n = 0;
+    for (const p of patterns as PatternDef[]) for (let s = 1; s <= SEEDS; s++) { f += factorFor(rules, play({ tier, duration: tier.duration, pattern: p, reduced: false, damage: 10 }, s * 101 + 7, greedy, fine)); n++; }
+    return `×${(f / n).toFixed(2)}`;
+  };
+  lines.push(`| ${tier.label} | ${avg(false)} | ${avg(true)} |`);
 }
 lines.push('');
 writeFileSync('reports/dodge-balance.md', lines.join('\n'));

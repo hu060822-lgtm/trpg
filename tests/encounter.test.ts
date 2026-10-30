@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeSheet } from '../src/pack/pack';
 import { readPackDir } from '../src/pack/zip';
-import { DodgeSim, runDodge, validMoves, pickPattern } from '../src/encounter/dodge';
+import { DodgeSim, FINE_ALPHABET, fineChar, runDodge, validMoves, pickPattern } from '../src/encounter/dodge';
 import { createEncounter, runClock, runCommand, runMove, viewFor, CombatError, type Ctx, type TokenInfo, type Outcome, type Command } from '../src/encounter/engine';
 import { areaCells, blockMap, canSee, feetBetween, walkCost, type Grid } from '../src/encounter/geometry';
 import { DEFAULT_RULES, scaledDamage, tierFor, factorFor, bonusFor, healthWords } from '../src/encounter/rules';
@@ -325,5 +325,61 @@ describe('the encounter: dice first, then interaction', () => {
     // Quick mode rolls by itself; walk round to the hero's turn.
     for (let i = 0; i < 3 && o.state.combatants[heroId(o.state)].dying?.successes !== 1; i++) o = run(o, ctx, GM, { type: 'gm', op: { kind: 'nextTurn' } });
     expect(o.state.combatants[heroId(o.state)].dying?.successes).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('teams and the end of a fight', () => {
+  it('ends by itself when the last enemy falls, instead of going round forever', () => {
+    const ctx = table({ die: 20, monsters: [{ id: 'goblin', x: 3, y: 5 }] });
+    let o = createEncounter(ctx, 'r1', 'm1', entries(ctx), { mode: 'quick' });
+    if (o.state.step) o = run(o, ctx, P1, { type: 'release', stepId: o.state.step.id });
+    o = run(o, ctx, GM, { type: 'gm', op: { kind: 'hp', combatantId: foeId(o.state), hp: 0 } });
+    expect(o.state.status).toBe('ended');
+    expect(o.state.outcome?.winner).toBe('我方');
+    expect(o.events.some((e) => e.kind === 'victory' && e.text.includes('我方 獲勝'))).toBe(true);
+  });
+
+  it('three teams: goblins and bandits fight each other too, and the fight runs until one team is left', () => {
+    const ctx = table({ die: 20, monsters: [{ id: 'goblin', x: 3, y: 5 }, { id: 'bandit', x: 8, y: 8 }] });
+    let o = createEncounter(ctx, 'r1', 'm1', [{ tokenId: 't-hero' }, { tokenId: 't-m0', monsterId: 'goblin', team: '哥布林' }, { tokenId: 't-m1', monsterId: 'bandit', team: '盜賊' }], { mode: 'quick' });
+    if (o.state.step) o = run(o, ctx, P1, { type: 'release', stepId: o.state.step.id });
+    const [gob, ban] = [foeId(o.state, 0), foeId(o.state, 1)];
+    expect(o.state.combatants[gob].team).toBe('哥布林');
+    o = run(o, ctx, GM, { type: 'gm', op: { kind: 'hp', combatantId: gob, hp: 0 } });
+    expect(o.state.status).toBe('active');
+    o = run(o, ctx, GM, { type: 'gm', op: { kind: 'team', combatantId: ban, team: '我方' } });
+    expect(o.state.status).toBe('ended');
+    expect(o.state.outcome?.winner).toBe('我方');
+  });
+
+  it('a single-team fight never ends by itself, and the GM can switch auto-end off', () => {
+    const ctx = table({ die: 20, monsters: [{ id: 'goblin', x: 3, y: 5 }] });
+    let o = createEncounter(ctx, 'r1', 'm1', entries(ctx), { mode: 'quick', autoEnd: false });
+    if (o.state.step) o = run(o, ctx, P1, { type: 'release', stepId: o.state.step.id });
+    o = run(o, ctx, GM, { type: 'gm', op: { kind: 'hp', combatantId: foeId(o.state), hp: 0 } });
+    expect(o.state.status).toBe('active');
+  });
+});
+
+describe('fine dodge input', () => {
+  const setup = (): DodgeSetup => ({ tier: DEFAULT_RULES.tiers[2], duration: DEFAULT_RULES.tiers[2].duration, pattern: combat.patterns[0], reduced: false, damage: 8 });
+  it('accepts ~-prefixed recordings, replays them the same every time, and old digit recordings still work', () => {
+    const s = setup();
+    const fine = '~' + Array.from({ length: 200 }, (_, i) => FINE_ALPHABET[(i >> 3) % 64]).join('') + '...';
+    expect(validMoves(fine, s)).toBe(true);
+    expect(validMoves('~!', s)).toBe(false);
+    expect(validMoves('~' + 'A'.repeat(301), s)).toBe(false);
+    expect(runDodge(s, 9, fine)).toBe(runDodge(s, 9, fine));
+    expect(validMoves('0123', s)).toBe(true);
+  });
+  it('moves 32 ways at full or half speed, half going half as far', () => {
+    const a = new DodgeSim(setup(), 1, true), b = new DodgeSim(setup(), 1, true);
+    const x0 = a.x;
+    a.stepFine(fineChar(-1, 0, false));
+    b.stepFine(fineChar(-1, 0, true));
+    expect(x0 - a.x).toBe(a.reach);
+    expect(x0 - b.x).toBe(Math.trunc(a.reach / 2));
+    expect(fineChar(0, 0, false)).toBe('.');
+    expect(fineChar(1, 1, false)).toBe(FINE_ALPHABET[4]);
   });
 });

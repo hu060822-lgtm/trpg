@@ -194,6 +194,7 @@ export function IsoBoard({ map, tokens, objects, image, pictures = {}, overlay, 
         g.beginPath(); g.ellipse(base.x, base.y, r, r / 2, 0, 0, Math.PI * 2); g.fill();
         if ((t.elevation ?? 0) !== 0) { g.strokeStyle = 'rgba(242,234,216,0.5)'; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(base.x, base.y); g.lineTo(up.x, up.y); g.stroke(); g.setLineDash([]); }
         const discY = up.y - r * 1.1;
+        if (ov) { g.strokeStyle = ov.color; g.lineWidth = 3; g.beginPath(); g.ellipse(base.x, base.y, r * 0.95, r * 0.48, 0, 0, Math.PI * 2); g.stroke(); }
         if (ov?.turn) { g.strokeStyle = '#f0b552'; g.lineWidth = 4; g.beginPath(); g.ellipse(up.x, up.y, r * 1.15, r * 0.58, 0, 0, Math.PI * 2); g.stroke(); }
         g.globalAlpha = t.hidden ? 0.55 : ov && (ov.c.defeated || ov.c.dead) ? 0.4 : 1;
         g.fillStyle = t.color;
@@ -211,6 +212,7 @@ export function IsoBoard({ map, tokens, objects, image, pictures = {}, overlay, 
         g.font = `500 ${Math.max(10, 11 * cam.z)}px 'Noto Sans TC', sans-serif`;
         g.fillStyle = '#f2ead8';
         g.fillText(t.name + ((t.elevation ?? 0) ? `（${t.elevation} ${map.unit}）` : ''), up.x, discY + r + 10);
+        if (ov && overlay && overlay.teams.length > 2) { g.fillStyle = ov.color; g.fillText(ov.team, up.x, discY + r + 10 + Math.max(11, 12 * cam.z)); }
         if (ov && ov.c.hp !== null && ov.c.maxHp) {
           const w = r * 1.8, pct = Math.max(0, ov.c.hp / ov.c.maxHp);
           g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(up.x - w / 2, discY - r - 9, w, 5);

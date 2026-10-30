@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RoomView } from '../api';
 import type { CombatantView, DieFace, EncounterEvent, EncounterView, Step } from '../../../src/encounter/types';
+import { teamOf } from '../../../src/encounter/teams';
 import { GESTURE_TEXT } from '../../../src/encounter/weapons';
 import { DiceTray, type Tone } from './DiceTray';
 import { useCountdown, type Combat } from './state';
@@ -88,7 +89,7 @@ export function NowBar({ combat, enc, view }: { combat: Combat; enc: EncounterVi
 
 // ---------------- the big cards ----------------
 
-export interface Splash { key: number; tone: 'mine' | 'foe' | 'ally' | 'down' | 'dead'; title: string; detail?: string }
+export interface Splash { key: number; tone: 'mine' | 'foe' | 'ally' | 'down' | 'dead' | 'win'; title: string; detail?: string }
 
 /** A card in the middle of the map when the turn passes, someone drops or dies. One at a time, newest wins. */
 export function useSplash(combat: Combat, view: RoomView) {
@@ -104,13 +105,19 @@ export function useSplash(combat: Combat, view: RoomView) {
     if (first) return;
     let next: Splash | null = null;
     for (const e of fresh) {
+      if (e.kind === 'victory') {
+        const winner = (e.data as { winner?: string | null } | undefined)?.winner ?? null;
+        const mineWon = winner !== null && Object.values(enc.combatants).some((c) => c.controller === view.me.userId && teamOf(c) === winner);
+        next = { key: e.seq, tone: mineWon ? 'win' : 'down', title: winner === null ? '戰鬥結束' : `${winner} 獲勝`, detail: e.text };
+        continue;
+      }
       const id = (e.data as { combatantId?: string } | undefined)?.combatantId;
       const c = id ? enc.combatants[id] : undefined;
       if (!c) continue;
       if (e.kind === 'dead') next = { key: e.seq, tone: 'dead', title: `${c.name} 死亡`, detail: c.controller === view.me.userId ? '你的角色死了。GM 可以在主控台讓他復活或離開戰鬥。' : undefined };
       else if (e.kind === 'defeated') next = { key: e.seq, tone: 'down', title: `${c.name} 被擊倒` };
       else if (e.kind === 'down') next = { key: e.seq, tone: 'down', title: `${c.name} 倒下了`, detail: c.controller === view.me.userId ? '輪到你時擲死亡豁免：三次成功穩定，三次失敗死亡。' : '他輪到時要擲死亡豁免' };
-      else if (e.kind === 'turn' && (!next || next.tone === 'mine' || next.tone === 'foe' || next.tone === 'ally')) {
+      else if (e.kind === 'turn' && next?.tone !== 'win' && (!next || next.tone === 'mine' || next.tone === 'foe' || next.tone === 'ally')) {
         const mine = isMine(c, enc, view.me.userId) && (c.controller !== 'gm' || enc.you.gm);
         next = { key: e.seq, tone: c.controller === view.me.userId ? 'mine' : c.side === 'foe' ? 'foe' : mine ? 'mine' : 'ally', title: c.controller === view.me.userId ? '你的回合' : c.side === 'foe' ? '敵人回合' : `${c.name} 的回合`, detail: c.controller === view.me.userId || c.side === 'foe' ? c.name : undefined };
       }
@@ -124,12 +131,13 @@ export function useSplash(combat: Combat, view: RoomView) {
 /** Shows itself for a moment, then asks to be cleared. The caller holds it back while dice are still rolling. */
 export function SplashCard({ splash, onDone }: { splash: Splash; onDone: (key: number) => void }) {
   useEffect(() => {
-    const t = setTimeout(() => onDone(splash.key), splash.tone === 'dead' || splash.tone === 'down' ? 2600 : 1500);
+    const t = setTimeout(() => onDone(splash.key), splash.tone === 'win' ? 4000 : splash.tone === 'dead' || splash.tone === 'down' ? 2600 : 1500);
     return () => clearTimeout(t);
   }, [splash, onDone]);
   return (
     <div className={`splash splash-${splash.tone}`} role="alert" key={splash.key}>
       {splash.tone === 'dead' && <span className="splash-mark" aria-hidden>☠</span>}
+      {splash.tone === 'win' && <span className="splash-mark" aria-hidden>⚑</span>}
       <b>{splash.title}</b>
       {splash.detail && <span>{splash.detail}</span>}
     </div>

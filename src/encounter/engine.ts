@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { CONDITION_LABEL, CONDITIONS, type DieFace, type SetupEntry } from './types';
 export type { SetupEntry } from './types';
+import { cleanTeam, hostileTo, teamOf, teamsIn } from './teams';
 import { challengeFor, scoreGesture } from './weapons';
 
 /**
@@ -65,7 +66,7 @@ const DODGE_GRACE = 8000;
 // ---------- setup ----------
 
 
-export function createEncounter(ctx: Ctx, roomId: string, mapId: string, entries: SetupEntry[], opts: { mode?: EncounterState['mode']; autoNpc?: boolean; showFoeHp?: boolean } = {}): Outcome {
+export function createEncounter(ctx: Ctx, roomId: string, mapId: string, entries: SetupEntry[], opts: { mode?: EncounterState['mode']; autoNpc?: boolean; showFoeHp?: boolean; autoEnd?: boolean } = {}): Outcome {
   if (entries.length === 0) throw new CombatError(400, 'bad-request', '至少要選一個代幣加入戰鬥');
   if (entries.length > 60) throw new CombatError(400, 'bad-request', '一場戰鬥最多 60 個參戰者');
   const combatants: Record<string, Combatant> = {};
@@ -75,19 +76,21 @@ export function createEncounter(ctx: Ctx, roomId: string, mapId: string, entries
   }
   const state: EncounterState = {
     id: ctx.id(), roomId, mapId, status: 'initiative', round: 0, order: [], turnIndex: 0, mode: opts.mode ?? 'full',
-    combatants, turn: null, step: null, flow: null, triggers: [], autoNpc: !!opts.autoNpc, showFoeHp: !!opts.showFoeHp, seq: 0,
+    combatants, turn: null, step: null, flow: null, triggers: [], autoNpc: !!opts.autoNpc, showFoeHp: !!opts.showFoeHp, autoEnd: opts.autoEnd ?? true, seq: 0,
   };
   const eng = new Engine(state, ctx);
   eng.say('started', `戰鬥開始：${Object.values(combatants).filter((c) => !c.hidden).map((c) => c.name).join('、')}`, { log: true });
   eng.beginInitiative();
   eng.settle();
+  eng.checkVictory();
   return eng.result();
 }
 
 export function combatantFrom(ctx: Ctx, e: SetupEntry): Combatant {
   const t = ctx.tokens.get(e.tokenId);
   if (!t) throw new CombatError(404, 'not-found', '找不到這個代幣');
-  const base = { id: ctx.id(), tokenId: t.id, initiative: null, conditions: [] as Condition[], tempHp: 0, interaction: 'auto' as const, phase: 0 };
+  const team = cleanTeam(e.team);
+  const base = { id: ctx.id(), tokenId: t.id, ...(team ? { team } : {}), initiative: null, conditions: [] as Condition[], tempHp: 0, interaction: 'auto' as const, phase: 0 };
   if (t.characterId) {
     const sheet = ctx.sheets.get(t.characterId);
     if (!sheet) throw new CombatError(404, 'not-found', `找不到「${t.name}」的角色卡`);
@@ -163,7 +166,8 @@ export type GmOp =
   | { kind: 'extraAction'; combatantId: string }
   | { kind: 'remove'; combatantId: string }
   | { kind: 'add'; entries: SetupEntry[] }
-  | { kind: 'settings'; mode?: EncounterState['mode']; autoNpc?: boolean; showFoeHp?: boolean }
+  | { kind: 'settings'; mode?: EncounterState['mode']; autoNpc?: boolean; showFoeHp?: boolean; autoEnd?: boolean }
+  | { kind: 'team'; combatantId: string; team: string }
   | { kind: 'trigger'; trigger: Omit<Trigger, 'id' | 'fired'> }
   | { kind: 'untrigger'; triggerId: string };
 
@@ -171,6 +175,7 @@ export function runCommand(state: EncounterState, ctx: Ctx, who: Caller, cmd: Co
   const eng = new Engine(structuredClone(state), ctx);
   eng.command(who, cmd);
   eng.settle();
+  eng.checkVictory();
   return eng.result();
 }
 
@@ -179,6 +184,7 @@ export function runMove(state: EncounterState, ctx: Ctx, who: Caller, tokenId: s
   const eng = new Engine(structuredClone(state), ctx);
   eng.move(who, tokenId, to);
   eng.settle();
+  eng.checkVictory();
   return eng.result();
 }
 
@@ -190,6 +196,7 @@ export function runClock(state: EncounterState, ctx: Ctx): Outcome | null {
   const eng = new Engine(structuredClone(state), ctx);
   eng.expire();
   eng.settle();
+  eng.checkVictory();
   return eng.result();
 }
 
@@ -222,7 +229,37 @@ class Engine {
     return t ? { x: t.x, y: t.y, size: t.size, elevation: t.elevation } : { x: -999, y: -999, size: 1 };
   }
   private alive(c: Combatant) { return !c.dead && !c.defeated; }
-  private hostile(a: Combatant, b: Combatant) { return (a.side === 'foe') !== (b.side === 'foe'); }
+  private hostile(a: Combatant, b: Combatant) { return hostileTo(a, b); }
+  /** Still in the fight: up, or a character at 0 HP still rolling death saves (they can be healed back up). */
+  private standing(c: Combatant) { return this.alive(c) && (c.hp > 0 || (!!c.characterId && !c.stable)); }
+
+  /**
+   * Ends the fight once at most one team still has anyone standing — the turn loop would otherwise go round and
+   * round with nobody to fight. Only fights that began with two or more teams end this way, and never mid-attack.
+   */
+  checkVictory() {
+    if (this.s.status !== 'active' || this.s.flow || this.s.autoEnd === false) return;
+    const all = Object.values(this.s.combatants);
+    if (teamsIn(all).length < 2) return;
+    const up = all.filter((c) => this.standing(c));
+    const left = teamsIn(up);
+    if (left.length > 1) return;
+    const winner = left[0] ?? null;
+    this.s.status = 'ended';
+    this.s.step = null;
+    this.s.turn = null;
+    this.s.outcome = { winner, at: this.s.round };
+    for (const c of all) this.vital(c);
+    const out = all.filter((c) => c.characterId && c.hp <= 0 && !c.dead).map((c) => c.name);
+    const tail = out.length ? `。${out.join('、')} 昏迷中，由 GM 決定後續` : '';
+    const seen = up.filter((c) => !c.hidden);
+    const text = winner === null ? `所有參戰者都倒下了，戰鬥結束${tail}` : `${winner} 獲勝，戰鬥結束${tail}`;
+    if (winner !== null && seen.length === 0) {
+      // Only hidden creatures are left: the table learns the fight is over, not who is still lurking.
+      this.say('victory', text, { gmOnly: true, data: { winner } });
+      this.say('victory', `戰鬥結束${tail}`, { log: true, data: { winner: null } });
+    } else this.say('victory', text, { log: true, data: { winner } });
+  }
   /** May this caller act for this combatant? */
   private controls(who: Caller, c: Combatant) { return who.gm ? true : c.controller === who.userId; }
   private iso(ms: number) { return new Date(this.ctx.now.getTime() + ms).toISOString(); }
@@ -971,6 +1008,7 @@ class Engine {
       }
       case 'end': {
         this.s.status = 'ended';
+        this.s.outcome = { winner: null, at: this.s.round };
         this.s.step = null;
         this.s.flow = null;
         for (const c of Object.values(this.s.combatants)) this.vital(c);
@@ -1024,6 +1062,13 @@ class Engine {
         c.hidden = false;
         this.reveals.push(c.tokenId);
         return note(`讓 ${c.name} 現身`);
+      }
+      case 'team': {
+        const c = this.c(op.combatantId);
+        const team = cleanTeam(op.team);
+        if (team) c.team = team; else delete c.team;
+        if (teamsIn(Object.values(this.s.combatants)).length > 12) throw new CombatError(400, 'bad-request', '一場戰鬥最多 12 個陣營');
+        return note(`把 ${c.name} 編入「${teamOf(c)}」`, c.hidden);
       }
       case 'tier': {
         const c = this.c(op.combatantId);
@@ -1097,7 +1142,8 @@ class Engine {
         }
         if (op.autoNpc !== undefined) this.s.autoNpc = !!op.autoNpc;
         if (op.showFoeHp !== undefined) this.s.showFoeHp = !!op.showFoeHp;
-        return note(`調整了戰鬥設定：${MODE_NAME[this.s.mode]}${this.s.autoNpc ? '、NPC 自動行動' : ''}${this.s.showFoeHp ? '、公開敵人生命' : ''}`);
+        if (op.autoEnd !== undefined) this.s.autoEnd = !!op.autoEnd;
+        return note(`調整了戰鬥設定：${MODE_NAME[this.s.mode]}${this.s.autoNpc ? '、NPC 自動行動' : ''}${this.s.showFoeHp ? '、公開敵人生命' : ''}${this.s.autoEnd === false ? '、不自動結束' : ''}`);
       }
       case 'trigger': {
         if (this.s.triggers.length >= 30) throw new CombatError(400, 'bad-request', '觸發器最多 30 個');

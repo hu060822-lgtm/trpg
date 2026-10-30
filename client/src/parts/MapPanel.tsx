@@ -431,9 +431,11 @@ export function MapPanel({ api, view, pack, combat, mapId, version, onMaps, onCh
                 aria-label={`${t.name}，第 ${t.x + 1} 欄第 ${t.y + 1} 列${canMove(t) ? '，方向鍵移動' : ''}`} aria-pressed={t.id === selected}
                 onFocus={() => pick(t.id, null)} onKeyDown={(e) => nudge(e, t)}
                 className={`token${t.id === selected ? ' selected' : ''}${t.hidden ? ' hidden' : ''}${canMove(t) ? ' movable' : ''}${drag?.id === t.id ? ' dragging' : ''}${ov?.turn ? ' turn' : ''}${overlay?.targets.has(t.id) ? ' target' : ''}${ov && (ov.c.defeated || ov.c.dead || ov.c.dying || ov.c.stable) ? ' down' : ''}${ov?.c.dead ? ' dead' : ''}${ov && ov.c.side === 'foe' ? ' foe' : ''}`}
-                style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: t.size * CELL, height: t.size * CELL, '--c': t.color } as React.CSSProperties}>
-                <span className={`disc${pictures[t.id] ? ' pic' : ''}`} style={{ fontSize: Math.max(14, t.size * CELL * 0.38), ...(pictures[t.id] ? { backgroundImage: `url(${pictures[t.id]})` } : {}) }}>{pictures[t.id] ? '' : initial(t.name)}</span>
+                style={{ transform: `translate(${p.x * CELL}px, ${p.y * CELL}px)`, width: t.size * CELL, height: t.size * CELL, '--c': t.color, ...(ov ? { '--team': ov.color } : {}) } as React.CSSProperties}
+                title={ov ? `${t.name}（${ov.team}）` : undefined}>
+                <span className={`disc${pictures[t.id] ? ' pic' : ''}${ov ? ' teamed' : ''}`} style={{ fontSize: Math.max(14, t.size * CELL * 0.38), ...(pictures[t.id] ? { backgroundImage: `url(${pictures[t.id]})` } : {}) }}>{pictures[t.id] ? '' : initial(t.name)}</span>
                 <span className="tag">{t.name}{t.elevation ? `・${t.elevation}${map.unit}` : ''}</span>
+                {ov && <span className="token-team" aria-hidden />}
                 {ov && (ov.c.dead || ov.c.defeated || ov.c.dying || ov.c.stable) && <span className="token-fate" aria-hidden>{ov.c.dead ? '☠' : ov.c.dying ? '✚' : '✕'}</span>}
                 {ov && (hp !== null ? <span className="token-hp" aria-hidden><span className={hp <= 25 ? 'low' : ''} style={{ width: `${hp}%` }} /></span> : <span className="token-health">{ov.c.health}</span>)}
               </div>

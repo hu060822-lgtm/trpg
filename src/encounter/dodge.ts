@@ -17,6 +17,12 @@ const SOUL = 10;
 /** After a hit the knot flickers and cannot be hit again for this many ticks. */
 export const INVULNERABLE = 45;
 const BASE_SPEED = 330;
+/** Recordings that start with `~` use the fine input: 32 directions at full or half speed, and a faster knot. */
+const BASE_SPEED_FINE = 380;
+export const FINE_MARK = '~';
+/** One character per tick for fine input: `.` is still, index k < 32 is full speed at angle 8k, k ≥ 32 is half speed at angle 8(k − 32). */
+export const FINE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+export const FINE_STILL = '.';
 const LASER_WARN = 36, LASER_ON = 18;
 // Unit vectors for directions 1–8, clockwise from up, scaled by 1000.
 const DIRS: readonly [number, number][] = [[0, 0], [0, -1000], [707, -707], [1000, 0], [707, 707], [0, 1000], [-707, 707], [-1000, 0], [-707, -707]];
@@ -39,6 +45,9 @@ export class DodgeSim {
   invulnerable = 0;
   x: number;
   y: number;
+  /** Where the knot was one tick ago, so a renderer can draw between ticks. */
+  prevX: number;
+  prevY: number;
   bullets: Bullet[] = [];
   lasers: Laser[] = [];
   readonly total: number;
@@ -49,13 +58,15 @@ export class DodgeSim {
   private density: number;
   private fires: { tick: number; e: Emitter }[] = [];
 
-  constructor(readonly setup: DodgeSetup, seed: number) {
+  constructor(readonly setup: DodgeSetup, seed: number, readonly fine = false) {
     this.rng = seeded(seed);
     this.total = ticksFor(setup.duration);
     this.box = boxOf(setup.tier.arena);
     this.x = (this.box.o + this.box.side / 2) * M;
     this.y = (this.box.o + Math.floor((this.box.side * 3) / 4)) * M;
-    this.speed = Math.round((BASE_SPEED * setup.tier.speed * M) / TICKS_PER_SECOND);
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.speed = Math.round(((fine ? BASE_SPEED_FINE : BASE_SPEED) * setup.tier.speed * M) / TICKS_PER_SECOND);
     // The accessibility setting slows the threads, not the knot, so the player keeps full control.
     this.bulletScale = setup.reduced ? 3 : 4;
     this.density = setup.tier.density;
@@ -74,11 +85,28 @@ export class DodgeSim {
 
   /** Advances one tick with the player holding direction `dir` (0 still, 1–8 clockwise from up). */
   step(dir: number) {
-    if (this.done) return;
     const [dx, dy] = DIRS[dir] ?? DIRS[0];
+    this.advance(Math.trunc((dx * this.speed) / 1000), Math.trunc((dy * this.speed) / 1000));
+  }
+
+  /** Advances one tick with one character of fine input (see FINE_ALPHABET); anything unknown is standing still. */
+  stepFine(ch: string) {
+    const k = FINE_ALPHABET.indexOf(ch);
+    if (k < 0) { this.advance(0, 0); return; }
+    const angle = (k % 32) * 8, sp = k < 32 ? this.speed : Math.trunc(this.speed / 2);
+    this.advance(Math.trunc((icos(angle) * sp) / 16384), Math.trunc((isin(angle) * sp) / 16384));
+  }
+
+  /** The most the knot moves in one tick at full speed, in milli-units. */
+  get reach() { return this.speed; }
+
+  private advance(mx: number, my: number) {
+    if (this.done) return;
+    this.prevX = this.x;
+    this.prevY = this.y;
     const lo = (this.box.o + SOUL) * M, hi = (this.box.o + this.box.side - SOUL) * M;
-    this.x = Math.max(lo, Math.min(hi, this.x + Math.trunc((dx * this.speed) / 1000)));
-    this.y = Math.max(lo, Math.min(hi, this.y + Math.trunc((dy * this.speed) / 1000)));
+    this.x = Math.max(lo, Math.min(hi, this.x + mx));
+    this.y = Math.max(lo, Math.min(hi, this.y + my));
     while (this.fires.length && this.fires[0].tick <= this.tick) this.fire(this.fires.shift()!.e);
     for (const b of this.bullets) if (b.born <= this.tick) { b.x += b.vx; b.y += b.vy; }
     const margin = 80 * M;
@@ -182,14 +210,38 @@ export class DodgeSim {
 
 /** Replays a recorded dodge and returns the hits. Missing ticks count as standing still; extra ones are ignored. */
 export function runDodge(setup: DodgeSetup, seed: number, moves: string): number {
-  const sim = new DodgeSim(setup, seed);
-  for (let i = 0; !sim.done; i++) sim.step(Number(moves[i] ?? 0) || 0);
+  const sim = simFor(setup, seed, moves);
+  playMoves(sim, moves, Infinity);
   return sim.hits;
 }
 
-/** Checks a moves string from a client: digits 0–8 only, no longer than the dodge. */
+/** A simulation set up for a recording: fine input if it starts with `~`, the original eight directions otherwise. */
+export function simFor(setup: DodgeSetup, seed: number, moves: string) {
+  return new DodgeSim(setup, seed, moves.startsWith(FINE_MARK));
+}
+
+/** Plays a recording forward until tick `until` (or the end). */
+export function playMoves(sim: DodgeSim, moves: string, until: number) {
+  const body = sim.fine ? moves.slice(FINE_MARK.length) : moves;
+  while (!sim.done && sim.tick < until) {
+    if (sim.fine) sim.stepFine(body[sim.tick] ?? FINE_STILL);
+    else sim.step(Number(body[sim.tick] ?? 0) || 0);
+  }
+}
+
+/** Checks a moves string from a client: digits 0–8 (the original input) or `~` and fine-input characters, no longer than the dodge. */
 export function validMoves(moves: unknown, setup: DodgeSetup): moves is string {
-  return typeof moves === 'string' && moves.length <= ticksFor(setup.duration) && /^[0-8]*$/.test(moves);
+  if (typeof moves !== 'string') return false;
+  const ticks = ticksFor(setup.duration);
+  if (moves.startsWith(FINE_MARK)) return moves.length - FINE_MARK.length <= ticks && /^[A-Za-z0-9_.-]*$/.test(moves.slice(FINE_MARK.length));
+  return moves.length <= ticks && /^[0-8]*$/.test(moves);
+}
+
+/** The fine-input character for moving toward (dx, dy) — any units, y down — at full or half speed. */
+export function fineChar(dx: number, dy: number, half: boolean): string {
+  if (dx === 0 && dy === 0) return FINE_STILL;
+  const k = (iatan2(dy, dx) + 4) >> 3 & 31;
+  return FINE_ALPHABET[k + (half ? 32 : 0)];
 }
 
 /** Picks a pattern by seed from a list of ids, falling back to the first pattern known. */

@@ -425,6 +425,15 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
   background: rgba(28, 22, 19, 0.92); border: 1px solid var(--seam); font-size: var(--fs-meta); }
 .initiative li.now { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
 .initiative li.side-foe .who b { color: var(--garnet-text); }
+.initiative li[style] { border-left: 4px solid var(--team); padding-top: 12px; }
+.initiative .team-tag { position: absolute; top: 0; left: 8px; max-width: calc(100% - 16px); padding: 0 6px; border-radius: 0 0 5px 5px; background: var(--team);
+  color: #0b0908; font-size: 10px; line-height: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.token-team { position: absolute; left: -2px; bottom: -2px; width: 34%; height: 34%; min-width: 9px; min-height: 9px; border-radius: 50%; background: var(--team);
+  border: 2px solid #0b0908; pointer-events: none; }
+.token .disc.teamed { box-shadow: 0 0 0 3px var(--team), 0 3px 8px rgba(0, 0, 0, 0.5); }
+.token.turn .disc.teamed { box-shadow: 0 0 0 3px var(--team), 0 0 0 6px var(--amber), 0 3px 8px rgba(0, 0, 0, 0.5); }
+.team-input { width: 8em; }
+
 .initiative li.out { opacity: 0.45; }
 .initiative li.secret { border-style: dashed; }
 .initiative .init { font-family: var(--story); font-size: 18px; font-weight: 600; color: var(--amber); min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
@@ -452,6 +461,9 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
 .arena, .gesture { display: grid; gap: 8px; justify-items: center; }
 .arena-read { display: flex; gap: 16px; justify-content: space-between; width: 100%; font-variant-numeric: tabular-nums; font-size: var(--fs-2); }
 .arena-read .hurt { color: var(--garnet-text); font-weight: 600; }
+.arena-hint { margin: 0; font-size: var(--fs-2); text-align: center; }
+.arena-canvas { cursor: grab; }
+.arena-canvas:active { cursor: grabbing; }
 .arena-canvas, .gesture-canvas { border-radius: 8px; touch-action: none; background: #0b0908; max-width: 100%; }
 .gesture-canvas { cursor: crosshair; }
 .gesture-how { margin: 0; font-size: var(--fs-2); }
@@ -534,6 +546,7 @@ dialog.confirm::backdrop { background: rgba(8, 6, 5, 0.66); }
 .splash-foe { border-color: var(--garnet); } .splash-foe b { color: var(--garnet-text); }
 .splash-ally b { color: var(--amber); }
 .splash-down { border-color: var(--amber); } .splash-down b { color: var(--amber); }
+.splash-win { border-color: var(--jade); } .splash-win b { color: var(--jade); font-size: 1.3em; }
 .splash-dead { border-color: var(--garnet); background: rgba(40, 12, 16, 0.96); } .splash-dead b { color: var(--garnet-text); }
 .splash-mark { font-size: 40px; line-height: 1; color: var(--garnet-text); }
 /* Fallen creatures: on the strip and on the map. */

@@ -5,6 +5,7 @@ import { ErrorNote } from '../parts/ui';
 import { areaCells, blockMap, canSee, feetBetween, walkCosts, type Footprint, type Grid } from '../../../src/encounter/geometry';
 import { CONDITION_LABEL, type AreaShape, type AttackSource, type CombatantView, type DodgeSetup, type EncounterEvent, type EncounterView, type MonsterAttack } from '../../../src/encounter/types';
 import { GESTURE_TEXT } from '../../../src/encounter/weapons';
+import { hostileTo, teamColor, teamOf, teamsIn } from '../../../src/encounter/teams';
 import { DodgePlay, DodgeReplay } from './Arena';
 import { GesturePad } from './Gesture';
 import { GmConsole, EncounterSetup } from './Gm';
@@ -14,11 +15,12 @@ import { useCountdown, type Cell, type Combat } from './state';
 export const STEP_NAME: Record<string, string> = {
   initiative: '擲先攻', attackRoll: '攻擊擲骰', attackInteract: '武器操作', saveRoll: '豁免擲骰', dodge: '閃避', deathSave: '死亡豁免', npcPending: 'NPC 行動',
 };
-const SIDE_NAME = { party: '隊伍', ally: '盟友', foe: '敵人' } as const;
 
 /** What the map draws on top of itself during a fight. */
 export interface MapOverlay {
-  tokens: Record<string, { c: CombatantView; turn: boolean }>;
+  tokens: Record<string, { c: CombatantView; turn: boolean; team: string; color: string }>;
+  /** Teams in the fight; with more than two, maps show each token's team colour. */
+  teams: string[];
   /** Tokens that can be picked as a target now. */
   targets: Set<string>;
   /** Squares the acting creature can still walk to. */
@@ -77,11 +79,12 @@ export function useCombatOverlay(combat: Combat, data: MapView | null, pack: Pac
   return useMemo(() => {
     if (!enc || enc.status === 'ended' || !data || !geo || enc.mapId !== data.map.id) return null;
     const tokens: MapOverlay['tokens'] = {};
-    for (const c of Object.values(enc.combatants)) tokens[c.tokenId] = { c, turn: enc.turn?.combatantId === c.id };
+    const teams = teamsIn(Object.values(enc.combatants));
+    for (const c of Object.values(enc.combatants)) tokens[c.tokenId] = { c, turn: enc.turn?.combatantId === c.id, team: teamOf(c), color: teamColor(teamOf(c), teams) };
     const actor = enc.turn ? enc.combatants[enc.turn.combatantId] : undefined;
     const me = view.me.userId, gm = enc.you.gm;
     const mine = actor && (actor.controller === me || (gm && actor.controller === 'gm'));
-    const overlay: MapOverlay = { tokens, targets: new Set(), reach: [], area: [] };
+    const overlay: MapOverlay = { tokens, teams, targets: new Set(), reach: [], area: [] };
     if (!actor || !mine || enc.status !== 'active' || enc.step || enc.flow) return overlay;
     const from = geo.foot(actor.tokenId);
     if (!from) return overlay;
@@ -91,7 +94,7 @@ export function useCombatOverlay(combat: Combat, data: MapView | null, pack: Pac
       const speed = actor.conditions.includes('restrained') ? 0 : actor.conditions.includes('prone') ? Math.floor(actor.speed / 2) : actor.speed;
       const left = speed * (t.dashed ? 2 : 1) - t.movementUsed;
       if (left > 0 && actor.hp !== 0) {
-        const hostile = Object.values(enc.combatants).filter((o) => o.id !== actor.id && !o.defeated && !o.dead && (o.side === 'foe') !== (actor.side === 'foe'));
+        const hostile = Object.values(enc.combatants).filter((o) => o.id !== actor.id && !o.defeated && !o.dead && hostileTo(o, actor));
         const costs = walkCosts(geo.grid, geo.blocks, from, hostile.map((o) => geo.foot(o.tokenId)).filter((f): f is Footprint => !!f), left);
         for (const cell of costs.keys()) overlay.reach.push({ x: cell % geo.grid.cols, y: Math.floor(cell / geo.grid.cols) });
       }
@@ -179,6 +182,7 @@ function hpBar(c: CombatantView) {
 
 function InitiativeBar({ enc }: { enc: EncounterView }) {
   const order = enc.order.length ? enc.order : Object.keys(enc.combatants);
+  const teams = teamsIn(Object.values(enc.combatants));
   const ref = useRef<HTMLOListElement>(null);
   useEffect(() => { ref.current?.querySelector('.now')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }, [enc.turn?.combatantId]);
   return (
@@ -188,8 +192,10 @@ function InitiativeBar({ enc }: { enc: EncounterView }) {
         if (!c) return null;
         const now = enc.turn?.combatantId === id;
         return (
-          <li key={id} className={`${now ? 'now' : ''} side-${c.side}${c.defeated || c.dead ? ' out' : ''}${c.dead ? ' dead' : ''}${c.dying ? ' dying' : ''}${c.hidden ? ' secret' : ''}`} aria-current={now ? 'step' : undefined}>
+          <li key={id} className={`${now ? 'now' : ''} side-${c.side}${c.defeated || c.dead ? ' out' : ''}${c.dead ? ' dead' : ''}${c.dying ? ' dying' : ''}${c.hidden ? ' secret' : ''}`} aria-current={now ? 'step' : undefined}
+            style={{ '--team': teamColor(teamOf(c), teams) } as React.CSSProperties}>
             <span className="init">{c.initiative ?? '—'}</span>
+            <span className="team-tag">{teamOf(c)}</span>
             {(c.dead || c.defeated || c.dying || c.stable) && <span className="fate">{c.dead ? '☠ 死亡' : c.defeated ? '擊倒' : c.dying ? '垂危' : '穩定'}</span>}
             <span className="who">
               <b>{c.name}</b>
@@ -301,7 +307,7 @@ function TurnPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
             <div className="row wrap">
               {targetsInList.map((o) => (
                 <button key={o.id} disabled={combat.busy} onClick={() => void combat.send({ type: 'attack', combatantId: actor.id, source: p.source, targets: [o.id] }).then((ok) => { if (ok) combat.setPicking(null); })}>
-                  {o.name}<small className="muted">　{SIDE_NAME[o.side]}</small>
+                  {o.name}<small className="muted">　{teamOf(o)}</small>
                 </button>
               ))}
             </div>
@@ -344,7 +350,7 @@ function TurnPanel({ combat, enc, view, pack }: { combat: Combat; enc: Encounter
 // ---------------- feed, replays, settings ----------------
 
 /** What a player needs from the log: who acted, what it did to whom, who fell. The rest is under 全部. */
-const KEY_EVENTS = new Set(['started', 'order', 'turn', 'resolved', 'down', 'defeated', 'dead', 'stable', 'phase', 'trigger', 'reveal', 'deathSave', 'ended']);
+const KEY_EVENTS = new Set(['started', 'order', 'turn', 'resolved', 'down', 'defeated', 'dead', 'stable', 'phase', 'trigger', 'reveal', 'deathSave', 'ended', 'victory']);
 
 function EventFeed({ events, gm, onReplay, onClose }: { events: EncounterEvent[]; gm: boolean; onReplay: (e: EncounterEvent) => void; onClose: () => void }) {
   const list = useRef<HTMLOListElement>(null);

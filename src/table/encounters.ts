@@ -119,7 +119,7 @@ export class EncounterStore {
         const t = ctx.tokens.get(e.tokenId);
         if (t?.characterId && vitals[t.characterId] !== undefined) e.hpNow = vitals[t.characterId];
       }
-      const out = this.guard(() => createEncounter(ctx, roomId, mapId, entries, { mode: input.mode, autoNpc: input.autoNpc, showFoeHp: input.showFoeHp }));
+      const out = this.guard(() => createEncounter(ctx, roomId, mapId, entries, { mode: input.mode, autoNpc: input.autoNpc, showFoeHp: input.showFoeHp, autoEnd: input.autoEnd }));
       await this.db.run(`INSERT INTO encounters (id, room_id, map_id, status, state, seq, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 0, $6, $6)`,
         [out.state.id, roomId, mapId, out.state.status, JSON.stringify(out.state), now.toISOString()]);
       await this.save(out, now);

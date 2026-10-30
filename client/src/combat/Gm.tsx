@@ -5,6 +5,7 @@ import { useAction } from '../hooks';
 import { Confirm, ErrorNote } from '../parts/ui';
 import { DEFAULT_RULES } from '../../../src/encounter/rules';
 import { CONDITIONS, CONDITION_LABEL, type CombatantView, type EncounterView, type SetupEntry, type Tier, type Trigger } from '../../../src/encounter/types';
+import { FOE_TEAM, PARTY_TEAM, teamOf, teamsIn } from '../../../src/encounter/teams';
 import { PatternPreview } from './Arena';
 import { STEP_NAME } from './Combat';
 import type { Combat } from './state';
@@ -14,30 +15,33 @@ const MODE_NAME = { full: '完整互動', quick: '快速結算', custom: 'GM 自
 
 // ---------------- starting a fight ----------------
 
-interface Row { include: boolean; side: 'party' | 'ally' | 'foe'; monsterId: string; hidden: boolean; ac: number; hp: number; bonus: number; damage: string; tier: Tier }
+interface Row { include: boolean; side: 'party' | 'ally' | 'foe'; team: string; monsterId: string; hidden: boolean; ac: number; hp: number; bonus: number; damage: string; tier: Tier }
 
 export function EncounterSetup({ combat, view, pack, data, onClose }: { combat: Combat; view: RoomView; pack: Pack; data: MapView; onClose: () => void }) {
   const monsters = pack.combat?.monsters ?? [];
   const templates = pack.combat?.encounters ?? [];
   const [rows, setRows] = useState<Record<string, Row>>(() => Object.fromEntries(data.tokens.map((t) => {
     const m = monsters.find((x) => t.name.startsWith(x.name));
-    return [t.id, { include: true, side: t.characterId ? 'party' : 'foe', monsterId: m?.id ?? '', hidden: t.hidden, ac: 12, hp: 10, bonus: 3, damage: '1d6+1', tier: 'minion' }];
+    return [t.id, { include: true, side: t.characterId ? 'party' : 'foe', team: '', monsterId: m?.id ?? '', hidden: t.hidden, ac: 12, hp: 10, bonus: 3, damage: '1d6+1', tier: 'minion' }];
   })));
   const [template, setTemplate] = useState('');
   const [at, setAt] = useState({ x: Math.floor(data.map.cols / 2), y: Math.floor(data.map.rows / 2) });
   const [mode, setMode] = useState<'full' | 'quick' | 'custom'>('full');
   const [autoNpc, setAutoNpc] = useState(true);
   const [showFoeHp, setShowFoeHp] = useState(false);
+  const [autoEnd, setAutoEnd] = useState(true);
   const act = useAction();
+  const teamNames = [...new Set([PARTY_TEAM, FOE_TEAM, ...Object.values(rows).map((r) => r.team.trim()).filter(Boolean)])];
   const set = (id: string, change: Partial<Row>) => setRows((r) => ({ ...r, [id]: { ...r[id], ...change } }));
   const start = () => void act.run(async () => {
     const entries: SetupEntry[] = data.tokens.filter((t) => rows[t.id]?.include).map((t) => {
       const r = rows[t.id];
-      if (t.characterId) return { tokenId: t.id, side: r.side };
-      if (r.monsterId) return { tokenId: t.id, side: r.side, monsterId: r.monsterId, hidden: r.hidden };
-      return { tokenId: t.id, side: r.side, hidden: r.hidden, ac: r.ac, hp: r.hp, tier: r.tier, attacks: [{ id: 'a0', label: '攻擊', bonus: r.bonus, damage: r.damage, damageType: '傷害' }] };
+      const team = r.team.trim() ? { team: r.team.trim() } : {};
+      if (t.characterId) return { tokenId: t.id, side: r.side, ...team };
+      if (r.monsterId) return { tokenId: t.id, side: r.side, ...team, monsterId: r.monsterId, hidden: r.hidden };
+      return { tokenId: t.id, side: r.side, ...team, hidden: r.hidden, ac: r.ac, hp: r.hp, tier: r.tier, attacks: [{ id: 'a0', label: '攻擊', bonus: r.bonus, damage: r.damage, damageType: '傷害' }] };
     });
-    const b = await combat.api.startEncounter(view.room.id, { entries, ...(template ? { template: { id: template, ...at } } : {}), mode, autoNpc, showFoeHp });
+    const b = await combat.api.startEncounter(view.room.id, { entries, ...(template ? { template: { id: template, ...at } } : {}), mode, autoNpc, showFoeHp, autoEnd });
     combat.take(b);
     onClose();
   });
@@ -45,6 +49,8 @@ export function EncounterSetup({ combat, view, pack, data, onClose }: { combat: 
     <aside className="drawer combat-drawer" aria-label="開始戰鬥">
       <div className="drawer-head"><h2>開始戰鬥</h2><button className="link" onClick={onClose}>關閉</button></div>
       <p className="small muted">勾選要參戰的代幣。玩家角色用角色卡的生命和 AC；其他代幣選怪物圖鑑，或自己填數字。</p>
+      <p className="small muted">陣營：不填就照身分分成「我方」和「敵方」。要三方以上混戰，就替各方取名字（例如「哥布林」、「盜賊」），不同陣營互相敵對。</p>
+      <datalist id="team-names">{teamNames.map((n) => <option key={n} value={n} />)}</datalist>
       <ul className="list framed setup-list">
         {data.tokens.length === 0 && <li className="muted small">地圖上還沒有代幣。可以只用下面的遭遇範本。</li>}
         {data.tokens.map((t) => {
@@ -54,10 +60,14 @@ export function EncounterSetup({ combat, view, pack, data, onClose }: { combat: 
               <label className="tick"><input type="checkbox" checked={r.include} onChange={(e) => set(t.id, { include: e.target.checked })} /><b>{t.name}</b>{t.characterId && <span className="badge">角色</span>}</label>
               {r.include && (
                 <div className="row wrap">
-                  <label className="tick">陣營
+                  <label className="tick">身分
                     <select value={r.side} onChange={(e) => set(t.id, { side: e.target.value as Row['side'] })}>
                       <option value="party">隊伍</option><option value="ally">盟友</option><option value="foe">敵人</option>
                     </select>
+                  </label>
+                  <label className="tick">陣營
+                    <input className="team-input" list="team-names" maxLength={16} value={r.team} placeholder={r.side === 'foe' ? FOE_TEAM : PARTY_TEAM}
+                      onChange={(e) => set(t.id, { team: e.target.value })} />
                   </label>
                   {!t.characterId && (
                     <label className="tick">怪物
@@ -108,6 +118,7 @@ export function EncounterSetup({ combat, view, pack, data, onClose }: { combat: 
         <p className="small muted">{{ full: '玩家擲骰、做武器操作、閃避。', quick: '全部自動擲骰，照骰子結算，適合小怪。', custom: '每個參戰者可以在主控台個別設定。' }[mode]}</p>
         <label className="tick"><input type="checkbox" checked={autoNpc} onChange={(e) => setAutoNpc(e.target.checked)} />NPC 回合自動行動（3 秒內可以接手）</label>
         <label className="tick"><input type="checkbox" checked={showFoeHp} onChange={(e) => setShowFoeHp(e.target.checked)} />讓玩家看到敵人的確切生命</label>
+        <label className="tick"><input type="checkbox" checked={autoEnd} onChange={(e) => setAutoEnd(e.target.checked)} />只剩一個陣營站著時自動結束戰鬥</label>
       </section>
       <div className="row">
         <button className="primary" disabled={act.busy} onClick={start}>開始戰鬥</button>
@@ -155,6 +166,7 @@ export function GmConsole({ combat, enc, pack, view, data, onClose }: { combat: 
           </label>
           <label className="tick"><input type="checkbox" checked={enc.autoNpc} onChange={(e) => op({ kind: 'settings', autoNpc: e.target.checked })} />NPC 自動行動</label>
           <label className="tick"><input type="checkbox" checked={enc.showFoeHp} onChange={(e) => op({ kind: 'settings', showFoeHp: e.target.checked })} />公開敵人生命</label>
+          <label className="tick"><input type="checkbox" checked={enc.autoEnd !== false} onChange={(e) => op({ kind: 'settings', autoEnd: e.target.checked })} />一方全倒自動結束</label>
         </div>
       </section>
       {st && (
@@ -172,6 +184,7 @@ export function GmConsole({ combat, enc, pack, view, data, onClose }: { combat: 
       )}
       <section className="stack tight">
         <h3>參戰者</h3>
+        <datalist id="gm-team-names">{teamsIn(Object.values(enc.combatants)).map((n) => <option key={n} value={n} />)}</datalist>
         <ul className="list framed gm-list">
           {enc.order.concat(Object.keys(enc.combatants).filter((id) => !enc.order.includes(id))).map((id) => enc.combatants[id]).filter(Boolean).map((c) => (
             <CombatantRow key={c.id} c={c} enc={enc} op={op} patterns={patterns} />
@@ -204,7 +217,7 @@ function CombatantRow({ c, enc, op, patterns }: { c: CombatantView; enc: Encount
     <li className="stack tight">
       <div className="row">
         <b>{c.name}</b>
-        <small className="muted">{c.hp}/{c.maxHp}・AC {c.ac}・先攻 {c.initiative ?? '—'}{c.defeated ? '・倒下' : ''}{c.dead ? '・死亡' : ''}</small>
+        <small className="muted">{teamOf(c)}・{c.hp}/{c.maxHp}・AC {c.ac}・先攻 {c.initiative ?? '—'}{c.defeated ? '・倒下' : ''}{c.dead ? '・死亡' : ''}</small>
         {c.hidden && <span className="badge secret">隱藏</span>}
         <span className="spacer" />
         <button className="link" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? '收起' : '調整'}</button>
@@ -214,6 +227,8 @@ function CombatantRow({ c, enc, op, patterns }: { c: CombatantView; enc: Encount
           <div className="row wrap">
             <label className="tick">生命<input type="number" className="num" value={hp} onChange={(e) => setHp(e.target.value)} /></label>
             <button onClick={() => op({ kind: 'hp', combatantId: c.id, hp: Number(hp) })}>套用生命</button>
+            <label className="tick">陣營<input className="team-input" list="gm-team-names" maxLength={16} defaultValue={c.team ?? ''} placeholder={c.side === 'foe' ? FOE_TEAM : PARTY_TEAM}
+              onBlur={(e) => { if (e.target.value.trim() !== (c.team ?? '')) op({ kind: 'team', combatantId: c.id, team: e.target.value.trim() }); }} /></label>
             <label className="tick">先攻<input type="number" className="num" defaultValue={c.initiative ?? 10} onBlur={(e) => { if (Number(e.target.value) !== c.initiative) op({ kind: 'initiative', combatantId: c.id, value: Number(e.target.value) }); }} /></label>
             {c.hidden && <button onClick={() => op({ kind: 'reveal', combatantId: c.id })}>現身</button>}
             {enc.turn?.combatantId === c.id && <button onClick={() => op({ kind: 'extraAction', combatantId: c.id })}>再給一個動作</button>}
