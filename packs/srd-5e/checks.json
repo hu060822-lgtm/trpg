@@ -1,0 +1,42 @@
+{
+  "die": "1d20",
+  "advantage": "2d20kh1",
+  "disadvantage": "2d20kl1",
+  "attribute": "{d20} + @mod.{attr}",
+  "skill": "{d20} + @mod.{attr} + @rank.{skill} * @prof",
+  "critical": 20,
+  "fumble": 1,
+  "difficulties": [
+    {
+      "label": "非常簡單",
+      "value": 5
+    },
+    {
+      "label": "簡單",
+      "value": 10
+    },
+    {
+      "label": "普通",
+      "value": 15
+    },
+    {
+      "label": "困難",
+      "value": 20
+    },
+    {
+      "label": "非常困難",
+      "value": 25
+    },
+    {
+      "label": "幾乎不可能",
+      "value": 30
+    }
+  ],
+  "extra": [
+    {
+      "id": "save",
+      "label": "豁免",
+      "formula": "{d20} + @mod.{attr} + @flag.save_{attr} * @prof"
+    }
+  ]
+}

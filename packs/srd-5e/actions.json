@@ -1,0 +1,56 @@
+{
+  "list": [
+    {
+      "id": "melee",
+      "label": "近戰武器攻擊",
+      "roll": "1d20 + @mod.str + @prof",
+      "damage": "roll(1, @melee_die) + @mod.str",
+      "description": "用力量揮砍或刺擊。擲骰達到目標的 AC 就命中。"
+    },
+    {
+      "id": "finesse",
+      "label": "靈巧武器攻擊",
+      "roll": "1d20 + @mod.dex + @prof",
+      "damage": "roll(1, @melee_die) + @mod.dex",
+      "description": "匕首、細劍、短劍等靈巧武器可以改用敏捷。"
+    },
+    {
+      "id": "ranged",
+      "label": "遠程武器攻擊",
+      "roll": "1d20 + @mod.dex + @prof",
+      "damage": "roll(1, @ranged_die) + @mod.dex",
+      "description": "弓、弩或投擲武器。"
+    },
+    {
+      "id": "unarmed",
+      "label": "徒手打擊",
+      "roll": "1d20 + @mod.str + @prof",
+      "damage": "1 + @mod.str",
+      "description": "拳打腳踢。"
+    },
+    {
+      "id": "spell",
+      "label": "法術攻擊",
+      "roll": "1d20 + @spell_attack",
+      "showIf": "@cast > 0",
+      "description": "需要擲攻擊的法術，例如火焰箭。傷害依法術而定，用 /r 擲。"
+    },
+    {
+      "id": "initiative",
+      "label": "擲先攻",
+      "roll": "1d20 + @initiative"
+    },
+    {
+      "id": "hit_die",
+      "label": "花一顆生命骰",
+      "roll": "roll(1, @hit_die) + @mod.con",
+      "description": "短休時回復生命值，每級有一顆生命骰。"
+    },
+    {
+      "id": "death_save",
+      "label": "死亡豁免",
+      "roll": "1d20",
+      "description": "生命值 0 時每回合擲一次：10 以上成功、以下失敗，三次成功穩定下來、三次失敗死亡。擲出 20 立刻恢復 1 點生命值，擲出 1 算兩次失敗。"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "modifier": "floor((@score - 10) / 2)",
+  "list": [
+    {
+      "id": "str",
+      "name": "力量",
+      "abbr": "力",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "肌力與運動能力：舉起、推開、攀爬、近戰武器。"
+    },
+    {
+      "id": "dex",
+      "name": "敏捷",
+      "abbr": "敏",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "靈活與反應：閃避、潛行、遠程與靈巧武器、先攻。"
+    },
+    {
+      "id": "con",
+      "name": "體質",
+      "abbr": "體",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "耐力與健康：生命值、抵抗毒素與疲勞、維持專注。"
+    },
+    {
+      "id": "int",
+      "name": "智力",
+      "abbr": "智",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "記憶與推理：知識、調查、法師的法術。"
+    },
+    {
+      "id": "wis",
+      "name": "感知",
+      "abbr": "感",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "察覺與直覺：注意細節、看穿謊言、牧師與德魯伊的法術。"
+    },
+    {
+      "id": "cha",
+      "name": "魅力",
+      "abbr": "魅",
+      "min": 3,
+      "max": 20,
+      "default": 10,
+      "description": "個人魅力與意志：說服、表演、吟遊詩人與術士的法術。"
+    }
+  ]
+}

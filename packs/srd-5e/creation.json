@@ -1,0 +1,44 @@
+{
+  "attributes": {
+    "methods": [
+      {
+        "id": "standard",
+        "label": "標準陣列",
+        "kind": "array",
+        "values": [
+          15,
+          14,
+          13,
+          12,
+          10,
+          8
+        ]
+      },
+      {
+        "id": "pointbuy",
+        "label": "購點（27 點）",
+        "kind": "pointbuy",
+        "budget": 27,
+        "costs": {
+          "8": 0,
+          "9": 1,
+          "10": 2,
+          "11": 3,
+          "12": 4,
+          "13": 5,
+          "14": 7,
+          "15": 9
+        }
+      },
+      {
+        "id": "rolled",
+        "label": "擲骰或自訂",
+        "kind": "free"
+      }
+    ]
+  },
+  "skills": {
+    "maxRank": 0,
+    "budget": 0
+  }
+}

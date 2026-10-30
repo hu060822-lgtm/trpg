@@ -1,0 +1,11 @@
+{
+  "inputs": [
+    { "id": "level", "label": "等級", "min": 1, "max": 10, "default": 1, "description": "每次冒險結束時 GM 可以讓大家升一級。" },
+    { "id": "armor", "label": "護甲加值", "min": 0, "max": 5, "default": 0, "description": "皮甲 1、鎖甲 2、板甲 3，盾牌再加 1。" }
+  ],
+  "derived": [
+    { "id": "hp", "label": "生命值", "formula": "8 + 2 * @score.body + 2 * @level", "description": "歸零時倒地，需要隊友救援。" },
+    { "id": "defense", "label": "防禦", "formula": "10 + @score.agility + @armor", "description": "敵人的攻擊要達到這個數字才命中。" },
+    { "id": "initiative", "label": "先攻", "formula": "@score.agility", "description": "戰鬥開始時擲 d20 加這個數字，高的先行動。" }
+  ]
+}

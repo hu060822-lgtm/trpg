@@ -1,0 +1,9 @@
+{
+  "id": "srd-5e",
+  "name": "D&D 5E 基本規則（SRD 5.2）",
+  "version": "1.0.0",
+  "license": "CC-BY-4.0",
+  "author": "FATEWEAVE（改寫自 Wizards of the Coast 的 SRD 5.2）",
+  "attribution": "This work includes material from the System Reference Document 5.2 (\"SRD 5.2\") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode. 本規則包為 SRD 5.2 部分內容的繁體中文摘要與改寫，數值以原文為準。",
+  "description": "第五版的免費基本規則：9 個種族、12 個職業、4 個背景、18 項技能，1 到 20 級的熟練加值、生命值與防禦自動計算。只收錄建立角色和日常擲骰需要的部分，法術與怪物資料請看 SRD 原文。"
+}

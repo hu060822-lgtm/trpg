@@ -1,0 +1,7 @@
+{
+  "list": [
+    { "id": "melee_attack", "label": "近戰攻擊", "roll": "1d20 + @score.body + @rank.melee", "damage": "1d8 + @score.body", "description": "命中目標的防禦就造成傷害。" },
+    { "id": "ranged_attack", "label": "遠程攻擊", "roll": "1d20 + @score.agility + @rank.shooting", "damage": "1d6 + @score.agility", "description": "命中目標的防禦就造成傷害。" },
+    { "id": "initiative_roll", "label": "擲先攻", "roll": "1d20 + @initiative" }
+  ]
+}

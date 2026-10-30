@@ -1,7 +1,7 @@
 {
   "name": "fateweave",
   "version": "0.1.0",
-  "description": "FATEWEAVE rules engine prototype (Phase 0-1)",
+  "description": "FATEWEAVE: a customisable tabletop RPG table with importable rule packs",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc",
@@ -9,12 +9,18 @@
     "demo": "tsx scripts/demo.ts",
     "build:web": "tsx scripts/build-web.ts",
     "sim:combat": "tsx scripts/combat-sim.ts",
+    "sim:dodge": "tsx scripts/dodge-sim.ts",
     "server": "tsx src/server/main.ts",
-    "admin": "tsx scripts/admin.ts"
+    "admin": "tsx scripts/admin.ts",
+    "web:dev": "npm --prefix client run dev",
+    "web:build": "npm --prefix client run build",
+    "sim:dice": "tsx scripts/dice-fairness.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/ws": "^8.18.2",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
@@ -26,6 +32,11 @@
     "node": ">=22.13"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "@electric-sql/pglite": "0.5.9",
+    "express": "^5.1.0",
+    "fflate": "0.8.2",
+    "jose": "6.2.12",
+    "pg": "8.23.1",
+    "ws": "^8.22.0"
   }
 }

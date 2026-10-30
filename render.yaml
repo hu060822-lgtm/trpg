@@ -1,18 +1,29 @@
-# Render blueprint for the game server (SQLite on a persistent disk; PostgreSQL is a later step).
+# Render blueprint for the game server and the web client. Free plan: no disk is needed because the data lives in Supabase.
+# A free service sleeps after 15 minutes without traffic; the first request after that takes about a minute.
 services:
   - type: web
     name: fateweave-server
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci --include=dev
     startCommand: npm run server
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: "22.13.0"
-      - key: DATABASE_PATH
-        value: /var/data/fateweave.db
-    disk:
-      name: fateweave-data
-      mountPath: /var/data
-      sizeGB: 1
+      # Supabase Session pooler connection string (the direct one is IPv6 only and Render cannot reach it).
+      - key: DATABASE_URL
+        sync: false
+      # Web client origins, e.g. https://fateweave.onrender.com,https://hu060822-lgtm.github.io
+      - key: CORS_ORIGINS
+        sync: false
+  - type: web
+    name: fateweave
+    runtime: static
+    buildCommand: npm ci && npm --prefix client ci && npm --prefix client run build
+    staticPublishPath: client/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22.13.0"
+      - key: VITE_API_URL
+        value: https://fateweave-server.onrender.com

@@ -1,0 +1,9 @@
+{
+  "modifier": "@score",
+  "list": [
+    { "id": "body", "name": "體魄", "abbr": "體", "min": 0, "max": 4, "default": 1, "description": "力氣、耐力、近身打鬥。" },
+    { "id": "agility", "name": "靈巧", "abbr": "巧", "min": 0, "max": 4, "default": 1, "description": "速度、平衡、手上功夫與射擊。" },
+    { "id": "mind", "name": "心智", "abbr": "心", "min": 0, "max": 4, "default": 1, "description": "知識、觀察、推理與意志。" },
+    { "id": "presence", "name": "魅力", "abbr": "魅", "min": 0, "max": 4, "default": 1, "description": "說服、威嚇、表演與領導。" }
+  ]
+}

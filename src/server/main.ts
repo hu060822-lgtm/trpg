@@ -1,26 +1,47 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { CombatStore } from '../persistence/combat-store';
-import { WorldStore } from '../persistence/world-store';
-import { RULES_V03 } from '../rules/config';
-import { randomRng } from '../rules/dice';
 import { createApp } from './app';
-import { Tokens } from './auth';
-import { Scheduler } from './scheduler';
+import { openGame } from './boot';
+import { attachRealtime, RoomHub } from './realtime';
 
-/** Starts the game server. Env: DATABASE_PATH (default ./data/fateweave.db), PORT (default 3000). */
-const path = process.env.DATABASE_PATH ?? './data/fateweave.db';
-const port = Number(process.env.PORT ?? 3000);
+/**
+ * Starts the game server. Env:
+ *   DATABASE_URL          postgres://… (Supabase), or a PGlite directory (default ./data/pglite) for local play
+ *   PORT                  default 3000
+ *   SUPABASE_URL          verifies sign-ins with the project's JWT signing keys
+ *   SUPABASE_JWT_SECRET   legacy shared-secret projects only
+ *   SUPABASE_ANON_KEY     public key; lets legacy projects work without the secret (asks Supabase Auth instead)
+ *   AUTH_DEV=1            accepts `dev:<name>` tokens; never set this in production
+ *   CORS_ORIGINS          comma-separated origins of the web client, e.g. https://<user>.github.io
+ */
+const env = process.env;
+const url = env.DATABASE_URL ?? './data/pglite';
+if (!url.startsWith('postgres')) mkdirSync(url, { recursive: true });
 
-mkdirSync(dirname(path), { recursive: true });
-const store = new WorldStore(new CombatStore(path, RULES_V03), RULES_V03);
-const tokens = new Tokens(store.combat.db);
-const scheduler = new Scheduler(store, randomRng);
-
-createApp({ store, tokens, rules: RULES_V03 }).listen(port, () => {
-  console.log(`FATEWEAVE server on :${port}, database ${path}`);
+const { table, maps, encounters, field, auth } = await openGame(url, {
+  supabaseUrl: env.SUPABASE_URL, supabaseJwtSecret: env.SUPABASE_JWT_SECRET, supabaseAnonKey: env.SUPABASE_ANON_KEY, dev: env.AUTH_DEV === '1',
 });
 
-setInterval(() => {
-  for (const r of scheduler.tick(new Date())) if (r.errors.length) console.error(`[scheduler] ${r.worldId}`, r.errors);
-}, 60_000);
+const hub = new RoomHub();
+const server = createApp({
+  table, maps, encounters, field, auth, hub,
+  corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+}).listen(Number(env.PORT ?? 3000), () => console.log(`FATEWEAVE server on :${env.PORT ?? 3000}, database ${url.replace(/:[^:@/]+@/, ':***@')}`));
+attachRealtime(server, auth, table, hub);
+
+// The combat clock: steps past their deadline (a player who walked away, an NPC turn that runs itself).
+let ticking = false;
+setInterval(async () => {
+  if (ticking) return;
+  ticking = true;
+  try {
+    for (const { roomId, mapId } of await encounters.tick()) {
+      hub.publish(roomId, { type: 'encounter' });
+      hub.publish(roomId, { type: 'log' });
+      hub.publish(roomId, { type: 'map', mapId });
+    }
+  } catch (e) {
+    console.error('combat clock', e);
+  } finally {
+    ticking = false;
+  }
+}, 1000);

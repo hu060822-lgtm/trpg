@@ -1,0 +1,8 @@
+{
+  "id": "simple-d20",
+  "name": "簡易 d20",
+  "version": "1.0.0",
+  "license": "CC0-1.0",
+  "author": "FATEWEAVE",
+  "description": "最精簡的 d20 規則：四個屬性、八個技能、擲 d20 加屬性加技能，達到難度就成功。適合第一次跑團，也是寫規則包的範本。"
+}
